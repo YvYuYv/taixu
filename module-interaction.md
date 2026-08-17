@@ -1,306 +1,275 @@
-# Taixu 核心模块交互协议
+# Cordis 核心模块交互协议（Module Interaction Protocol）
 
-本文档定义了 Taixu 微前端框架中各核心模块之间的依赖关系、交互流程、事件契约以及初始化顺序。
+> 对齐基线：[cordis-alignment.md](./cordis-alignment.md)。本协议是各模块文档交互时序/事件契约的**唯一权威**。
+> 旧版（qiankun 式 bootstrap/mount/unmount 时序、camelCase 事件、三参 `lifecycleManager.on`）全部作废。
 
-## 1. 模块依赖关系图
-
-Taixu 框架基于 Cordis 构建，各核心模块以插件的形式注册到上下文（Context）中，通过依赖注入（Service）和事件系统（Event）进行解耦交互。
+## 一、模块依赖关系图（修复依赖环与实例/模块混层）
 
 ```mermaid
 graph TD
-    %% 核心模块
-    Core[Context Context/Service/Event]
-    Router[Router 路由模块]
-    Lifecycle[LifecycleManager 生命周期]
-    Sandbox[SandboxManager 沙箱模块]
-    Loader[LoaderManager 资源加载]
-    Adapter[Adapter 框架适配]
-    App[MicroApp 应用实例]
-    State[StateManager 状态管理]
-    Comm[CommunicationBus 通信总线]
-    Monitor[MonitoringService 监控服务]
+    subgraph 基础层（无业务依赖，最先可用）
+        Monitor[monitor 监控]
+        Security[security 安全]
+    end
+    subgraph 服务层
+        Bus[bus 通信]
+        State[state 状态]
+        Deps[deps 依赖仲裁/加载]
+        Sandbox[sandbox 沙箱]
+    end
+    subgraph 编排层
+        Lifecycle[lifecycle 生命周期]
+        Router[router 路由]
+    end
 
-    %% 依赖关系
-    Router -->|依赖| Lifecycle
-    Lifecycle -->|依赖| Sandbox
-    Lifecycle -->|依赖| Loader
-    Lifecycle -->|依赖| App
-    Lifecycle -->|依赖| Monitor
-    Sandbox -->|依赖| Monitor
-    Loader -->|依赖| Monitor
-    App -->|依赖| Adapter
-    App -->|依赖| State
-    App -->|依赖| Comm
-    App -->|依赖| Monitor
-    Comm -->|依赖| Monitor
-
-    %% 全部基于 Core
-    Router -.-> Core
-    Lifecycle -.-> Core
-    Sandbox -.-> Core
-    Loader -.-> Core
-    Adapter -.-> Core
-    App -.-> Core
-    State -.-> Core
-    Comm -.-> Core
-    Monitor -.-> Core
+    Security --> Monitor
+    Bus --> Security
+    State --> Security
+    Deps --> Security
+    Sandbox --> Security
+    Bus --> Monitor
+    State --> Monitor
+    Deps --> Monitor
+    Sandbox --> Monitor
+    Lifecycle --> Monitor
+    Lifecycle --> Deps
+    Lifecycle --> Sandbox
+    Router --> Monitor
+    Router -.->|事件解耦：router/navigate| Lifecycle
 ```
 
-## 2. 核心流程时序图
+规则（基线 §2.3）：
 
-### 2.1 应用首次加载流程
+1. **monitor/security 不依赖任何业务服务**--错误采集最先可用
+2. **router 不 inject lifecycle**（旧设计 `Lifecycle inject router` + `Router 依赖 Lifecycle` 构成死锁环）--router 发 `router/navigate` serial 事件，lifecycle 监听执行挂载，结果经 `router/changed` 回写
+3. **应用实例（Fiber）不再是图中的"模块"**--应用 = 插件，消费上述服务；旧图 `Lifecycle -->|依赖| App` 自引用已删除
+4. 初始化顺序 = Cordis DI 按 `static inject` 自动解析，**禁止手写分层顺序表**（旧 §4 的四层手工排序废除；Cordis Fiber PENDING 机制天然处理"服务未就绪"）
 
-当路由匹配到未加载的子应用时，触发首次加载流程。
+## 二、关键流程时序
+
+### 2.1 首次加载（对齐 lifecycle-management.md §2.2）
 
 ```mermaid
 sequenceDiagram
-    participant R as Router
-    participant LM as LifecycleManager
-    participant SM as SandboxManager
-    participant Loader as LoaderManager
-    participant A as Adapter
-    participant App as MicroApp
-    participant State as StateManager
-    participant Mon as MonitoringService
+    participant R as router
+    participant L as lifecycle
+    participant D as deps
+    participant S as sandbox
+    participant F as Fiber(Cordis)
+    participant App as 应用插件 apply(ctx)
 
-    R->>LM: 触发激活应用 (appId)
-    activate LM
-    LM->>Mon: 记录加载开始时间
-    LM->>Loader: 加载应用资源 (entry)
-    activate Loader
-    Loader-->>LM: 返回 HTML/JS/CSS 资产
-    deactivate Loader
-
-    LM->>SM: 创建/获取沙箱环境 (appId)
-    activate SM
-    SM-->>LM: 返回沙箱上下文
-    deactivate SM
-
-    LM->>App: 实例化 MicroApp
-    activate App
-    App->>State: 初始化应用独立状态
-    App->>LM: 执行沙箱内的代码 (解析导出钩子)
-
-    LM->>A: 包装框架特定生命周期 (React/Vue)
-    activate A
-    A-->>LM: 返回标准化生命周期钩子
-    deactivate A
-
-    LM->>App: 执行 bootstrap()
-    LM->>App: 执行 mount()
-    App->>Mon: 记录挂载性能指标
-    LM-->>R: 加载完成
-    deactivate App
-    deactivate LM
+    R->>R: URL 解析 -> outlets 矩阵匹配
+    R->>L: serial('router/navigate', {to, outlet, signal})
+    Note over L: serial 语义：监听器返回非空即拦截导航
+    L->>D: loadApp(appId, {signal})
+    D->>D: manifest 校验 + chunk 加载 + 共享依赖仲裁
+    D-->>L: entry（plugin factory + 适配器）
+    L->>S: create(appId, {trust, signal})
+    S-->>L: sandbox 实例（teardown 已注册到将创建的 fiber）
+    L->>F: ctx.plugin(entry.plugin, config)
+    F->>F: inject 检查（未满足 -> PENDING 等待）
+    F->>App: 依赖满足，执行 apply(ctx)
+    App->>App: ctx.effect(挂载适配器 mount、注册清理)
+    F-->>L: fiber resolve（ACTIVE）
+    L-->>R: 挂载完成（未拦截）
+    R->>R: emit('router/changed', {location, outlets})
 ```
 
-### 2.2 应用切换流程
+要点：
 
-从一个子应用切换到另一个子应用的过程，包含旧应用的卸载与新应用的加载。
+- **沙箱创建在资源加载之后**（旧 lifecycle 文档"created 态即建沙箱"与旧模块交互文档"Loader 返回后建"矛盾，统一为后者）
+- apply 的执行由 Cordis Fiber 控制，lifecycle 只 `await fiber`
+- 每个应用的挂载事务支持 AbortSignal 全链路透传（`router/navigate` 载荷自带）
+
+### 2.2 应用切换（保活与销毁统一走 lifecycle §3.3 事务）
 
 ```mermaid
 sequenceDiagram
-    participant R as Router
-    participant LM as LifecycleManager
-    participant SM as SandboxManager
-    participant OldApp as 旧应用 (App A)
-    participant NewApp as 新应用 (App B)
+    participant R as router
+    participant L as lifecycle
+    participant A as 应用A（当前）
+    participant B as 应用B（目标）
 
-    R->>LM: 路由变化 (B)
-    activate LM
-    
-    %% 卸载旧应用
-    LM->>OldApp: 执行 unmount()
-    activate OldApp
-    OldApp->>OldApp: 卸载 DOM 组件
-    OldApp-->>LM: unmount 完毕
-    deactivate OldApp
-
-    LM->>SM: 冻结/失活沙箱 (A)
-    SM->>SM: 恢复全局环境变动
-
-    %% 激活新应用
-    LM->>SM: 激活沙箱 (B)
-    SM->>SM: 应用该应用的全局环境变量
-    LM->>NewApp: 执行 mount() (若已 bootstrap)
-    activate NewApp
-    NewApp-->>LM: mount 完毕
-    deactivate NewApp
-
-    LM-->>R: 切换完成
-    deactivate LM
+    R->>L: serial('router/navigate', {from: A, to: B, outlet, signal})
+    L->>B: mount(B, outlet, {mountHidden: true})
+    Note over B: 先挂载成功，再处置 A（消除悬空窗口）
+    alt B 挂载失败
+        L->>L: recover()：重试/降级/fallback（lifecycle §6.1）
+        L-->>R: 返回拦截结果，A 保持原状
+    else B 挂载成功
+        alt keepalive 配置存在
+            L->>A: suspend(mode)——DOM 摘除缓存 + SuspendScope.freeze()
+        else
+            L->>A: destroy()——fiber.dispose() 级联清理
+        end
+        L->>B: reveal()
+        L-->>R: 完成
+    end
 ```
 
-### 2.3 应用间通信流程
-
-应用 A 向应用 B 发送消息时的拦截与路由机制。
+### 2.3 跨应用消息（对齐 communication-protocol.md §三）
 
 ```mermaid
 sequenceDiagram
-    participant AppA as App A
-    participant Comm as CommunicationBus
-    participant AppB as App B
+    participant A as 应用A fork ctx
+    participant Bus as bus（root, global 监听）
+    participant Sec as security（权限）
+    participant B as 应用B fork ctx
 
-    AppA->>Comm: 发送消息 (target: B, type: 'action', payload)
-    activate Comm
-    Comm->>Comm: 权限检查 (A 是否允许发送)
-    Comm->>Comm: 序列化处理 (剥离对象引用)
-    Comm->>Comm: 查找目标应用 (B) 的订阅
-    Comm->>AppB: 触发消息事件接收 (type: 'action', payload)
-    deactivate Comm
-    activate AppB
-    AppB-->>Comm: 返回处理结果 (可选)
-    deactivate AppB
-    Comm-->>AppA: 传递确认/结果
+    A->>A: ctx.emit('message/send', msg)
+    Note over A,B: 事件沿上下文树冒泡至根（Cordis 原生）
+    A-->>Bus: bus.on('message/send', fn, {global:true})
+    Bus->>Sec: checkPermission(A.appId, `message:${msg.type}`, 'execute')
+    alt 权限拒绝
+        Bus->>Bus: emit('security/violation')，消息不投递
+    else 权限通过
+        Bus->>B: targetCtx.emit('message/receive', {message})
+        Note over B: 定向投递，不广播载荷
+    end
 ```
 
-### 2.4 错误恢复流程
-
-应用运行期间发生异常时的隔离与降级处理。
+### 2.4 错误降级（修复旧流程"重试早于卸载"的顺序问题）
 
 ```mermaid
 sequenceDiagram
-    participant App as MicroApp
-    participant LM as LifecycleManager
-    participant Mon as MonitoringService
-    participant Host as 主应用 UI
+    participant App as 应用
+    participant Ad as 框架适配器（ErrorBoundary）
+    participant M as monitor
+    participant L as lifecycle
 
-    App--xApp: 发生未捕获异常 / 渲染错误
-    App->>LM: ErrorBoundary 抛出错误事件
-    activate LM
-    LM->>Mon: 上报错误堆栈与环境信息
-    LM->>LM: 判断重试策略 (超过次数阈值)
-    LM->>App: 强制执行 unmount() 清理资源
-    LM->>Host: 触发降级渲染 (Fallback UI)
-    deactivate LM
+    App-->>Ad: 渲染/运行时错误
+    Ad->>M: capture(error, {appId, phase})
+    M->>M: 归因(appId) + 采样 + 告警（monitor/alert）
+    M-->>L: 可恢复（phase=load/activate）-> recover 策略
+    M-->>L: 不可恢复（phase=runtime）-> app/error 事件
+    L->>L: ErrorOutlet UI（转义渲染 + 手动重试按钮）
 ```
 
-### 2.5 热更新流程 (Dev)
+- **重试计数**存于 lifecycle recover 状态（旧流程"计数谁存/何时清零"缺失已补：attempt 随挂载事务传递，成功后自然清零）
+- 渲染错误现场**先保留再降级**（旧流程"先重试后卸载"的顺序错误已修正：错误捕获 -> 上报 -> 按策略处置）
 
-开发模式下文件变动触发的热重载。
+### 2.5 热更新（修复"不 dispose fork 导致监听残留"）
 
 ```mermaid
 sequenceDiagram
-    participant DevTool as DevTools (HMR)
-    participant LM as LifecycleManager
-    participant SM as SandboxManager
-    participant App as MicroApp
+    participant HMR as hmr 服务（devtools）
+    participant L as lifecycle
+    participant F as 旧 Fiber
+    participant F2 as 新 Fiber
 
-    DevTool->>LM: 接收热更新通知 (appId, changedFiles)
-    activate LM
-    LM->>App: 执行 unmount() (失活)
-    LM->>SM: 销毁旧沙箱实例
-    LM->>LM: 清除该应用的资源缓存
-    LM->>LM: 重新拉取新资源并解析
-    LM->>SM: 创建新沙箱并初始化
-    LM->>App: 重新执行 bootstrap() & mount()
-    deactivate LM
+    HMR->>L: reload(appId, {preserve: 'css-only' | 'full-restart'})
+    alt css-only（样式变更）
+        HMR->>HMR: 替换 style 节点内容（style-isolation §9，真热替换）
+    else full-restart（JS 变更）
+        L->>F: fiber.dispose()
+        Note over F: Cordis 自动回收全部 effect/监听（旧流程缺失此步）
+        L->>L: deps.invalidateModuleCache(appId, changedFiles)
+        Note over L: 穿透 import() 缓存：cache-busting query
+        L->>F2: 重新挂载（走 §2.1 事务）
+        Note over F2: JS 变更语义为整应用重启（状态不保留），<br/>框架不承诺跨 HMR 状态保持；CSS 变更零状态损失
+    end
 ```
 
-## 3. 模块间事件契约
+## 三、统一事件契约（唯一版本，基线 §2.4）
 
-Taixu 使用 Cordis 统一事件总线，事件名称采用命名空间格式以避免冲突。
-
-### 核心事件类型定义 (TypeScript)
-
-    // 路由与多槽位事件
-    'router:change': (from: string, to: string, options?: { outlet?: string, signal?: AbortSignal }) => void;
-    'router:matched': (appId: string, path: string, outlet?: string) => void;
-    'router:aborted': (path: string, reason: string) => void;
-
-    // 生命周期事件 (依托 Cordis Fork / Plugin)
-    'lifecycle:beforeLoad': (appId: string, signal?: AbortSignal) => void;
-    'lifecycle:loaded': (appId: string) => void;
-    'lifecycle:beforeMount': (appId: string, container: HTMLElement) => void;
-    'lifecycle:mounted': (appId: string) => void;
-    'lifecycle:beforeUnmount': (appId: string) => void;
-    'lifecycle:unmounted': (appId: string) => void;
-    'lifecycle:error': (appId: string, error: Error) => void;
-
-    // 沙箱与 DOM 隔离事件
-    'sandbox:created': (appId: string, sandboxCtx: any) => void;
-    'sandbox:destroyed': (appId: string) => void;
-    'sandbox:activated': (appId: string) => void;
-    'sandbox:deactivated': (appId: string) => void;
-
-    // 通信与状态 (支持 Sticky 粘性消息与 Deep Reactive State)
-    'comm:message': (sender: string, receiver: string, payload: any, metadata?: { sticky?: boolean, traceId?: string }) => void;
-    'state:change': (appId: string, key: string, value: any, oldValue: any, path?: string) => void;
-
-    // 监控与全链路追踪事件 (W3C TraceContext)
-    'monitor:report': (metric: MetricPayload, traceId?: string) => void;
-    'monitor:error': (errorPayload: ErrorPayload, traceId?: string) => void;
+```typescript
+interface Events {
+  // 生命周期（应用 ctx 上派发；旁听用 global:true）
+  'app/loading': (e: { appId: string; instanceId: string; signal: AbortSignal }) => void
+  'app/loaded': (e: { appId: string; instanceId: string }) => void
+  'app/ready': (e: { appId: string; instanceId: string }) => void
+  'app/error': (e: { appId: string; instanceId: string; phase: 'load' | 'activate' | 'runtime'; error: Error; recoverable: boolean }) => void
+  'app/suspend': (e: { instanceId: string; reason: 'keepalive' | 'navigation' }) => void
+  'app/resume': (e: { instanceId: string }) => void
+  'app/disposed': (e: { appId: string; instanceId: string }) => void
+  // 路由
+  'router/navigate': (e: { from: RouteLocation; to: RouteLocation; outlet: string; signal: AbortSignal }) => void | boolean   // serial，可拦截
+  'router/aborted': (e: { outlet: string; reason: 'guard' | 'superseded' | 'unmount' }) => void
+  'router/changed': (e: { location: RouteLocation; outlets: Record<string, MatchedApp | null> }) => void
+  // 通信
+  'message/send': (e: { message: CordisMessage }) => void
+  'message/receive': (e: { message: CordisMessage }) => void
+  // 状态
+  'state/changed': (e: { key: string; value: unknown; old: unknown; path: string; source: string; version: number }) => void
+  // 监控（旁听需 global:true）
+  'monitor/report': (e: { metric: Metric }) => void          // 单对象统一形状
+  'monitor/alert': (e: { alert: Alert }) => void
+  // 安全
+  'security/violation': (e: { appId: string; rule: string; detail: unknown }) => void
 }
 ```
 
-任何插件均可通过 `ctx.on` 订阅这些事件：
+对照旧契约的变更：
+
+| 旧契约 | 新契约 | 变更原因 |
+|--------|--------|----------|
+| `lifecycle:beforeLoad/loaded/beforeMount/mounted/beforeUnmount/unmounted`（camelCase，mount 语义） | `app/loading/loaded/ready/error/suspend/resume/disposed`（kebab-case，fiber 语义） | 对齐 Cordis Fiber 状态机；废除双生命周期协议 |
+| `lifecycle:beforeLoad` 载荷 `(appId, signal?)`（AbortSignal 广播可被任何插件 abort） | `app/loading` 载荷单对象且 signal 仅作通知 | signal 控制权在 lifecycle，旁听者不可 abort |
+| `sandbox:created/destroyed/activated/deactivated` | 删除（内部实现细节，不构成公共契约） | 沙箱生命周期由 lifecycle §四所有权表管理 |
+| `state:change(appId, key, value, oldValue, path?)`（5 参） | `state/changed`（单对象 + version + source） | 与 state-sharing.md 版本系统唯一对齐 |
+| `monitor:report(metric, traceId?)`（2 参） | `monitor/report({metric})` | traceId 进 metric 内部（monitoring §4.6） |
+| `comm:message` | `message/send` + `message/receive` | 定向投递模型（bus 在两处分别派发） |
+
+## 四、模块职责与初始化（Cordis DI 自动化）
+
+| 服务 | provide | inject | 就绪标志 |
+|------|---------|--------|----------|
+| monitor | `monitor` | （无） | 构造完成即可 capture |
+| security | `security` | `['monitor']` | 权限/白名单装载 |
+| bus | `bus` | `['security', 'monitor']` | 可投递消息 |
+| state | `state` | `['security', 'monitor']` | 三层状态可读写 |
+| deps | `deps` | `['security', 'monitor']` | 可加载应用 |
+| sandbox | `sandbox` | `['security', 'monitor']` | 可创建沙箱 |
+| lifecycle | `lifecycle` | `['monitor', 'deps', 'sandbox']` | 可挂载事务 |
+| router | `router` | `['monitor']` | URL 同步启动（挂载经事件解耦，不 inject lifecycle） |
+
+- **宿主入口**：`ctx.plugin([monitor, security, bus, state, deps, sandbox, lifecycle, router])`--顺序仅表达意图，实际激活由 Cordis 依赖解析决定
+- 应用插件 `inject: ['router', 'state', 'bus']` 未就绪时停留 PENDING，**不存在"应用先到、服务未建"的竞态**（旧文档"手动初始化顺序"全部场景由此消除）
+
+## 五、Context 语义澄清（修复旧 §6 两处理论错误）
+
+1. **子应用上下文来自 `ctx.plugin()`**（Fiber 构造时 `parent.extend({ fiber })` 派生），**不是** `ctx.isolate()`。
+2. `ctx.isolate(name)` 用于**服务隔离**：如宿主为某个应用声明 `ctx.isolate('router-view')` 后，其子树内 router 视图服务解析到独立实例（多槽位场景，见 route-adaptation.md §五）。
+3. **监听器清理语义**：`ctx.on` 注册的监听在 **dispose** 时自动清理（Cordis 将其挂在 fiber.effect 上）；**保活（Suspended）不清理**任何监听/效应（见 lifecycle-management.md §5.1）。旧文档"失活即清理"表述已废除。
+4. **事件可见性**：事件派发经 `Context.filter`（基于 isolate 标签）过滤；跨域旁听必须 `{ global: true }`。
 
 ```typescript
-ctx.on('lifecycle:mounted', (appId) => {
-    ctx.logger.info(`应用 ${appId} 已挂载完成`);
-});
-```
-
-## 4. 模块初始化顺序
-
-由于模块之间存在依赖，Taixu 在 Cordis Context 中的初始化顺序需满足以下规则：
-
-1. **基础能力层**
-   - **MonitoringService**: 最先初始化，以便记录其他模块初始化过程中的性能与异常。
-   - **CommunicationBus**: 初始化跨应用通信基座。
-   - **StateManager**: 初始化全局状态容器。
-
-2. **核心机制层**
-   - **SandboxManager**: 准备沙箱生成器。
-   - **LoaderManager**: 准备资源加载器和缓存机制。
-   - **Adapter**: 准备前端框架适配器。
-
-3. **调度层**
-   - **LifecycleManager**: 依赖沙箱、加载器和适配器，负责子应用的创建和流转调度。
-
-4. **路由层**
-   - **Router**: 依赖生命周期管理器，接管浏览器 History，根据 URL 触发 LifecycleManager 的动作。作为启动流程的最后一步，初始化完毕后会执行首次路由匹配。
-
-## 5. 错误传播路径
-
-1. **子应用代码错误 (运行时)** -> 触发沙箱的 `window.onerror/onunhandledrejection` 拦截 -> 发送给 SandboxManager -> 通过 `ctx.emit('monitor:error')` 上报。
-2. **生命周期错误 (加载/解析/挂载)** -> 生命周期 Promise 捕获 -> LifecycleManager 派发 `lifecycle:error` -> 执行重试或 Fallback 渲染 -> MonitoringService 收集。
-3. **资源加载失败** -> LoaderManager 捕获网络异常 -> 抛出至 LifecycleManager -> 进行错误降级处理。
-
-所有的错误都汇聚到 Cordis 的全局错误处理和 `MonitoringService` 中。
-
-## 6. 统一事件系统设计
-
-传统微前端框架往往会各自维护一套 EventBus 机制。在 Taixu 中，由于基于 **Cordis** 构建，所有的核心模块以及每个子应用的上下文（可通过 `ctx.isolate()` 隔离生成）都共享底层统一架构。
-
-### 无缝的事件注册与清理
-
-所有模块**必须**使用 `ctx.on()` 与 `ctx.emit()` 进行事件通信，抛弃独立的 EventEmitter 实例。
-
-```typescript
-// 错误示例：独立 EventBus
-const bus = new EventEmitter();
-bus.on('xxx', handler); 
-// 卸载时容易忘记 removeListener 导致内存泄漏
-
-// Taixu 推荐规范
-export function apply(ctx: Context) {
-    // 注册监听器
-    ctx.on('router:change', (from, to) => {
-        // do something
-    });
-
-    // 触发事件
-    ctx.emit('monitor:report', { type: 'route_time', value: 120 });
+// 示例：monitor 旁听全部生命周期事件（唯一正确姿势）
+export default class MonitorService extends Service {
+  static [Context.provide] = 'monitor'
+  constructor(ctx: Context) {
+    super(ctx)
+    for (const name of ['app/loading', 'app/ready', 'app/error', 'app/disposed']) {
+      ctx.on(name, (e) => this.recordLifecycle(name, e), { global: true })
+    }
+  }
 }
 ```
 
-### 自动垃圾回收机制
+## 六、模块间数据流约定
 
-依赖于 Cordis 的 Fiber 和 Effect 管理机制，当一个插件（或者一个被包装为插件形式运行的子应用）被注销 / 失活时：
+| 数据 | 生产者 | 消费者 | 载体 |
+|------|--------|--------|------|
+| 应用状态 | fiber.state | monitor / devtools | `lifecycle.getAppState(instanceId)`（唯一同步 API） |
+| 指标 | monitor 采集器 | 告警引擎 / devtools | `monitor/report` 事件 + BatchReporter |
+| 错误 | 任意模块 | monitor | `monitor.capture(error, {appId, phase})`（唯一入口） |
+| 导航意图 | router | lifecycle | `router/navigate` serial 事件 |
+| 消息 | 应用 | bus -> 目标应用 | `message/send` -> `message/receive` 定向 |
+| 状态变更 | state 写入管线 | 订阅者 / 跨 tab | `state/changed` 事件 + BroadcastChannel |
 
-1. 子应用的卸载对应着调用其对应 Context / Fork 的 `dispose()` 方法。
-2. **所有在这个 Context 上通过 `ctx.on` 绑定的事件监听器会自动被清理**。
-3. 所有在这个 Context 内通过 `ctx.effect` 注册的副作用会自动反向执行撤销。
+## 七、与旧文档差异一览
 
-这种设计确保了极其纯净的沙箱隔离特性，从架构底层根除了微前端场景中常见的内存泄漏与事件幽灵订阅问题。
+| 旧设计问题（评审编号） | 本版修复 |
+|------------------------|----------|
+| M1-1 `ctx.isolate()` 误解为"生成子应用上下文" | §五 澄清：plugin() 派生、isolate 服务隔离 |
+| M1-2 qiankun 式 bootstrap/mount/unmount 双轨 | 全部时序改 fiber 语义（§二） |
+| M1-3 "失活自动清理监听"与保活矛盾 | §五-3：dispose 清理、Suspended 保留 |
+| M1-4 AbortSignal 作为广播载荷 | signal 只随事务传递、旁听者只读（§三注） |
+| M2-1 实例与模块混层的依赖图 | §一 重画：纯服务依赖 + router 事件解耦 |
+| M2-2 切换无回滚/保活分支 | §2.2 先挂后卸 + 保活分支 |
+| M2-4 HMR 不 dispose fork | §2.5 fiber.dispose() + 模块缓存穿透 |
+| M2-6 事件契约代码块语法损坏/契约悬空 | §三 完整契约 + 与时序一一对应 |
+| M2-8 手动初始化顺序否定 DI | §四 Cordis DI 自动解析 |
+| X-1/2/5/6 事件与生命周期范式跨文档不一致 | 本文契约为唯一版本，其余文档引用 |
+| X-3 Router↔Lifecycle 死锁环 | §一 规则 2：事件解耦 |
+| X-8 双错误体系 | §2.4 唯一入口 monitor.capture |

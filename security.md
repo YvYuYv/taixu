@@ -1,1558 +1,359 @@
-# Cordis 安全方案
+# Cordis 安全方案（Security）
 
-## 一、问题分析
+> 对齐基线：[cordis-alignment.md](./cordis-alignment.md)（§四 安全基线）。
+> 本文所有安全组件均为 **Cordis Service**（经 `static [Context.provide]` 注册、副作用经 `ctx.effect` 托管）--旧版十余个全局单例的"框架外对象"模式全部废除。
+
+## 一、威胁模型与原则
 
 ### 1.1 微前端安全威胁模型
 
-| 威胁类型 | 具体表现 | 严重性 |
-|----------|----------|--------|
-| **XSS 攻击** | 子应用注入恶意脚本，窃取其他应用数据 | 高 |
-| **CSRF 攻击** | 伪造请求，以用户身份执行操作 | 高 |
-| **沙箱逃逸** | 恶意应用突破沙箱隔离，污染全局环境 | 高 |
-| **资源劫持** | CDN 资源被篡改，注入恶意代码 | 高 |
-| **数据泄露** | 应用间数据被未授权访问 | 高 |
-| **供应链攻击** | 第三方依赖被注入恶意代码 | 中 |
-| **权限提升** | 低权限应用获取高权限操作 | 中 |
-| **跨应用攻击** | 应用 A 攻击应用 B 的 DOM 或状态 | 中 |
+| 威胁类型 | 具体表现 | 缓解章节 |
+|----------|----------|----------|
+| XSS 攻击 | 子应用注入恶意脚本、窃取其他应用数据 | §三 CSP、§六 数据隔离 |
+| CSRF 攻击 | 伪造请求以用户身份执行操作 | §七 CSRF（服务端协议） |
+| 沙箱逃逸 | 恶意应用突破沙箱污染全局 | §四 信任分级（iframe 边界） |
+| 资源劫持 | CDN 资源被篡改注入恶意代码 | §五 SRI + 清单签名 |
+| 数据泄露 | 应用间数据未授权访问 | §六 权限 + 敏感数据 |
+| 供应链攻击 | 第三方依赖被注入恶意代码 | §八 |
+| 权限提升 | 低权限应用获取高权限操作 | §五 PermissionManager |
+| 跨应用攻击 | A 攻击 B 的 DOM/状态/消息 | §五 + bus/state 定向 |
 
-### 1.2 Cordis 安全设计原则
+### 1.2 设计原则（不变，但落地方式修正）
 
-1. **最小权限原则**：应用只拥有完成功能所需的最小权限
-2. **深度防御原则**：多层安全防护，单层失效不会导致系统崩溃
-3. **零信任原则**：不信任任何应用，所有访问都需要验证
-4. **可审计原则**：所有敏感操作都有日志记录
+1. **最小权限**：deny-by-default，能力经 ctx 服务注入而非全局句柄
+2. **深度防御**：CSP / 沙箱 / 权限 / 审计 四层独立失效不致崩溃
+3. **零信任**：所有跨应用访问显式授权；消息校验不因"未注册类型"默认放行
+4. **可审计**：安全事件经 monitor 上报（签名端点，防伪造）
 
----
-
-## 二、安全架构
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Application Security Layer（应用安全层）                     │
-│  - 权限控制                                                  │
-│  - 数据加密                                                  │
-│  - 输入验证                                                  │
-├─────────────────────────────────────────────────────────────┤
-│  Communication Security Layer（通信安全层）                  │
-│  - 消息验证                                                  │
-│  - 通信加密                                                  │
-│  - 防重放攻击                                                │
-├─────────────────────────────────────────────────────────────┤
-│  Sandbox Security Layer（沙箱安全层）                         │
-│  - 沙箱逃逸检测                                              │
-│  - 全局变量保护                                              │
-│  - 原型链保护                                                │
-├─────────────────────────────────────────────────────────────┤
-│  Resource Security Layer（资源安全层）                        │
-│  - CSP 策略                                                  │
-│  - SRI 完整性校验                                            │
-│  - 资源白名单                                                 │
-├─────────────────────────────────────────────────────────────┤
-│  Infrastructure Security Layer（基础设施安全层）              │
-│  - HTTPS                                                     │
-│  - 证书校验                                                  │
-│  - 域名白名单                                                 │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 2.1 分级信任模型
-
-在处理不同来源的微应用时，Cordis 引入了分级信任模型。需要明确的是，**Proxy 沙箱主要是为了隔离正确性（防止意外的全局变量污染），而不是严格的安全边界**。只有 iframe 沙箱才能提供真正的安全边界。
+## 二、安全架构（Service 化）
 
 ```typescript
-// 应用信任级别
-type TrustLevel = 'first-party' | 'third-party' | 'untrusted';
+class SecurityService extends Service {
+  static [Context.provide] = 'security'
+  static inject = ['monitor']
 
-interface SecurityProfile {
-  trustLevel: TrustLevel;
-  sandbox: 'proxy' | 'iframe' | 'iframe-strict';
-  permissions: 'full' | 'restricted' | 'minimal';
-  networkAccess: 'unrestricted' | 'whitelist-only' | 'blocked';
-  domAccess: 'full' | 'scoped' | 'virtual';
+  constructor(ctx: Context, config: SecurityConfig) {
+    super(ctx)
+    this.permissions = new PermissionManager(config.grants)        // §五
+    this.sanitizer = new Sanitizer(config.sanitize)                // §三
+    this.sri = new SRIVerifier(config.integrityManifest)           // §五
+    this.gateway = new NetworkGateway(ctx, config.network)         // §六
+    this.audit = new AuditLogger(ctx, config.audit)                // §九
+    // killSwitch（§十）、敏感数据（§六）同样在此组装
+  }
+
+  /** 其他服务消费的唯一入口（基线 §2.2） */
+  checkPermission(appId: string, resource: string, action: 'read' | 'write' | 'execute' | '*'): boolean {
+    return this.permissions.check(appId, resource, action)
+  }
 }
 ```
 
-针对不同的信任级别，系统采取不同的安全策略：
-- **First-party (第一方应用)**：使用 Proxy 沙箱 + 完整权限（信任但验证）。
-- **Third-party (第三方应用)**：使用 iframe 沙箱 + 受限权限（全面验证）。
-- **Untrusted (不可信应用)**：使用严格的 iframe 沙箱 + 最小权限。
+消费方接线（修复旧版"权限中间件从未接线"）：
 
----
+| 消费方 | 调用点 |
+|--------|--------|
+| bus | dispatch 前校验 `message:{type}` execute（communication-protocol.md §三） |
+| state | get/set 前校验 read/write（state-sharing.md §4.1） |
+| deps | 加载 URL 白名单 + SRI（heterogeneous-loading.md §七） |
+| sandbox | 黑名单/Worker/SW 策略（js-sandbox.md §3.1） |
+| router | 跨应用导航守卫（route-adaptation.md §4.3.4） |
 
-## 三、XSS 防护
+## 三、CSP 与注入净化
 
-### 3.1 XSS 攻击场景
+### 3.1 CSP 由宿主 HTTP 头统一下发（客户端配置废除）
 
-```javascript
-// 场景1：子应用注入恶意脚本
-const maliciousCode = '<script>stealData()</script>'
-document.getElementById('content').innerHTML = maliciousCode
-
-// 场景2：跨应用 XSS
-// 应用 A 被攻击，攻击者通过应用 A 访问应用 B 的数据
-window.__CORDIS_RUNTIME__.stateManager.set('user', stolenUserData)
-
-// 场景3：DOM 注入
-const payload = '"><script>alert("XSS")</script>'
-document.querySelector(`[data-id="${payload}"]`)
+```
+Content-Security-Policy:
+  default-src 'self';
+  script-src 'self' 'nonce-{N}';
+  style-src 'self' 'nonce-{N}';
+  connect-src 'self' https://cdn.example.com;
+  object-src 'none';
+  base-uri 'none';
+  frame-ancestors 'none';
+  require-trusted-types-for 'script'
 ```
 
-### 3.2 防护措施
+- **默认策略不含 `unsafe-inline`**（旧版示例自带 unsafe-inline，使 CSP 对 XSS 几乎无防御价值）
+- 框架动态注入的 `<script>/<style>` 一律携带宿主 nonce（SecureScriptLoader §6.2）；`strict-dynamic` 可选启用
+- Trusted Types `require-trusted-types-for 'script'` 作为纵深（DOM XSS sink 拦截）；框架自身的 innerHTML 写点全部改为安全 API（§6.3）
+- 旧版"11.1 客户端 csp.policy 配置"废除（与 §3.2.2 决策一致，消除自相矛盾）
 
-#### 3.2.1 输入消毒（Input Sanitization）
+### 3.2 URL 白名单（默认拒绝 + 协议相对 URL 修复）
 
 ```typescript
-// @cordis/security/sanitizer
-class InputSanitizer {
-  private static dangerousTags = [
-    'script', 'iframe', 'object', 'embed', 'base',
-    'form', 'input', 'button', 'select', 'textarea'
-  ]
-  
-  private static dangerousAttributes = [
-    'onload', 'onerror', 'onclick', 'onmouseover',
-    'onfocus', 'onblur', 'onchange', 'onsubmit',
-    'javascript:', 'vbscript:', 'data:text/html'
-  ]
-  
-  // 清理 HTML 内容
-  static sanitizeHTML(html: string): string {
-    const div = document.createElement('div')
-    div.textContent = html
-    return div.innerHTML
-  }
-  
-  // 清理 URL
-  static sanitizeURL(url: string): string {
-    const trimmed = url.trim().toLowerCase()
-    
-    // 只允许 http/https/相对路径
-    if (trimmed.startsWith('http://') || 
-        trimmed.startsWith('https://') || 
-        trimmed.startsWith('/') ||
-        trimmed.startsWith('./') ||
-        trimmed.startsWith('../')) {
-      return url
+class Sanitizer {
+  sanitizeURL(appId: string, url: string): string | null {
+    let parsed: URL
+    try { parsed = new URL(url, document.baseURI) } catch { return null }
+    // 默认拒绝（旧版：不匹配任何清单即放行，data:/blob:/file: 全过）
+    switch (parsed.protocol) {
+      case 'https:': break
+      case 'http:': if (!this.allowInsecure) return null; break
+      default: return null          // data:/blob:/javascript:/file: 一律拒绝（图片 data: 可按策略白名单例外）
     }
-    
-    // 阻止 javascript:、vbscript: 等
-    if (this.dangerousAttributes.some(attr => trimmed.startsWith(attr))) {
-      return ''
-    }
-    
-    return url
+    if (parsed.protocol.startsWith('http') && !this.isAllowedOrigin(appId, parsed.origin)) return null
+    return parsed.href
   }
-  
-  // 清理 JavaScript 代码
-  // 警告：使用正则表达式进行 JS 消毒非常脆弱，容易被绕过（如空格变体、模板字符串、window['eval']、间接 eval 等）。
-  // 强烈推荐使用基于 AST 的清理方案，或在现代浏览器中使用 Trusted Types API。
-  static sanitizeJS(code: string): string {
-    // 移除危险的 API 调用
-    const dangerousAPIs = [
-      /eval\s*\(/g,
-      /new\s+Function\s*\(/g,
-      /document\.write\s*\(/g,
-      /innerHTML\s*=/g,
-      /outerHTML\s*=/g
+  // 旧版 startsWith('/') 放行 '//evil.com'（协议相对 URL）-> new URL 解析后 origin 校验自然覆盖
+}
+```
+
+### 3.3 HTML 净化（真 sanitize）
+
+- 使用 DOMPurify（或等价库）；`dangerousTags/dangerousAttributes` 配置真实传入
+- 旧版 `div.textContent = html; return div.innerHTML` 只是实体转义、声明的不良标签表从未使用--废除
+
+## 四、信任分级（叙事一致）
+
+| 信任级 | 执行环境 | 能力 |
+|--------|----------|------|
+| first-party | Proxy 沙箱（js-sandbox.md §三） | 完整框架服务（按权限），允许 `new Function` 等动态执行（受宿主 CSP 约束） |
+| third-party | iframe sandbox（js-sandbox.md §五，**无 allow-same-origin**） | 仅 bus 桥通信；无进程内对象共享 |
+| untrusted | 同 third-party + 默认全 deny 权限 + 独立 origin | 仅渲染 + 显式授权消息 |
+
+- **全文叙事一致**：Proxy 沙箱不是安全边界（旧版 §2.1 与 §4.2.2/§11.1 对比表自相矛盾--已统一）
+- Enhanced Proxy 沙箱的 dangerousKeys 黑名单（`constructor/__proto__/...`）只是**纵深**而非边界（js-sandbox §3.1 已列向量与缓解）；first-party 默认**不**封锁 eval/Function（旧版无条件封锁破坏第一方正常库）
+
+## 五、权限系统（唯一实现，`'*'` 通配真实生效）
+
+```typescript
+class PermissionManager {
+  /** deny-by-default；规则含 allow/deny，deny 优先；action 支持 '*'（显式实现，修复旧版永不匹配） */
+  check(appId: string, resource: string, action: PermissionAction): boolean {
+    const rules = this.grants[appId] ?? []
+    let allowed = false
+    for (const rule of rules) {
+      if (!this.matchResource(rule.resource, resource)) continue
+      if (rule.action !== '*' && rule.action !== action) continue
+      if (rule.effect === 'deny') return false            // deny 一票否决（顺序无关）
+      if (rule.effect === 'allow') allowed = true
+    }
+    return allowed
+  }
+
+  /** 通配转义（`*`->`.*`，其余字符 escape；修复旧版两套通配语义不一致） */
+  private compile(pattern: string): RegExp {
+    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')
+    return new RegExp(`^${escaped}$`)
+  }
+  private matchResource(pattern: string, resource: string): boolean {
+    if (pattern === 'self') return this.isSelfPattern(pattern, resource)   // 'self' -> 应用自身命名空间
+    if (pattern === resource) return true
+    return this.cache(pattern).test(resource)
+  }
+}
+```
+
+规则示例（含点分路径，state-sharing.md §五联用）：
+
+```jsonc
+{
+  "grants": {
+    "app-admin": [
+      { "resource": "state:shared:admin.*", "action": "*", "effect": "deny" },   // '*'-deny 现在真实生效
+      { "resource": "state:shared:cart",    "action": "write", "effect": "allow" },
+      { "resource": "message:cart:*",       "action": "execute", "effect": "allow" },
+      { "resource": "network:https://api.example.com/*", "action": "connect", "effect": "allow" }
     ]
-    
-    let sanitized = code
-    dangerousAPIs.forEach(api => {
-      sanitized = sanitized.replace(api, '/* BLOCKED */')
+  }
+}
+```
+
+## 六、数据与网络隔离
+
+### 6.1 敏感数据（token 等不进广播/存储/日志）
+
+- 令牌分发：**受控注入通道**--宿主在应用挂载时按权限将 token 注入应用自己的存储命名空间（`__cordis__{appId}__token`），不经消息广播、不进全局 state 键、`state/changed` 载荷对 sensitiveKeys 脱敏
+- DevTools/monitor 面板对 sensitiveKeys 掩码；审计日志脱敏器处理多行/循环引用（§九）
+
+### 6.2 NetworkGateway（挂 bus 唯一链，不猴补 fetch）
+
+```typescript
+class NetworkGateway {
+  /** 注册为 bus.network 的 interceptor（communication-protocol.md §六）：
+      链序 tracing -> security(本类) -> monitor -> 原生 fetch。
+      修复旧版：全局替换 window.fetch 无回滚、effect 恢复从未注入的对象、policies 永不清理。 */
+  register(ctx: Context, appId: string) {
+    const dispose = this.bus.network.intercept(appId, async (input, init, info, next) => {
+      const url = typeof input === 'string' ? input : input.url
+      if (!this.sanitizer.sanitizeURL(appId, url)) {
+        this.ctx.emit('security/violation', { appId, rule: 'network-block', detail: { url } })
+        throw new NetworkBlockedError(url)
+      }
+      return next(input, init)
     })
-    
-    return sanitized
-  }
-  
-  // 验证 JSON 数据
-  static sanitizeJSON(data: any): any {
-    if (typeof data === 'string') {
-      return this.sanitizeHTML(data)
-    }
-    
-    if (Array.isArray(data)) {
-      return data.map(item => this.sanitizeJSON(item))
-    }
-    
-    if (typeof data === 'object' && data !== null) {
-      const sanitized: any = {}
-      for (const key in data) {
-        if (data.hasOwnProperty(key)) {
-          sanitized[key] = this.sanitizeJSON(data[key])
-        }
-      }
-      return sanitized
-    }
-    
-    return data
+    // 生命周期：interceptor 跟随应用沙箱销毁（bus.network.intercept 返回的 disposer 挂应用 ctx.effect）
+    ctx.effect(() => dispose)
   }
 }
 ```
 
-#### 3.2.2 内容安全策略（CSP）与网络网关
+- 覆盖面：fetch/XHR/WebSocket/EventSource/sendBeacon 全部经 js-sandbox 的 scoped 包装（旧版只拦 fetch，`networkAccess: 'blocked'` 承诺无法兑现--修复）
 
-> [!WARNING]
-> **严重的浏览器局限性说明**：`<meta http-equiv="Content-Security-Policy">` 一旦附加到 DOM，该策略将不可逆且永久生效，无法按微应用级别（per-micro-app）进行独立隔离（scoped）。若在客户端动态注入 `<meta>` CSP 标签，将导致全局安全策略被污染，不可逆转地破坏后续加载的其他微应用！
-
-基于上述限制，我们弃用客户端动态 DOM `<meta>` 注入方案，改用两层架构：
-
-1. **宿主级基线安全**：主要 CSP 必须配置在宿主环境的 HTTP 响应头（`Content-Security-Policy`）中。
-2. **应用级软件网关**：在微应用网络层引入 `FetchInterceptorChain`，充当软件定义 CSP（Software-defined CSP），强制实施各应用的独立的网络目标白名单和协议限制。
+### 6.3 动态脚本加载（nonce + 白名单 + SRI，修复 ReferenceError 与绕过）
 
 ```typescript
-// @cordis/security/gateway
-import { Context, Service } from 'cordis'
-
-interface NetworkPolicy {
-  allowedDomains: string[]
-  allowedProtocols: string[]
-}
-
-declare module 'cordis' {
-  interface Context {
-    networkGateway: NetworkGateway
-  }
-}
-
-class NetworkGateway extends Service {
-  private policies = new Map<string, NetworkPolicy>()
-
-  constructor(ctx: Context) {
-    super(ctx, 'networkGateway')
-  }
-
-  setPolicy(appId: string, policy: NetworkPolicy) {
-    this.policies.set(appId, policy)
-  }
-
-  interceptFetch(appId: string) {
-    const policy = this.policies.get(appId)
-    if (!policy) return
-
-    // 为该应用分配拦截器
-    this.ctx.effect(() => {
-      const originalFetch = window.fetch
-      const scopedFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-        const urlStr = typeof input === 'string' ? input : (input instanceof URL ? input.href : input.url)
-        const urlObj = new URL(urlStr, window.location.href)
-
-        // 验证协议
-        if (!policy.allowedProtocols.includes(urlObj.protocol.replace(':', ''))) {
-          throw new Error(`[Security] Protocol not allowed: ${urlObj.protocol}`)
-        }
-
-        // 验证域名白名单
-        const isAllowedDomain = policy.allowedDomains.some(domain => {
-          if (domain.startsWith('*.')) {
-            return urlObj.hostname.endsWith(domain.slice(1)) || urlObj.hostname === domain.slice(2)
-          }
-          return urlObj.hostname === domain
-        })
-
-        if (!isAllowedDomain) {
-          throw new Error(`[Security] Domain not allowed: ${urlObj.hostname}`)
-        }
-
-        return originalFetch(input, init)
-      }
-
-      // 将 scopedFetch 注入到该应用的沙箱中
-      // 此处假设通过某种机制替换应用沙箱的 fetch
-      // __injectToSandbox(appId, 'fetch', scopedFetch)
-
-      return () => {
-        window.fetch = originalFetch
-      }
-    })
-  }
-}
-```
-
-
-#### 3.2.3 安全的 DOM 操作
-
-```typescript
-// @cordis/security/dom
-class SafeDOM {
-  // 安全地设置 innerHTML
-  // 注：在现代浏览器中，推荐结合使用 Trusted Types API 来强制防御基于 DOM 的 XSS 攻击。
-  static setInnerHTML(element: Element, html: string): void {
-    // 使用 DOMPurify 或自定义清理器
-    const sanitized = DOMPurify.sanitize(html, {
-      ALLOWED_TAGS: ['div', 'span', 'p', 'a', 'img', 'ul', 'li', 'br'],
-      ALLOWED_ATTR: ['class', 'id', 'href', 'src', 'alt', 'title']
-    })
-    element.innerHTML = sanitized
-  }
-  
-  // 安全地创建元素
-  static createElement(tag: string, attributes: Record<string, string> = {}): HTMLElement {
-    const element = document.createElement(tag)
-    
-    for (const [key, value] of Object.entries(attributes)) {
-      // 验证属性值
-      if (this.isSafeAttribute(key, value)) {
-        element.setAttribute(key, value)
-      }
-    }
-    
-    return element
-  }
-  
-  // 验证属性安全性
-  private static isSafeAttribute(name: string, value: string): boolean {
-    // 阻止事件属性
-    if (name.startsWith('on')) {
-      return false
-    }
-    
-    // 阻止 javascript: 协议
-    if ((name === 'href' || name === 'src') && 
-        value.toLowerCase().trim().startsWith('javascript:')) {
-      return false
-    }
-    
-    return true
-  }
-  
-  // 安全地插入脚本
-  static injectScript(src: string, options: { async?: boolean, defer?: boolean } = {}): HTMLScriptElement {
-    const script = document.createElement('script')
-    script.src = InputSanitizer.sanitizeURL(src)
-    if (options.async) script.async = true
-    if (options.defer) script.defer = true
-    document.head.appendChild(script)
-    return script
-  }
-}
-```
-
----
-
-## 四、沙箱逃逸防护
-
-### 4.1 常见沙箱逃逸手段
-
-```javascript
-// 手段1：通过原型链访问全局对象
-const globalThis = (() => this.constructor.constructor('return this')())()
-
-// 手段2：通过 iframe 访问真实 window
-const iframe = document.createElement('iframe')
-document.body.appendChild(iframe)
-const realWindow = iframe.contentWindow
-
-// 手段3：通过 Error 对象获取堆栈
-try {
-  throw new Error()
-} catch (e) {
-  const caller = e.stack.split('\n')[2]
-}
-
-// 手段4：通过 Symbol 访问内部对象
-const internal = Object.getOwnPropertyNames(Symbol)
-
-// 手段5：通过 Proxy 逃逸
-const proxy = new Proxy({}, {
-  get() {
-    return arguments.callee.constructor('return global')()
-  }
-})
-```
-
-### 4.2 防护措施
-
-#### 4.2.1 原型链保护
-
-```typescript
-// @cordis/security/prototype-guard
-class PrototypeGuard {
-  private static protectedPrototypes = [
-    Object.prototype,
-    Array.prototype,
-    String.prototype,
-    Number.prototype,
-    Boolean.prototype,
-    Function.prototype,
-    Date.prototype,
-    RegExp.prototype,
-    Error.prototype,
-    Promise.prototype
-  ]
-  
-  private static originalDescriptors: Map<string, PropertyDescriptor> = new Map()
-  
-  // 冻结关键原型
-  // 警告：严格冻结原型链会破坏许多 polyfill 和第三方库。
-  // 建议在生产环境中默认使用 monitorPrototypeChanges（仅监控模式）代替严格冻结。
-  static freezePrototypes(): void {
-    this.protectedPrototypes.forEach(proto => {
-      const keys = Object.getOwnPropertyNames(proto)
-      
-      keys.forEach(key => {
-        const descriptor = Object.getOwnPropertyDescriptor(proto, key)
-        if (descriptor && descriptor.configurable) {
-          // 保存原始描述符
-          this.originalDescriptors.set(`${proto.constructor.name}.${key}`, descriptor)
-          
-          // 重新定义为不可配置
-          Object.defineProperty(proto, key, {
-            ...descriptor,
-            configurable: false,
-            writable: false
-          })
-        }
-      })
-      
-      // 阻止原型被扩展
-      Object.preventExtensions(proto)
-    })
-  }
-  
-  // 检测原型链是否被篡改
-  static verifyPrototypes(): boolean {
-    for (const proto of this.protectedPrototypes) {
-      const keys = Object.getOwnPropertyNames(proto)
-      for (const key of keys) {
-        const descriptor = Object.getOwnPropertyDescriptor(proto, key)
-        const original = this.originalDescriptors.get(`${proto.constructor.name}.${key}`)
-        
-        if (original && descriptor && (
-          descriptor.value !== original.value ||
-          descriptor.get !== original.get ||
-          descriptor.set !== original.set
-        )) {
-          console.error(`[Cordis Security] Prototype pollution detected: ${proto.constructor.name}.${key}`)
-          return false
-        }
-      }
-    }
-    return true
-  }
-  
-  // 监控原型链修改
-  static monitorPrototypeChanges(): void {
-    this.protectedPrototypes.forEach(proto => {
-      const proxy = new Proxy(proto, {
-        defineProperty(target, key, descriptor) {
-          console.warn(`[Cordis Security] Prototype modification blocked: ${target.constructor.name}.${key}`)
-          return false
-        },
-        set(target, key, value) {
-          console.warn(`[Cordis Security] Prototype modification blocked: ${target.constructor.name}.${key}`)
-          return true  // 返回 true 避免报错，但不实际设置
-        }
-      })
-      
-      // 替换原型（需要小心使用）
-      // Object.setPrototypeOf(proto, proxy)
-    })
-  }
-}
-```
-
-#### 4.2.2 增强的 Proxy 沙箱
-
-```typescript
-// @cordis/security/enhanced-sandbox
-class EnhancedProxySandbox {
-  private fakeWindow: Record<string, any> = {}
-  private proxy: WindowProxy
-  private blockedKeys: Set<string> = new Set()
-  
-  // 需要阻止访问的键
-  private static dangerousKeys = [
-    'eval', 'Function', 'constructor', '__proto__',
-    'prototype', 'arguments', 'caller', 'callee'
-  ]
-  
-  constructor(private appId: string) {
-    this.proxy = new Proxy(this.fakeWindow, {
-      get: (target, key) => {
-        // 阻止访问危险键
-        if (EnhancedProxySandbox.dangerousKeys.includes(key as string)) {
-          this.logSecurityEvent('blocked_access', key as string)
-          return undefined
-        }
-        
-        // 特殊处理
-        if (key === 'window' || key === 'self' || key === 'globalThis') {
-          return this.proxy
-        }
-        
-        if (key === 'top' || key === 'parent') {
-          return this.proxy  // 阻止访问真实顶层窗口
-        }
-        
-        // 只读属性
-        if (this.isReadonly(key)) {
-          return (window as any)[key]
-        }
-        
-        // 从 fakeWindow 获取
-        if (key in target) {
-          return target[key]
-        }
-        
-        // 透传
-        return (window as any)[key]
-      },
-      
-      set: (target, key, value) => {
-        // 阻止修改危险键
-        if (EnhancedProxySandbox.dangerousKeys.includes(key as string)) {
-          this.logSecurityEvent('blocked_set', key as string)
-          return true
-        }
-        
-        target[key as string] = value
-        return true
-      },
-      
-      has: (target, key) => {
-        return key in target || key in window
-      },
-      
-      getOwnPropertyDescriptor: (target, key) => {
-        // 阻止访问构造函数
-        if (key === 'constructor') {
-          return undefined
-        }
-        
-        if (key in target) {
-          return Object.getOwnPropertyDescriptor(target, key)
-        }
-        
-        const descriptor = Object.getOwnPropertyDescriptor(window, key)
-        if (descriptor) {
-          // 返回只读副本
-          return {
-            ...descriptor,
-            configurable: false,
-            writable: false
-          }
-        }
-        
-        return undefined
-      }
-    })
-  }
-  
-  // 检测沙箱逃逸尝试
-  private logSecurityEvent(type: string, key: string): void {
-    const event: SecurityEvent = {
-      type,
-      appId: this.appId,
-      key,
-      timestamp: Date.now(),
-      stack: new Error().stack
-    }
-    
-    securityLogger.log(event)
-    
-    // 严重事件触发告警
-    if (type === 'blocked_access' && key === 'constructor') {
-      securityAlert.trigger('SANDBOX_ESCAPE_ATTEMPT', event)
-    }
-  }
-  
-  private isReadonly(key: PropertyKey): boolean {
-    const readonlyKeys = [
-      'location', 'history', 'document', 'navigator',
-      'console', 'performance'
-    ]
-    return readonlyKeys.includes(key as string)
-  }
-}
-```
-
-#### 4.2.3 iframe 沙箱隔离
-
-```typescript
-// @cordis/security/iframe-sandbox
-class IframeSecuritySandbox {
-  private iframe: HTMLIFrameElement
-  private iframeWindow: Window
-  
-  // 使用 sandbox 属性限制 iframe 能力
-  constructor(private appId: string) {
-    this.iframe = document.createElement('iframe')
-    this.iframe.setAttribute('sandbox', 
-      'allow-scripts allow-same-origin allow-forms'
-    )
-    this.iframe.style.display = 'none'
-    this.iframe.setAttribute('data-cordis-sandbox', appId)
-    
-    document.body.appendChild(this.iframe)
-    this.iframeWindow = this.iframe.contentWindow!
-  }
-  
-  // 在 iframe 中安全执行代码
-  exec(code: string): void {
-    const script = this.iframeWindow.document.createElement('script')
-    script.textContent = code
-    this.iframeWindow.document.body.appendChild(script)
-    script.remove()
-  }
-  
-  // 销毁沙箱
-  destroy(): void {
-    this.iframe.remove()
-  }
-}
-```
-
----
-
-## 五、资源加载安全
-
-### 5.1 子资源完整性（SRI）
-
-```typescript
-// @cordis/security/sri
-class SRIChecker {
-  // 生成 SRI 哈希
-  static async generateSRI(content: ArrayBuffer): Promise<string> {
-    const hashBuffer = await crypto.subtle.digest('SHA-384', content)
-    const hashBase64 = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)))
-    return `sha384-${hashBase64}`
-  }
-  
-  // 验证资源完整性
-  static async verifyIntegrity(
-    url: string, 
-    expectedSRI: string
-  ): Promise<boolean> {
-    try {
-      const response = await fetch(url)
-      const content = await response.arrayBuffer()
-      const actualSRI = await this.generateSRI(content)
-      
-      if (actualSRI !== expectedSRI) {
-        securityLogger.log({
-          type: 'SRI_MISMATCH',
-          url,
-          expected: expectedSRI,
-          actual: actualSRI,
-          timestamp: Date.now()
-        })
-        return false
-      }
-      
-      return true
-    } catch (error) {
-      securityLogger.log({
-        type: 'SRI_FETCH_ERROR',
-        url,
-        error: error.message,
-        timestamp: Date.now()
-      })
-      return false
-    }
-  }
-  
-  // 安全加载脚本
-  static async loadScript(
-    url: string, 
-    sri: string, 
-    options: { async?: boolean, defer?: boolean } = {}
-  ): Promise<HTMLScriptElement> {
-    // 修复 SRI double-fetch TOCTOU 漏洞：直接依赖 script 标签的 integrity 属性，由浏览器发起单次获取和校验。
-    const script = document.createElement('script')
-    script.src = url
-    script.integrity = sri
-    script.crossOrigin = 'anonymous'
-    if (options.async) script.async = true
-    if (options.defer) script.defer = true
-    
-    document.head.appendChild(script)
-    return script
-  }
-}
-```
-
-### 5.2 资源白名单
-
-```typescript
-// @cordis/security/resource-whitelist
-class ResourceWhitelist {
-  private allowedDomains: Map<string, string[]> = new Map()
-  
-  // 设置应用允许的域名
-  setAllowedDomains(appId: string, domains: string[]): void {
-    this.allowedDomains.set(appId, domains)
-  }
-  
-  // 验证 URL 是否允许
-  isAllowed(appId: string, url: string): boolean {
-    const domains = this.allowedDomains.get(appId)
-    if (!domains) return false
-    
-    try {
-      const parsed = new URL(url, window.location.href)
-      return domains.some(domain => {
-        // 支持通配符
-        if (domain.startsWith('*.')) {
-          const suffix = domain.slice(2)
-          return parsed.hostname === suffix || 
-                 parsed.hostname.endsWith('.' + suffix)
-        }
-        return parsed.hostname === domain
-      })
-    } catch {
-      return false
-    }
-  }
-  
-  // 验证资源加载
-  verifyResource(appId: string, url: string): boolean {
-    if (!this.isAllowed(appId, url)) {
-      securityLogger.log({
-        type: 'RESOURCE_BLOCKED',
-        appId,
-        url,
-        timestamp: Date.now()
-      })
-      return false
-    }
-    return true
-  }
-}
-```
-
-### 5.3 动态脚本加载保护
-
-```typescript
-// @cordis/security/script-loader
 class SecureScriptLoader {
-  private whitelist: ResourceWhitelist
-  private sriChecker: SRIChecker
-  private loadedScripts: Map<string, boolean> = new Map()
-  
-  constructor(whitelist: ResourceWhitelist, sriChecker: SRIChecker) {
-    this.whitelist = whitelist
-    this.sriChecker = sriChecker
-    
-    // 拦截动态脚本创建
-    this.interceptScriptCreation()
-  }
-  
-  // 拦截 document.createElement('script')
-  private interceptScriptCreation(): void {
-    const originalCreateElement = document.createElement.bind(document)
-    
-    document.createElement = function(tagName: string): HTMLElement {
-      const element = originalCreateElement(tagName)
-      
-      if (tagName.toLowerCase() === 'script') {
-        const originalSetAttribute = element.setAttribute.bind(element)
-        
-        // 拦截 src 设置
-        element.setAttribute = function(name: string, value: string) {
-          if (name === 'src') {
-            const appId = getCurrentAppId()
-            if (!whitelist.verifyResource(appId, value)) {
-              console.error(`[Cordis Security] Script loading blocked: ${value}`)
+  constructor(private ctx: Context, private security: SecurityService, private nonce: string) {}
+
+  init(ctx: Context) {
+    ctx.effect(() => {
+      const rawCreate = document.createElement.bind(document)
+      const patch = (tag: string, options?: ElementCreationOptions) => {
+        const el = rawCreate(tag, options)                 // options 第二参保留（旧版丢弃）
+        if (tag.toLowerCase() === 'script' || tag.toLowerCase() === 'link') {
+          const appId = this.security.currentAppId()       // 同步注册期归因
+          const rawSetAttr = el.setAttribute.bind(el)
+          el.setAttribute = (name: string, value: string) => {
+            if (name === 'src' || name === 'href') {
+              const sanitized = this.security.sanitizer.sanitizeURL(appId, value)   // 修复旧版裸引用 whitelist 的 ReferenceError
+              if (!sanitized) throw new ResourceBlockedError(value)
+              rawSetAttr(name, sanitized)
+              rawSetAttr('integrity', this.security.sri.lookup(sanitized) ?? '')
+              rawSetAttr('crossorigin', 'anonymous')
+              if (this.nonce) rawSetAttr('nonce', this.nonce)
               return
             }
+            if (name === 'nonce') return rawSetAttr(name, this.nonce)   // nonce 不可被应用覆写
+            rawSetAttr(name, value)
           }
-          return originalSetAttribute(name, value)
+          // src 直接属性赋值路径（旧版绕过）：
+          let pendingSrc: string | undefined
+          Object.defineProperty(el, 'src', {
+            get: () => pendingSrc ?? (el as HTMLScriptElement).src,
+            set: (v) => { el.setAttribute('src', v) },     // 收敛到受控 setAttribute
+          })
         }
+        return el
       }
-      
-      return element
-    }
+      document.createElement = patch
+      return () => { document.createElement = rawCreate }   // effect 托管回滚（旧版无回滚）
+    })
   }
-  
-  // 安全加载脚本
-  async load(
-    appId: string,
-    url: string, 
-    sri?: string,
-    options: { async?: boolean, defer?: boolean } = {}
-  ): Promise<void> {
-    // 检查是否已加载
-    if (this.loadedScripts.has(url)) {
+}
+```
+
+## 七、CSRF（服务端协议，废除客户端自造 token）
+
+- **协议**：服务端登录时下发 `SameSite=Lax/Strict` Cookie + CSRF token（`Set-Cookie: __Host-csrf`）；写请求携带 `X-CSRF-Token` 头（由 NetworkGateway 从受控存储读取附加），服务端 double-submit 校验
+- 旧版客户端 `crypto.getRandomValues` 自生成 token 存 sessionStorage（无服务端校验，不构成防护）废除
+- NetworkGateway 不再强制覆盖 `credentials`（保留应用自身设置，修复对合法跨域请求的破坏）
+
+## 八、资源完整性与供应链
+
+### 8.1 SRI（签名清单）
+
+- 期望哈希来源：**构建期生成的 manifest 经 CI 签名**（宿主公钥验签后使用）--同 CDN 未签名 manifest 形同虚设的问题消除
+- `loadScript` 监听 `onload/onerror`；SRI 失败 reject 且告警（旧版只 console.error，调用方无感知继续跑）
+- 覆盖：入口 JS、CSS `<link>`、动态 import 分块（deps 服务统一经此校验）
+- 哈希计算分块读取（废除 `String.fromCharCode(...bytes)` 大资源栈溢出）
+
+### 8.2 供应链
+
+- CI 锁文件审计（`npm audit`/osv-scanner）+ 依赖白名单变更 PR 评审
+- 子应用依赖声明（cordis.dependencies.json）进 manifest 签名范围
+
+## 九、审计与告警
+
+```typescript
+class AuditLogger {
+  /** 批量+签名上报（修复旧版每条一次 sendBeacon 且端点无鉴权可被任意应用伪造） */
+  private queue: AuditEvent[] = []
+  private flush = debounce(() => {
+    if (!this.queue.length) return
+    const body = JSON.stringify({ schema: 1, events: this.queue.splice(0) })
+    navigator.sendBeacon(this.endpoint, new Blob([body], { type: 'application/json' }))
+    // 端点侧校验：会话 cookie + 事件 HMAC（上报密钥经受控注入，不暴露给应用）
+  }, 1000)
+  log(event: AuditEvent) { this.queue.push(this.redact(event)); this.flush() }
+
+  private redact(event: AuditEvent): AuditEvent {
+    // 脱敏：多行正则（修复旧版 /./g 不匹配换行）、循环引用安全序列化
+  }
+}
+```
+
+- 告警订阅：`ctx.on('monitor/alert', fn)`（Cordis 原生；旧版手写 callbacks 数组且无 bail 截断）
+- 采样与限流：安全事件默认全量，网络违规类高频事件按 (appId, rule) 限流去重
+
+## 十、Kill Switch（急停）
+
+```typescript
+class KillSwitch {
+  private disabled: Set<string> = new Set()
+
+  /** 指令经签名通道下发（monitor 告警通道复用），不是任意应用可调的全局函数 */
+  async disableApp(appId: string, reason: string, signature: string) {
+    if (!this.verifyCommand(appId, 'disable', signature)) {
+      this.ctx.emit('security/violation', { appId: 'host', rule: 'killswitch-forged', detail: { reason } })
       return
     }
-    
-    // 验证白名单
-    if (!this.whitelist.verifyResource(appId, url)) {
-      throw new Error(`Resource not allowed: ${url}`)
-    }
-    
-    // 加载脚本（由浏览器原生支持 SRI 校验，避免 TOCTOU 问题）
-    const script = document.createElement('script')
-    script.src = url
-    if (sri) script.integrity = sri
-    script.crossOrigin = 'anonymous'
-    if (options.async) script.async = true
-    if (options.defer) script.defer = true
-    
-    document.head.appendChild(script)
-    this.loadedScripts.set(url, true)
+    this.disabled.add(appId)
+    // 强制执行点：deps.loadApp 前检查 -> 抛 AppDisabledError；已运行实例 -> lifecycle.destroy
+    await this.lifecycle?.destroyByAppId(appId, `killswitch: ${reason}`)
+    this.persist()   // sessionStorage 持久化（刷新仍生效，管理员显式恢复）
   }
 }
 ```
 
----
+- 旧版 `window.__CORDIS_RUNTIME__.unmountApp` 全局句柄（任何沙箱应用可调用杀掉其他应用）废除--`__CORDIS_*` 全局列入沙箱黑名单（js-sandbox §六）
+- 指令来源签名校验；`isAppDisabled` 在加载路径强制执行
 
-## 六、应用间权限控制
+## 十一、postMessage 与跨源安全
 
-### 6.1 权限模型
+- 全部 postMessage：显式 targetOrigin（禁 `'*`）；接收侧 `event.origin` 白名单 + `event.source` 校验（bus 的 IframeBridge 统一实现，communication-protocol.md §八）
+- BroadcastChannel：仅同源框架内部使用（state 跨 tab），消息含 schema 版本与回声过滤
+- `window.open` 弹窗：经权限（`window:open`）+ opener 关系断开（`noopener`）
+
+## 十二、配置
 
 ```typescript
-// @cordis/security/permissions
-interface AppPermission {
-  appId: string
-  permissions: Permission[]
-}
-
-interface Permission {
-  resource: string        // 资源名称（如 'state:user', 'message:cart:*'）
-  action: 'read' | 'write' | 'execute'  // 操作类型
-  effect: 'allow' | 'deny'  // 允许或拒绝
-}
-
-class PermissionManager {
-  private permissions: Map<string, Permission[]> = new Map()
-  
-  // 设置应用权限
-  setPermissions(appId: string, permissions: Permission[]): void {
-    this.permissions.set(appId, permissions)
-  }
-  
-  // 检查权限
-  checkPermission(
-    appId: string, 
-    resource: string, 
-    action: 'read' | 'write' | 'execute'
-  ): boolean {
-    const permissions = this.permissions.get(appId)
-    if (!permissions) return false
-    
-    // 查找匹配的权限规则
-    const matched = permissions.filter(p => 
-      this.matchResource(p.resource, resource) && p.action === action
-    )
-    
-    // 默认拒绝，有 allow 则允许
-    if (matched.length === 0) return false
-    
-    // 如果有 deny 规则，优先拒绝
-    if (matched.some(p => p.effect === 'deny')) {
-      return false
-    }
-    
-    return matched.some(p => p.effect === 'allow')
-  }
-  
-  // 资源匹配（支持通配符）
-  private matchResource(pattern: string, resource: string): boolean {
-    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&')
-    const regex = new RegExp('^' + escaped.replace(/\*/g, '.*') + '$')
-    return regex.test(resource)
-  }
+interface SecurityConfig {
+  trustDefaults: Record<string, 'first-party' | 'third-party' | 'untrusted'>
+  grants: Record<string, PermissionRule[]>
+  sanitize: { allowInsecure?: boolean; allowDataImage?: boolean }
+  network: { originAllowlist: Record<string, string[]> }    // 'self' 关键字由 matchResource 处理（修复旧版永不匹配）
+  integrityManifest: { url: string; publicKey: string }
+  audit: { endpoint: string; sampleRates?: Record<string, number> }
+  killswitch: { enabled: boolean; commandKeyRef: string }
+  iframe: { originAllowlist: string[] }
 }
 ```
 
-### 6.2 权限配置
+## 十三、实施计划
 
-```json
-// cordis.permissions.json
-{
-  "permissions": [
-    {
-      "resource": "state:user",
-      "action": "read",
-      "effect": "allow"
-    },
-    {
-      "resource": "state:cart.*",
-      "action": "write",
-      "effect": "allow"
-    },
-    {
-      "resource": "state:admin.*",
-      "action": "*",
-      "effect": "deny"
-    },
-    {
-      "resource": "message:cart:*",
-      "action": "execute",
-      "effect": "allow"
-    },
-    {
-      "resource": "message:user:*",
-      "action": "execute",
-      "effect": "allow"
-    },
-    {
-      "resource": "dom:*",
-      "action": "write",
-      "effect": "deny"
-    }
-  ]
-}
-```
+| 优先级 | 内容 |
+|--------|------|
+| P0 | SecurityService + PermissionManager（'*' 通配 + deny 优先）+ 消费方接线（bus/state/deps） |
+| P0 | URL/HTML 净化（默认拒绝）+ CSP nonce 注入链 |
+| P1 | SRI 签名清单 + NetworkGateway 挂 bus 链 + CSRF 服务端协议 |
+| P1 | KillSwitch（签名指令）+ 审计批量签名上报 + 敏感数据通道 |
+| P2 | Trusted Types 全量、iframe csp 属性、供应链 CI 集成 |
 
-### 6.3 权限检查中间件
+## 十四、与旧文档差异一览
 
-```typescript
-// @cordis/security/permission-middleware
-class PermissionMiddleware {
-  private permissionManager: PermissionManager
-  
-  constructor(permissionManager: PermissionManager) {
-    this.permissionManager = permissionManager
-  }
-  
-  // 状态访问中间件
-  stateAccessMiddleware = (context: {
-    appId: string
-    key: string
-    action: 'read' | 'write'
-  }): boolean => {
-    return this.permissionManager.checkPermission(
-      context.appId,
-      `state:${context.key}`,
-      context.action
-    )
-  }
-  
-  // 通信中间件
-  communicationMiddleware = (message: CordisMessage): boolean => {
-    return this.permissionManager.checkPermission(
-      message.source,
-      `message:${message.type}`,
-      'execute'
-    )
-  }
-  
-  // DOM 访问中间件
-  domAccessMiddleware = (context: {
-    appId: string
-    selector: string
-    action: 'read' | 'write'
-  }): boolean => {
-    return this.permissionManager.checkPermission(
-      context.appId,
-      `dom:${context.selector}`,
-      context.action
-    )
-  }
-}
-```
-
----
-
-## 七、敏感数据保护
-
-### 7.1 数据加密
-
-```typescript
-// @cordis/security/crypto
-class DataEncryptor {
-  private static algorithm = 'AES-GCM'
-  private static keyLength = 256
-  
-  // 生成加密密钥
-  static async generateKey(): Promise<CryptoKey> {
-    return await crypto.subtle.generateKey(
-      { name: this.algorithm, length: this.keyLength },
-      true,
-      ['encrypt', 'decrypt']
-    )
-  }
-  
-  // 加密数据
-  static async encrypt(data: string, key: CryptoKey): Promise<string> {
-    const encoder = new TextEncoder()
-    const dataBuffer = encoder.encode(data)
-    
-    // 生成 IV
-    const iv = crypto.getRandomValues(new Uint8Array(12))
-    
-    // 加密
-    const encryptedBuffer = await crypto.subtle.encrypt(
-      { name: this.algorithm, iv },
-      key,
-      dataBuffer
-    )
-    
-    // 组合 IV 和加密数据
-    const combined = new Uint8Array(iv.length + encryptedBuffer.byteLength)
-    combined.set(iv)
-    combined.set(new Uint8Array(encryptedBuffer), iv.length)
-    
-    return btoa(String.fromCharCode(...combined))
-  }
-  
-  // 解密数据
-  static async decrypt(encryptedData: string, key: CryptoKey): Promise<string> {
-    const combined = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0))
-    
-    // 提取 IV
-    const iv = combined.slice(0, 12)
-    const encryptedBuffer = combined.slice(12)
-    
-    // 解密
-    const decryptedBuffer = await crypto.subtle.decrypt(
-      { name: this.algorithm, iv },
-      key,
-      encryptedBuffer
-    )
-    
-    const decoder = new TextDecoder()
-    return decoder.decode(decryptedBuffer)
-  }
-  
-  // 生成哈希
-  static async hash(data: string): Promise<string> {
-    const encoder = new TextEncoder()
-    const dataBuffer = encoder.encode(data)
-    const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer)
-    return btoa(String.fromCharCode(...new Uint8Array(hashBuffer)))
-  }
-}
-```
-
-### 7.2 敏感数据标记
-
-```typescript
-// @cordis/security/sensitive-data
-class SensitiveDataManager {
-  private sensitiveKeys: Set<string> = new Set([
-    'password', 'token', 'secret', 'key', 'credential',
-    'ssn', 'creditCard', 'bankAccount'
-  ])
-  
-  // 标记敏感数据
-  markSensitive(key: string): void {
-    this.sensitiveKeys.add(key.toLowerCase())
-  }
-  
-  // 检查是否为敏感数据
-  isSensitive(key: string): boolean {
-    return this.sensitiveKeys.has(key.toLowerCase())
-  }
-  
-  // 脱敏处理
-  mask(data: any): any {
-    if (typeof data === 'string') {
-      return data.replace(/./g, '*')
-    }
-    
-    if (typeof data === 'number') {
-      return 0
-    }
-    
-    if (Array.isArray(data)) {
-      return data.map(() => '***')
-    }
-    
-    if (typeof data === 'object' && data !== null) {
-      const masked: any = {}
-      for (const key in data) {
-        if (data.hasOwnProperty(key)) {
-          masked[key] = this.isSensitive(key) ? '***' : this.mask(data[key])
-        }
-      }
-      return masked
-    }
-    
-    return data
-  }
-  
-  // 日志脱敏
-  sanitizeForLog(data: any): any {
-    if (typeof data === 'object' && data !== null) {
-      const sanitized: any = {}
-      for (const key in data) {
-        if (data.hasOwnProperty(key)) {
-          if (this.isSensitive(key)) {
-            sanitized[key] = '[REDACTED]'
-          } else {
-            sanitized[key] = this.sanitizeForLog(data[key])
-          }
-        }
-      }
-      return sanitized
-    }
-    return data
-  }
-}
-```
-
----
-
-## 八、存储命名空间与机密隔离
-
-沙箱需要强制执行 Web Storage（localStorage, sessionStorage）、IndexedDB 和 Cookie 的隔离。这是通过自动键名前缀（Key Prefixing）和访问控制列表（ACL）来实现的。
-
-### 8.1 自动键名前缀与 ACL 隔离
-
-在沙箱中，微应用不能直接操作宿主的本地存储，我们需要代理 `localStorage` 和 `sessionStorage` 的相关操作，自动加上对应微应用的 namespace 前缀。
-
-```typescript
-// @cordis/security/storage
-import { Context, Service } from 'cordis'
-
-declare module 'cordis' {
-  interface Context {
-    storageIsolator: StorageIsolator
-  }
-}
-
-class StorageIsolator extends Service {
-  constructor(ctx: Context) {
-    super(ctx, 'storageIsolator')
-  }
-
-  createScopedStorage(appId: string, type: 'localStorage' | 'sessionStorage'): Storage {
-    const prefix = `cordis_${appId}:`
-    const originalStorage = window[type]
-
-    return {
-      get length() {
-        let count = 0
-        for (let i = 0; i < originalStorage.length; i++) {
-          if (originalStorage.key(i)?.startsWith(prefix)) count++
-        }
-        return count
-      },
-      clear: () => {
-        const keysToRemove: string[] = []
-        for (let i = 0; i < originalStorage.length; i++) {
-          const key = originalStorage.key(i)
-          if (key?.startsWith(prefix)) keysToRemove.push(key)
-        }
-        keysToRemove.forEach(k => originalStorage.removeItem(k))
-      },
-      getItem: (key: string) => originalStorage.getItem(`${prefix}${key}`),
-      key: (index: number) => {
-        let current = 0
-        for (let i = 0; i < originalStorage.length; i++) {
-          const k = originalStorage.key(i)
-          if (k?.startsWith(prefix)) {
-            if (current === index) return k.slice(prefix.length)
-            current++
-          }
-        }
-        return null
-      },
-      removeItem: (key: string) => originalStorage.removeItem(`${prefix}${key}`),
-      setItem: (key: string, value: string) => {
-        // ACL 或限制容量检查可在此处拦截
-        originalStorage.setItem(`${prefix}${key}`, value)
-      }
-    }
-  }
-
-  // 注入到沙箱中
-  applyStorageSandbox(ctx: Context, appId: string) {
-    ctx.effect(() => {
-      const scopedLocalStorage = this.createScopedStorage(appId, 'localStorage')
-      const scopedSessionStorage = this.createScopedStorage(appId, 'sessionStorage')
-      
-      // 此处假设存在一个注入沙箱全局对象的 API
-      // sandboxWindow.localStorage = scopedLocalStorage
-      // sandboxWindow.sessionStorage = scopedSessionStorage
-
-      return () => {
-        // 清理逻辑
-      }
-    })
-  }
-}
-```
-
-针对 IndexedDB 的隔离可以通过 Hook `indexedDB.open` 给数据库名加上前缀实现；对 Cookie 则可通过重写 `document.cookie` 的 Getter 和 Setter 根据规则控制应用可读写的 Cookie 项。
-
----
-
-## 九、安全审计日志
-
-### 9.1 安全事件日志
-
-```typescript
-// @cordis/security/audit
-class SecurityAuditLogger {
-  private logs: SecurityEvent[] = []
-  private maxLogs: number = 10000
-  
-  // 记录安全事件
-  log(event: SecurityEvent): void {
-    this.logs.push({
-      ...event,
-      timestamp: event.timestamp || Date.now(),
-      stack: event.stack || new Error().stack
-    })
-    
-    // 限制日志数量
-    if (this.logs.length > this.maxLogs) {
-      this.logs.shift()
-    }
-    
-    // 实时上报
-    this.reportToServer(event)
-  }
-  
-  // 获取日志
-  getLogs(filter?: SecurityEventFilter): SecurityEvent[] {
-    if (!filter) return this.logs
-    
-    return this.logs.filter(log => {
-      if (filter.type && log.type !== filter.type) return false
-      if (filter.appId && log.appId !== filter.appId) return false
-      if (filter.startTime && log.timestamp < filter.startTime) return false
-      if (filter.endTime && log.timestamp > filter.endTime) return false
-      return true
-    })
-  }
-  
-  // 上报到服务器
-  private async reportToServer(event: SecurityEvent): Promise<void> {
-    // 批量上报，避免频繁请求
-    if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
-      const blob = new Blob([JSON.stringify(event)], { type: 'application/json' })
-      navigator.sendBeacon('/api/security/audit', blob)
-    }
-  }
-  
-  // 导出日志
-  exportLogs(): string {
-    return JSON.stringify(this.logs, null, 2)
-  }
-}
-
-interface SecurityEvent {
-  type: string
-  appId?: string
-  key?: string
-  url?: string
-  timestamp?: number
-  stack?: string
-  [key: string]: any
-}
-
-interface SecurityEventFilter {
-  type?: string
-  appId?: string
-  startTime?: number
-  endTime?: number
-}
-```
-
-### 9.2 安全告警
-
-```typescript
-// @cordis/security/alert
-class SecurityAlertManager {
-  private alertRules: Map<string, AlertRule> = new Map()
-  private alertCallbacks: Map<string, Set<(alert: SecurityAlert) => void>> = new Map()
-  
-  // 注册告警规则
-  registerRule(name: string, rule: AlertRule): void {
-    this.alertRules.set(name, rule)
-  }
-  
-  // 触发告警
-  trigger(alertType: string, event: SecurityEvent): void {
-    const alert: SecurityAlert = {
-      type: alertType,
-      event,
-      timestamp: Date.now(),
-      severity: this.getSeverity(alertType)
-    }
-    
-    // 通知订阅者
-    const callbacks = this.alertCallbacks.get(alertType)
-    if (callbacks) {
-      callbacks.forEach(cb => cb(alert))
-    }
-    
-    // 记录告警
-    securityLogger.log({
-      type: 'ALERT',
-      alertType,
-      event,
-      timestamp: Date.now()
-    })
-    
-    // 高严重度告警立即上报
-    if (alert.severity === 'critical') {
-      this.escalateAlert(alert)
-    }
-  }
-  
-  // 订阅告警
-  onAlert(alertType: string, callback: (alert: SecurityAlert) => void): () => void {
-    if (!this.alertCallbacks.has(alertType)) {
-      this.alertCallbacks.set(alertType, new Set())
-    }
-    this.alertCallbacks.get(alertType)!.add(callback)
-    
-    return () => {
-      this.alertCallbacks.get(alertType)?.delete(callback)
-    }
-  }
-  
-  // 获取严重度
-  private getSeverity(alertType: string): 'low' | 'medium' | 'high' | 'critical' {
-    const severityMap: Record<string, string> = {
-      'SANDBOX_ESCAPE_ATTEMPT': 'critical',
-      'XSS_BLOCKED': 'high',
-      'CSRF_BLOCKED': 'high',
-      'RESOURCE_BLOCKED': 'medium',
-      'SRI_MISMATCH': 'high',
-      'PERMISSION_DENIED': 'low'
-    }
-    return (severityMap[alertType] || 'medium') as any
-  }
-  
-  // 升级告警
-  private async escalateAlert(alert: SecurityAlert): Promise<void> {
-    // 发送紧急通知
-    await fetch('/api/security/alerts/critical', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(alert)
-    })
-  }
-}
-
-interface AlertRule {
-  condition: (event: SecurityEvent) => boolean
-  alertType: string
-}
-
-interface SecurityAlert {
-  type: string
-  event: SecurityEvent
-  timestamp: number
-  severity: 'low' | 'medium' | 'high' | 'critical'
-}
-```
-
----
-
-## 十、CSRF 防护
-
-### 10.1 CSRF Token
-
-```typescript
-// @cordis/security/csrf
-class CSRFProtection {
-  private token: string | null = null
-  
-  // 生成 CSRF Token
-  generateToken(): string {
-    const array = new Uint8Array(32)
-    crypto.getRandomValues(array)
-    this.token = btoa(String.fromCharCode(...array))
-    
-    // 存储到 sessionStorage
-    sessionStorage.setItem('cordis-csrf-token', this.token)
-    
-    return this.token
-  }
-  
-  // 获取 Token
-  getToken(): string {
-    if (!this.token) {
-      this.token = sessionStorage.getItem('cordis-csrf-token') || this.generateToken()
-    }
-    return this.token
-  }
-  
-  // 验证 Token
-  validateToken(token: string): boolean {
-    return token === this.getToken()
-  }
-  
-  // 拦截 fetch 请求
-  interceptFetch(): void {
-    const originalFetch = window.fetch
-    
-    window.fetch = async (input: RequestInfo, init?: RequestInit) => {
-      // 只对同源请求添加 Token
-      const url = typeof input === 'string' ? input : input.url
-      if (this.isSameOrigin(url)) {
-        const headers = new Headers(init?.headers)
-        headers.set('X-CSRF-Token', this.getToken())
-        
-        init = {
-          ...init,
-          headers,
-          credentials: 'same-origin'
-        }
-      }
-      
-      return originalFetch(input, init)
-    }
-  }
-  
-  // 拦截 XMLHttpRequest
-  interceptXHR(): void {
-    const originalOpen = XMLHttpRequest.prototype.open
-    const originalSend = XMLHttpRequest.prototype.send
-    const self = this
-    
-    XMLHttpRequest.prototype.open = function(
-      method: string, 
-      url: string, 
-      ...args: any[]
-    ) {
-      this._cordis_url = url
-      this._cordis_method = method
-      return originalOpen.call(this, method, url, ...args)
-    }
-    
-    XMLHttpRequest.prototype.send = function(body?: any) {
-      if (self.isSameOrigin(this._cordis_url) && 
-          ['POST', 'PUT', 'DELETE', 'PATCH'].includes(this._cordis_method)) {
-        this.setRequestHeader('X-CSRF-Token', self.getToken())
-      }
-      return originalSend.call(this, body)
-    }
-  }
-  
-  // 检查同源
-  private isSameOrigin(url: string): boolean {
-    try {
-      const parsed = new URL(url, window.location.href)
-      return parsed.origin === window.location.origin
-    } catch {
-      return false
-    }
-  }
-}
-```
-
----
-
-## 十一、安全配置
-
-### 11.1 配置文件
-
-```json
-// cordis.security.json
-{
-  "security": {
-    "xss": {
-      "enabled": true,
-      "sanitizeHTML": true,
-      "sanitizeURL": true,
-      "csp": {
-        "enabled": true,
-        "policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
-      }
-    },
-    "sandbox": {
-      "type": "proxy",
-      "strict": true,
-      "blockDangerousKeys": true,
-      "prototypeProtection": true
-    },
-    "resources": {
-      "sri": true,
-      "whitelist": [
-        "self",
-        "https://cdn.cordis.example.com",
-        "https://cdn.jsdelivr.net"
-      ]
-    },
-    "permissions": {
-      "enabled": true,
-      "default": "deny"
-    },
-    "csrf": {
-      "enabled": true,
-      "tokenHeader": "X-CSRF-Token"
-    },
-    "encryption": {
-      "enabled": true,
-      "algorithm": "AES-GCM"
-    },
-    "audit": {
-      "enabled": true,
-      "maxLogs": 10000,
-      "reportEndpoint": "/api/security/audit"
-    }
-  }
-}
-```
-
----
-
-## 十二、急停机制（Kill Switch）
-
-在微前端架构中，如果某个微应用被攻破或出现严重故障，需要能够远程紧急禁用该应用，以防止影响全局或其他应用。
-
-```typescript
-// @cordis/security/kill-switch
-interface EmergencyControl {
-  disableApp(appId: string, reason: string): void;
-  enableApp(appId: string): void;
-  isAppDisabled(appId: string): boolean;
-}
-
-class RemoteAppControl implements EmergencyControl {
-  private disabledApps: Map<string, string> = new Map();
-
-  disableApp(appId: string, reason: string): void {
-    this.disabledApps.set(appId, reason);
-    // 强制卸载应用
-    if (window.__CORDIS_RUNTIME__) {
-      window.__CORDIS_RUNTIME__.unmountApp(appId);
-    }
-    securityLogger.log({
-      type: 'EMERGENCY_STOP',
-      appId,
-      reason,
-      timestamp: Date.now()
-    });
-  }
-
-  enableApp(appId: string): void {
-    this.disabledApps.delete(appId);
-  }
-
-  isAppDisabled(appId: string): boolean {
-    return this.disabledApps.has(appId);
-  }
-}
-```
-
----
-
-## 十三、与现有方案对比
-
-| 维度 | qiankun | wujia | micro-app | Cordis |
-|------|---------|-------|-----------|--------|
-| **XSS 防护** | 基础 | iframe 隔离 | 基础 | 全面 |
-| **沙箱逃逸防护** | 基础 | 强（iframe） | 基础 | 全面 |
-| **资源完整性** | 无 | 无 | 无 | SRI |
-| **权限控制** | 无 | 无 | 无 | RBAC |
-| **数据加密** | 无 | 无 | 无 | Web Crypto |
-| **安全审计** | 无 | 无 | 无 | 完整 |
-| **CSRF 防护** | 无 | 无 | 无 | 有 |
-| **CSP 策略** | 无 | 无 | 无 | 有 |
-
----
-
-## 十四、实现优先级
-
-| 优先级 | 功能 | 说明 |
-|--------|------|------|
-| P0 | XSS 防护 | 输入消毒、CSP |
-| P0 | 沙箱逃逸防护 | 原型链保护、增强 Proxy |
-| P0 | 权限控制 | RBAC 模型 |
-| P1 | 资源完整性 | SRI 校验 |
-| P1 | CSRF 防护 | Token 机制 |
-| P1 | 安全审计 | 事件日志 |
-| P2 | 数据加密 | Web Crypto API |
-| P2 | 安全告警 | 规则引擎 |
-| P3 | 资源白名单 | 域名控制 |
-| P3 | 敏感数据保护 | 脱敏处理 |
+| 旧设计问题（评审编号） | 本版修复 |
+|------------------------|----------|
+| 1.1 十余个全局单例非 Service | §二 全部 Service 化 + ctx.effect 托管 |
+| 1.2 NetworkGateway 假 effect/全局替换 fetch | §6.2 挂 bus 唯一链、disposer 托管 |
+| 1.3 createElement 猴补无回滚 | §6.3 effect 托管回滚 |
+| 1.5 `__CORDIS_RUNTIME__` 攻击面 | §十 废除全局句柄 + 沙箱黑名单 |
+| 2.1 sanitizeURL 默认放行/协议相对 URL 绕过 | §3.2 默认拒绝 + URL 解析 |
+| 2.2 sanitizeHTML 名不副实 | §3.3 DOMPurify |
+| 2.3 CSP unsafe-inline/与 3.2.2 矛盾 | §3.1 HTTP 头 + nonce + TT，客户端配置废除 |
+| 2.4 Enhanced 沙箱 dangerousKeys 表面防护 | §四 降级为纵深；边界=iframe |
+| 2.5 iframe allow-same-origin 反例 | §四/js-sandbox §五 移除 |
+| 2.6 SRI 双重取数死代码/无 onload/大资源栈溢出/无信任链 | §8.1 签名清单+失败 reject+分块哈希 |
+| 2.7 SecureScriptLoader ReferenceError/src 赋值绕过 | §6.3 this.security 引用 + src 属性收敛 |
+| 2.8 action:'*' 永不生效 | §五 显式实现 + deny 优先 |
+| 2.9 三个权限中间件未接线 | §二 接线表 |
+| 2.10 客户端自造 CSRF token | §七 服务端 double-submit 协议 |
+| 2.11 加密无密钥管理 | 移除客户端加密叙事（传输安全交 TLS；静态敏感数据走受控注入 §6.1） |
+| 2.12 脱敏多行/循环引用 | §九 redact 修复 |
+| 2.13 存储隔离停留在注释 | js-sandbox §3.7 真实现（本文引用） |
+| 2.14 审计每条 sendBeacon/端点可伪造 | §九 批量+签名 |
+| 2.15 PrototypeGuard 死实现 | js-sandbox §3.3 Object.freeze 策略 |
+| 2.16 KillSwitch 无鉴权/内存态 | §十 签名指令+持久化+加载路径强制 |
+| 11.1 白名单 'self' 永不匹配 | §五 matchResource 支持 self 关键字 |

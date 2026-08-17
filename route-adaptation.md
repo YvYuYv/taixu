@@ -1,719 +1,281 @@
-# Cordis 路由适配层方案
+# Cordis 路由适配（Route Adaptation）
+
+> 对齐基线：[cordis-alignment.md](./cordis-alignment.md)。
+> 术语修正：Cordis 中不存在"路由即 coeffect"的抽象；本文的正确表述是：**路由状态是一种 reactive coeffect（应用声明依赖的位置状态，变更时通知应用）**。`push 与 replace 互为逆操作`的说法废除（replace 丢弃历史记录，不可逆）。
 
 ## 一、问题分析
 
-### 1.1 现有微前端路由的痛点
-
 | 问题维度 | 具体表现 |
 |----------|----------|
-| **嵌套路由冲突** | 主应用 `/app1/detail` 与子应用 `/detail` 路径重叠时，两者路由表同时匹配 |
-| **状态丢失** | 切换应用时，原应用的路由参数、query、hash 丢失 |
-| **前进后退异常** | 浏览器前进后退按钮在跨应用切换时行为不一致 |
-| **URL 同步** | 子应用内部导航后，主应用侧边栏/面包屑不更新 |
-| **多版本路由共存** | 同一组件依赖 Vue Router 2.x 和 4.x 的两个版本，路由实例冲突 |
+| 嵌套路由冲突 | 主应用 `/app1/detail` 与子应用路由重叠，双方同时匹配 |
+| 状态丢失 | 切换应用时路由参数/query/hash 丢失 |
+| 前进后退异常 | 跨应用切换时浏览器前进后退行为不一致 |
+| URL 同步 | 子应用内部导航后主应用侧边栏/面包屑不更新 |
+| 多版本路由共存 | Vue Router 2.x 与 4.x 实例冲突 |
 
-### 1.2 LinkJS 的现有方案
+## 二、Cordis 理论视角（修正版）
 
-LinkJS 采用**主应用代理路由**模式：
-- 主应用持有完整路由表
-- 子应用通过 `LinkJS.navigate(path)` 委托主应用导航
-- 子应用内部通过 `this.$router` 访问被代理的路由实例
+| Cordis 能力 | 路由模块用法 |
+|-------------|-------------|
+| Service + isolate 可见性 | router 是 root 服务；**每个 outlet 的视图状态**经 `ctx.isolate('router-view')` 隔离（多槽位各自解析） |
+| reactive coeffect | 应用经 `ctx.router.watch(outlet, fn)` 订阅自己槽位的位置（内部 ctx.effect 托管） |
+| `ctx.serial`（返回非空即截断） | 导航守卫管线的原生载体（§4.4） |
+| 事件解耦 | router 不 inject lifecycle：发 `router/navigate` serial 事件，lifecycle 执行挂载（基线 §2.3，消除旧死锁环） |
 
-**问题**：子应用无法独立管理路由，强依赖主应用实现。
+**废除的自造 API**（旧文档未定义、与 Cordis 惯用法冲突）：`ctx.service.lifecycleManager`、`ctx.onChange`、`ctx.addGuard`、`ctx.syncFromRoot/syncFromPathname/syncFromQuery/syncFromHash`、全局 `useRoute()/useRouter()`（无 ctx 参数）。统一经 router 服务：
 
----
+```typescript
+class RouterService extends Service {
+  static [Context.provide] = 'router'
+  static inject = ['monitor', 'security']
 
-## 二、Cordis 理论视角下的路由
-
-### 2.1 路由即 Coeffect
-
-在 Cordis 理论中，**路由是一种典型的共效应（coeffect）**：
-- 它描述应用"从哪个上下文来"（当前路径）
-- 它影响应用"到哪个上下文去"（目标路径）
-- 它是**可逆的**：前进 ↔ 后退，push ↔ replace
-
-```
-路由 = coeffect<PathState>
-```
-
-### 2.2 路由上下文分层
-
-```
-┌─────────────────────────────────────────┐
-│  Root Route Context（根路由上下文）       │
-│  - 管理应用级路径：/app1, /app2          │
-│  - 持有浏览器 History API                │
-├─────────────────────────────────────────┤
-│  Sub Route Context（子路由上下文）        │
-│  - 管理子应用内部路径：/detail, /list    │
-│  - 由父上下文派生，不直接操作 History    │
-├─────────────────────────────────────────┤
-│  Component Route Context（组件路由上下文）│
-│  - 组件内部路由状态：params, query       │
-│  - 响应式订阅父上下文变化                │
-└─────────────────────────────────────────┘
-```
-
----
-
-## 三、适配层架构设计
-
-### 3.1 核心设计原则
-
-1. **子应用零改动**：现有 Vue 组件代码 `this.$router.push('/xxx')` 完全不变
-2. **路由隔离**：每个子应用拥有独立路由表，互不干扰
-3. **汇合性保证**：无论从哪个路径进入，最终状态一致
-4. **可逆性**：前进后退在跨应用切换时正确工作
-
-### 3.2 架构分层
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  声明层：cordis.routes.json                              │
-│  声明每个子应用的路由前缀和路由表                          │
-├─────────────────────────────────────────────────────────┤
-│  构建层：vite-plugin-cordis-router                       │
-│  构建时转换 Vue Router 实例为 Cordis 路由上下文           │
-├─────────────────────────────────────────────────────────┤
-│  运行时层：@cordis/router                                │
-│  提供 createRouter、useRoute、useRouter 的 Cordis 版本   │
-├─────────────────────────────────────────────────────────┤
-│  桥接层：cordova-router-vue2 / cordis-router-vue3        │
-│  将 Cordis 路由上下文桥接为 Vue Router 实例              │
-└─────────────────────────────────────────────────────────┘
-```
-
----
-
-## 四、各层详细设计
-
-### 4.1 声明层：`cordis.routes.json`
-
-每个子应用根目录声明路由配置：
-
-```json
-{
-  "routes": {
-    "basePath": "/app1",
-    "mode": "history",
-    "routes": [
-      { "path": "/", "component": "views/Home.vue" },
-      { "path": "/detail/:id", "component": "views/Detail.vue" }
-    ]
-  },
-  "fallback": {
-    "enabled": true,
-    "target": "/404"
+  /** 应用侧唯一入口：当前 outlet 的位置（reactive coeffect） */
+  watch(ctx: Context, outlet: string, fn: (loc: RouteLocation) => void) {
+    ctx.effect(() => {
+      const record = { fn, ctx }
+      this.views.get(outlet)!.watchers.add(record)
+      fn(this.current(outlet))                     // 首跑：同步拿到当前值（无异步回放乱序）
+      return () => this.views.get(outlet)!.watchers.delete(record)
+    }, `router.watch(${outlet})`)
   }
+
+  navigate(to: Partial<RouteLocation>, options: { outlet?: string; replace?: boolean } = {}) { /* §4.3 */ }
 }
 ```
 
-**字段说明**：
+## 三、URL 与槽位矩阵模型
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `basePath` | string | 子应用在浏览器 URL 中的路径前缀 |
-| `mode` | `'history' \| 'hash'` | 路由模式，默认 history |
-| `routes` | Route[] | 子应用路由表（与 Vue Router 格式一致） |
-| `fallback.enabled` | boolean | 是否启用 404 兜底 |
-| `fallback.target` | string | 404 页面路径 |
+### 3.1 多槽位 URL 文法（修复通道冲突与保留字撞名）
 
-### 4.2 构建层：`vite-plugin-cordis-router`
+三通道分配（与旧版一致）+ **统一保留字前缀**：
 
-#### 4.2.1 构建时转换规则
-
-**转换目标**：将子应用的 `createRouter()` 调用转换为 Cordis 路由上下文创建。
-
-**转换示例**：
-
-```javascript
-// 源代码（子应用，不改动）
-import { createRouter, createWebHistory } from 'vue-router'
-
-const router = createRouter({
-  history: createWebHistory(),
-  routes: [...]
-})
-
-export default router
+```
+https://host/main/path?__tx_main=1&__tx_sidebar=%2Flist&__tx_w0=%2Fdetail#w=__tx_widget%3D%2Fhome
+     └── 主区域（pathname）  └── 侧栏（query）         └── widget（query）   └── 浮窗（hash，URL-encoded）
 ```
 
-```javascript
-// 构建后（插件自动生成）
-import { __cordis_create_router__ } from '@cordis/router'
+规则：
 
-// 路由前缀由 cordis.routes.json 注入
-const router = __cordis_create_router__({
-  basePath: '/app1',           // 从 cordis.routes.json 读取
-  mode: 'history',             // 从 cordis.routes.json 读取
-  routes: [
-    { path: '/', component: () => import('views/Home.vue') },
-    { path: '/detail/:id', component: () => import('views/Detail.vue') }
-  ],
-  // 自动注入桥接配置
-  __cordis_bridge__: {
-    type: 'vue3',              // 检测 Vue 版本
-    routerModule: 'vue-router' // 原始路由模块
-  }
-})
+1. **保留字前缀 `__tx_`**：全部框架管理的槽位参数统一前缀；子应用业务参数撞名空间由 `__tx_` 前缀隔离（旧版 `sidebar_path` 裸名可被业务参数撞掉）。构建期 lint 检测子应用自身使用 `__tx_` 前缀参数并报错
+2. **通道仲裁**：主区域 = pathname；非浮窗槽位（sidebar/多 widget）= query 通道；**hash 通道仅保留给浮窗类 widget**。hash 模式子应用（`/app1#/detail`）的 `#` 属于**主应用 pathname 通道内嵌**（`/app1` 是主区域路径，其 hash 由该应用的桥接层本地管理，不进 hash 通道）--消除旧版"hash 模式与 widget 争抢 `#`"的双 owner 冲突
+3. **序列化格式**：hash 通道值为 URL-encoded 的 `槽位=路径` 映射（`w=__tx_widget%3D%2Fhome` 支持多浮窗）
+4. **参数合并**：任一槽位导航时，router 以"全量槽位状态"重写 URL（读旧值 -> 仅改目标槽位 -> 写回），**不会**抹掉其他槽位（旧版子应用 `router.replace({query})` 只带自己的 query，sidebar 状态被清空）
 
-export default router
-```
+### 3.2 深度链接与 query 传递（修复 token 泄漏与隐式携带）
 
-#### 4.2.2 Vue Router API 兼容转换
+- 跨应用跳转默认**只携带显式声明的参数**（应用的 `cordis.routes.json` 声明 `carry: ['tab']`）；`__tx_*` 槽位参数在合并层自动保留但不进应用可见 query
+- **敏感参数过滤**：跳转经 `security.sanitizeQuery()`（默认剥离 `token/_t/sign` 等黑名单键 + 可配置），杜绝 `?token=xxx` 跨应用泄漏（旧版"自动提取 from 的 query 合并到 to"正好反向放大泄漏）
 
-插件识别并转换常见的 Vue Router API 调用：
+### 3.3 RouteContextTree 废除
 
-| 原始 API | 转换后 |
-|----------|--------|
-| `router.push('/path')` | `__cordis_router_push__('/path', '/app1')` |
-| `router.replace('/path')` | `__cordis_router_replace__('/path', '/app1')` |
-| `route.params` | `__cordis_route_params__()` |
-| `route.query` | `__cordis_route_query__()` |
-| `router.beforeEach(fn)` | `__cordis_router_guard__('beforeEach', fn)` |
+旧版自研 `RouteContextNode/children/resolve` 复制了 Cordis 已有的上下文层级。新模型：
 
-#### 4.2.3 Vue 2 与 Vue 3 的差异处理
+- **槽位注册**：`router.registerOutlet(outlet, { owner: appId, basePath? })`（lifecycle 挂载时调用，注销随应用 fiber dispose 自动完成--登记挂 ctx.effect）
+- **匹配**：pathname 前缀匹配按**路径段边界**（`/app1/mod` 不命中 `/app1/module-a` 的注册；同 basePath 重复注册显式报错，不静默覆盖）
+- **视图隔离**：`ctx.isolate('router-view')` 使每个 outlet 的 watcher 集合独立（Service 可见性过滤，基线 §1.3）
 
-**Vue 2（Vue Router 3.x）**：
-```javascript
-// 构建时插件注入 mixin
-Vue.mixin({
-  beforeCreate() {
-    // 将 Cordis 路由上下文注入为 this.$router
-    if (this.$root === this && !this.$router) {
-      this.$router = __cordis_get_router__(this)
+## 四、导航管线
+
+### 4.1 可取消导航 + 导航序号（修复竞态）
+
+```typescript
+class NavigationController {
+  private seq = 0
+
+  async navigate(to: NavigationIntent): Promise<NavigationResult> {
+    const id = ++this.seq
+    const controller = new AbortController()
+    // 1. 超序号作废：任何更新的导航开始后，本导航全部阶段检查 seq
+    const stale = () => id !== this.seq || controller.signal.aborted
+
+    // 2. 守卫管线（serial，可拦截）
+    const verdict = await this.ctx.serial('router/navigate', {
+      from: this.current(to.outlet), to: this.normalize(to), outlet: to.outlet, signal: controller.signal,
+    })
+    if (stale()) return { status: 'superseded' }        // 快速连点：旧导航静默让位
+    if (verdict !== undefined) {
+      this.ctx.emit('router/aborted', { outlet: to.outlet, reason: 'guard' })
+      return { status: 'guarded', redirect: verdict as string }
     }
-  }
-})
-```
 
-**Vue 3（Vue Router 4.x）**：
-```javascript
-// 构建时插件自动包装 app.use(router)
-const app = createApp(...)
-// 原始：app.use(router)
-// 转换后：
-app.use(__cordis_bridge_router__(router, { type: 'vue3' }))
-```
+    // 3. URL 写入（history.replaceState 防重复记录）
+    this.writeUrl(this.mergeOutlets(to), to.replace ? 'replace' : 'push')
 
-### 4.3 运行时层：`@cordis/router`
-
-#### 4.3.1 核心 API
-
-```typescript
-// 创建 Cordis 路由上下文
-function createRouteContext(config: {
-  basePath: string
-  mode: 'history' | 'hash'
-  routes: Route[]
-}): RouteContext
-
-// 路由导航（内部使用）
-function navigate(path: string, basePath?: string): void
-
-// 获取当前路由状态（响应式）
-function useRoute(): Reactive<RouteState>
-
-// 获取路由导航方法
-function useRouter(): Router
-
-// 路由守卫（跨应用协调）
-function beforeEach(guard: NavigationGuard): () => void
-```
-
-#### 4.3.2 路由状态同步机制
-
-```typescript
-// 路由状态结构
-interface RouteState {
-  fullPath: string        // 完整路径：/app1/detail/123?tab=info
-  basePath: string        // 子应用前缀：/app1
-  subPath: string         // 子应用内部路径：/detail/123
-  params: Record<string, string>
-  query: Record<string, string>
-  hash: string
-}
-
-// 状态同步流程
-// 1. 用户在子应用点击导航：router.push('/detail/123')
-// 2. Cordis 路由拦截，拼接完整路径：/app1/detail/123
-// 3. 调用根路由上下文更新浏览器 URL
-// 4. 根路由广播变化事件
-// 5. 所有子应用的路由上下文响应式更新
-```
-
-#### 4.3.3 跨应用路由协调
-
-```typescript
-// 路由上下文节点
-interface RouteContextNode {
-  context: RouteContext;
-  children: Map<string, RouteContextNode>;
-}
-
-// 路由上下文树（支持多级嵌套）
-class RouteContextTree {
-  private root: RouteContextNode; // 根节点
-
-  // 支持多级注册：/app1 下再注册 /app1/module-a
-  register(basePath: string, context: RouteContext, parentPath?: string) {
-    const parent = parentPath ? this.findNode(parentPath) : this.root;
-    parent.children.set(basePath, { context, children: new Map() });
-  }
-
-  // 递归匹配最深的路由上下文
-  resolve(fullPath: string): RouteContextNode[] {
-    // 返回从 root 到最深匹配的节点链
-    // 实现省略：根据路径前缀逐级向下匹配
-    return matchedNodes;
-  }
-
-  // 子路由导航时，委托给根路由
-  navigate(subPath: string, fromBase: string) {
-    const fullPath = this.joinPath(fromBase, subPath)
-    this.root.context.push(fullPath)  // 只有根路由操作 History API
-  }
-
-  // 浏览器前进后退时，从根路由分发到最深匹配的子路由
-  onPopState(fullPath: string) {
-    const nodes = this.resolve(fullPath)
-    if (nodes.length > 0) {
-      const deepestCtx = nodes[nodes.length - 1].context
-      deepestCtx.syncFromRoot(fullPath)
-    }
+    // 4. 挂载/切换经 lifecycle（事件解耦，非 inject）
+    await this.lifecycleEvents.mountFor(to)
+    if (stale()) { /* 新导航已接管挂载 */ }
+    this.ctx.emit('router/changed', { location: this.location(), outlets: this.snapshot() })
+    return { status: 'ok' }
   }
 }
 ```
 
-#### 4.3.4 路由守卫跨应用处理
-
-跨应用路由切换时，需要按顺序执行多个应用的路由守卫，并正确处理重定向或取消。
+### 4.2 popstate 全链路（修复守卫逃逸）
 
 ```typescript
-class CrossAppGuardManager {
-  private guards: Array<{ priority: number; guard: NavigationGuard }> = [];
-  
-  async runGuards(from: Route, to: Route): Promise<boolean> {
-    // 按优先级排序执行
-    const sorted = [...this.guards].sort((a, b) => a.priority - b.priority);
-    for (const { guard } of sorted) {
-      const result = await guard(from, to);
-      if (result === false) return false; // 守卫拒绝，取消导航
-      if (typeof result === 'string') {
-        // 重定向
-        await this.navigate(result);
-        return false;
+init(ctx: Context) {
+  ctx.effect(() => {
+    const onPop = async (e: PopStateEvent) => {
+      // 浏览器后退/前进同样走完整导航管线（守卫+序号），修复旧版"popstate 直通 syncFromRoot 绕过鉴权守卫"
+      const intent = this.parseLocation()          // 目标态来自 event.state 快照
+      const result = await this.navigate({ ...intent, history: true })
+      if (result.status === 'guarded') {
+        // 守卫拒绝历史导航：以 replace 恢复原 URL（不产生新历史记录）
+        this.writeUrl(this.lastCommitted, 'replace')
       }
     }
-    return true;
-  }
+    addEventListener('popstate', onPop)
+    const onHash = (e: HashChangeEvent) => this.dedupe(onPop, e)   // hash 模式双事件去重（同一 location 只处理一次）
+    addEventListener('hashchange', onHash)
+    return () => { removeEventListener('popstate', onPop); removeEventListener('hashchange', onHash) }
+  })
 }
 ```
 
-### 4.4 桥接层：`cordis-router-vue3` / `cordis-router-vue2`
+- **history.state 快照**：每次 commit 将全部槽位状态写入 `history.state`；恢复时从 state 而非重新猜测（保证前进后退跨应用一致性）
+- 在途导航（守卫 await 用户确认）期间 popstate 到达：`seq` 机制使旧导航 superseded，无交错写 URL
 
-#### 4.4.1 Vue 3 桥接实现
+### 4.3 守卫（serial 管线 + 防死循环）
 
 ```typescript
-// 将 Cordis 路由上下文桥接为 Vue Router 4.x 兼容实例
-function bridgeToVueRouter(ctx: RouteContext): Router {
-  const router = {
-    // 实现 Vue Router 4.x 的 Router 接口
-    push(to: RouteLocationRaw) {
-      const path = resolvePath(to)
-      ctx.navigate(path)
-      return Promise.resolve()
-    },
+// 守卫注册（应用/宿主均可；执行顺序 = 注册顺序，prepend 可选）
+ctx.on('router/navigate', async (e) => {
+  if (!requiresAuth(e.to)) return                    // 无返回值 = 放行
+  if (!(await ctx.security.checkSession())) return '/login'   // 返回字符串/路由 = 拦截并重定向
+}, { global: true })
 
-    replace(to: RouteLocationRaw) {
-      const path = resolvePath(to)
-      ctx.navigate(path, { replace: true })
-      return Promise.resolve()
-    },
-
-    get currentRoute() {
-      return reactive({
-        path: ctx.subPath,
-        fullPath: ctx.fullPath,
-        params: ctx.params,
-        query: ctx.query,
-        hash: ctx.hash
-      })
-    },
-
-    beforeEach(guard: NavigationGuard) {
-      return ctx.addGuard('beforeEach', guard)
-    },
-
-    // ... 其他 Vue Router API 实现
+// NavigationController 内的重定向防死循环：
+private async handleRedirect(redirect: string, depth: number) {
+  if (depth >= 8) {                                   // 对齐 vue-router 的 8 次上限
+    this.ctx.emit('monitor/alert', { alert: { type: 'ROUTER_REDIRECT_LOOP', detail: { redirect } } })
+    return this.renderError('redirect-loop')
   }
+  return this.navigate({ to: redirect, depth: depth + 1 })
+}
+```
 
+- 修复旧版 `CrossAppGuardManager` + 手工 priority 排序（重复发明 serial）
+- 修复旧版 `if (typeof result === 'string') { await this.navigate(result) }` 无上限重入
+
+### 4.4 导航与 lifecycle 的解耦协议
+
+```
+router --serial('router/navigate')--> [守卫们]
+router --mountFor(intent)--> lifecycle（内部经事件或服务调用，但 router 不 inject lifecycle：
+   lifecycle 在启动时 ctx.on('router/navigate', e => 挂载回调, { global: true })？
+   --否：lifecycle 主动订阅 router 服务暴露的挂载请求流；实现上 router 提供
+   ctx.router.onResolve(cb)，lifecycle inject ['router'] 注册。
+   方向：lifecycle -> router（单向），见基线 §2.3）
+```
+
+## 五、框架桥接
+
+### 5.1 Vue Router 4（createRouter 路线）
+
+```typescript
+export function createCordisRouter(ctx: Context, options: VueRouterOptions): Router {
+  const outlet = options.__cordis_outlet ?? 'main'
+  const fiberCtx = ctx
+  // 桥接实现 CordisRouterLike 接口：current 为稳定 reactive 引用（修复旧版每次 get 新建 reactive 导致依赖收集失效）
+  const currentRef = shallowReactive({ route: toBridgeRoute(fiberCtx.router.current(outlet)) })
+  fiberCtx.router.watch(fiberCtx, outlet, (loc) => { currentRef.route = toBridgeRoute(loc) })
+
+  return {
+    currentRoute: computed(() => currentRef.route),    // 稳定身份 + 跨副本安全：computed 属于子应用自己的 Vue 副本
+    push: (to) => fiberCtx.router.navigate({ ...normalize(to), outlet }),
+    replace: (to) => fiberCtx.router.navigate({ ...normalize(to), outlet, replace: true }),
+    go: (n) => history.go(n),                          // 原生（popstate 管线接管）
+    beforeEach: (fn) => fiberCtx.on('router/navigate', wrapLocalGuard(fn, outlet), { global: true }),
+    isReady: () => Promise.resolve(),
+    // 其余 API（afterEach/beforeResolve/resolve/getRoutes）按需映射；范围在适配器文档明确列出
+  } as Router
+}
+```
+
+- **跨 Vue 副本安全**：桥接对象不引用运行时全局的 `reactive`（旧版用框架运行时的 Vue 副本创建对象，子应用沙箱内是另一份 Vue 时互不识别）--computed 由子应用入口注入或退化为纯 getter+订阅回调
+- `push` 返回真实 Promise（导航完成后 resolve），修复旧版 `Promise.resolve()` 使 `await router.push()` 失效
+
+### 5.2 Vue Router 3（真实实例 + 全 API 代理）
+
+```typescript
+export function bridgeVueRouter2(ctx: Context, Vue: any, options: any) {
+  const router = new VueRouter({ mode: 'abstract', routes: options.routes ?? [] })
+  // abstract 模式：实例不监听 popstate/hashchange（旧版真实 history 模式与 Cordis 根路由双写 History）
+  router.push = (to: any) => ctx.router.navigate({ ...normalizeV2(to), outlet })
+  router.replace = (to: any) => ctx.router.navigate({ ...normalizeV2(to), outlet, replace: true })
+  router.go = (n: number) => history.go(n)
+  router.back = () => history.go(-1)
+  router.forward = () => history.go(1)
+  ctx.router.watch(ctx, outlet, (loc) => {
+    router['app']?.$nextTick?.(() => (router as any).history?.transitionTo?.(loc.path))
+    ;(router as any).currentRoute = toV2Route(loc)     // 受控更新（不再依赖内部 API history.updateRoute）
+  })
+  // $router 注入：Vue.prototype.$router = router（修复旧版仅 this.$root 赋值、子组件取不到）
+  Object.defineProperty(Vue.prototype, '$router', { get: () => router })
   return router
 }
 ```
 
-#### 4.4.2 Vue 2 桥接实现
+- **abstract 模式**消除双写 History；不再锁死 3.6.5 内部 API（旧版依赖 `history.updateRoute` 且建议锁版本，与"多版本共存"目标冲突）
 
-```typescript
-// 将 Cordis 路由上下文桥接为 Vue Router 3.x 兼容实例
-function bridgeToVue2Router(ctx: RouteContext): VueRouter {
-  const router = new VueRouter({
-    mode: ctx.mode === 'history' ? 'history' : 'hash',
-    base: ctx.basePath,
-    routes: []  // 路由表由 Cordis 管理
-  })
+### 5.3 构建期转换（能力边界诚实化）
 
-  // 拦截 Vue Router 的导航方法
-  const originalPush = router.push
-  router.push = (location, onComplete, onAbort) => {
-    const path = resolvePath(location)
-    ctx.navigate(path)
-    // 不调用 originalPush，由 Cordis 统一管理
-  }
+- 转换目标收窄为**模式化场景**：`import.meta.env` 守卫下的入口注入、`createRouter` 工厂替换
+- 变量名静态匹配（`router.push` 成员调用）不可靠场景（别名/解构/`.push` 数组误伤）**不再承诺转换**；替代路径：运行时桥接对象直接替换 import（external 化 cordis-router-bridge，零 AST 魔法）
+- "零改动适配"修订为"**约定式近零改动**"（README 同步修订）：入口处一行 `export default defineCordisApp(...)` 或构建插件 externals 重定向
 
-  // 监听 Cordis 路由变化，同步到 Vue Router
-  ctx.onChange((state) => {
-    const vueRouterInternal = (router as any).history
-    vueRouterInternal.updateRoute(state)
-  })
-
-  return router
-}
-```
-
-> [!WARNING]
-> **Vue 2 桥接脆弱性风险**：此处使用了 Vue Router 3.x 的内部 API `history.updateRoute(state)`。由于该 API 非公开，强依赖于特定版本的内部实现，如果微应用升级了 Vue Router 的非主版本，可能会导致桥接失效。建议在项目中严格锁定 Vue Router 3.x 的版本（推荐锁定 `3.6.5` 及以下）。
-
----
-
-## 五、关键场景处理
-
-### 5.1 场景：子应用内部导航
+### 5.4 history 模式服务端 fallback（新增）
 
 ```
-用户操作：在 /app1 子应用中点击 <router-link to="/detail/123">
-
-流程：
-1. Vue Router 拦截 click 事件
-2. 调用 router.push('/detail/123')
-3. Cordis 桥接层拦截，拼接 basePath：/app1/detail/123
-4. 调用根路由 context.navigate('/app1/detail/123')
-5. 根路由更新浏览器 URL（History API）
-6. 根路由广播 onRouteChange 事件
-7. /app1 子应用的路由上下文响应式更新 subPath = '/detail/123'
-8. Vue Router 桥接实例触发 route change，组件重新渲染
+# nginx
+location / { try_files $uri $uri/ /index.html; }
+# CDN（静态托管）：error page 404 -> /index.html 重写规则（各云厂商等价配置）
 ```
 
-### 5.2 场景：跨应用跳转
+- 宿主部署文档必须包含；`cordis-cli doctor` 检测深链直达 200/404 状态并提示
 
-```
-用户操作：在 /app1 子应用中调用 router.push('/app2/home')
+## 六、场景补全
 
-流程：
-1. Cordis 检测到目标路径前缀 /app2 不属于当前子应用
-2. 触发主应用路由切换：卸载 /app1，加载 /app2
-3. /app2 子应用路由上下文初始化，subPath = '/home'
-4. 浏览器 URL 更新为 /app2/home
-```
+| 场景 | 方案 |
+|------|------|
+| 懒 outlet | `loadOnVisible: true`（IntersectionObserver 触发挂载；observer 挂 ctx.effect） |
+| 应用级错误边界 | 挂载失败 -> lifecycle ErrorOutlet（路由文档引用，UI 属 lifecycle §6.2） |
+| 保活期间路由状态 | suspend 时 router 记录槽位位置快照；resume 校验 URL 与快照不一致时以 URL 为准（用户可能后退） |
+| scroll restoration | history.state 记录 scrollTop；restore 时应用 |
+| 版本偏斜 | 旧 HTML 缓存 + chunk 404 -> deps 服务重取 manifest -> 提示刷新（基线 §五） |
+| CDN 失败重试 | deps 服务多源退避（heterogeneous-loading.md §十） |
+| base path 运行时可配 | `cordis.routes.json` 的 basePath 支持 `${env.BASE}` 占位，运行时由宿主注入 |
+| i18n 路由 | basePath 支持 locale 前缀模式（`/:locale/app1`），router 解析时剥离 |
+| SSR 水合 | router 服务端解析 URL -> 初始槽位矩阵注入 hydration payload；CSR 端首次 watch 直取（P2，与 heterogeneous-loading §SSR 衔接） |
 
-> [!NOTE]
-> **query/hash 保留机制**：在跨应用导航时，Cordis 路由上下文会自动提取 `from` 路由的 query 和 hash，并在生成目标路径时进行合并。如果在 `router.push({ path: '/app2/home', query: { k: 'v' } })` 中显式传递了参数，则会覆盖默认保留的 query/hash，保证应用间状态平滑传递。
+## 七、实施计划
 
-### 5.3 场景：浏览器前进后退
+| 优先级 | 内容 |
+|--------|------|
+| P0 | RouterService（槽位矩阵 + `__tx_` 保留字 + 参数合并）+ NavigationController（序号 + abort） |
+| P0 | popstate 全链路 + history.state 快照恢复 |
+| P1 | 守卫 serial 管线 + 重定向上限 + Vue Router 4/3 桥接 |
+| P1 | 懒 outlet、scroll restoration、敏感 query 过滤 |
+| P2 | SSR 水合、i18n、base path 占位符 |
 
-```
-用户操作：点击浏览器后退按钮
+## 八、与旧文档差异一览
 
-流程：
-1. 浏览器触发 popstate 事件
-2. 根路由上下文接收新 URL：/app1/list
-3. 根路由匹配 basePath = /app1
-4. 分发给 /app1 子路由上下文
-5. /app1 子路由更新 subPath = '/list'
-6. Vue 组件响应式更新
-```
-
-### 5.4 场景：多版本 Vue Router 共存
-
-```
-场景：/app1 使用 Vue Router 3.x，/app2 使用 Vue Router 4.x
-
-Cordis 解决方式：
-1. 两个子应用各自 import 自己的 vue-router 版本
-2. 构建时插件分别桥接为 Cordis 路由上下文
-3. 运行时两个桥接实例共享同一个 RouteContextTree
-4. 路由状态通过 Cordis 上下文同步，互不干扰
-```
-
-### 5.5 场景：混合路由模式（主应用 History + 子应用 Hash）
-
-在实际微前端场景中，主应用可能使用 `history` 模式，而某些子应用因历史包袱必须使用 `hash` 模式。Cordis 适配层通过将 basePath 与模式特定逻辑结合来解决此问题：
-
-```typescript
-// 混合模式支持：主应用 history 模式 + 子应用 hash 模式
-class MixedModeRouter {
-  navigate(path: string, context: RouteContext) {
-    if (context.mode === 'hash') {
-      // 子应用内部路由使用 hash
-      const fullPath = `${context.basePath}#${path}`;
-      window.history.pushState(null, '', fullPath);
-    } else {
-      // 正常 history 模式
-      window.history.pushState(null, '', `${context.basePath}${path}`);
-    }
-  }
-}
-```
-
-### 5.6 场景：深度链接（应用未加载时的路由保留）
-
-当用户直接通过一个带有子应用深层路径的 URL（如 `/app1/detail/123`）访问时，对应的子应用可能尚未加载。适配层需要拦截此路由并暂存状态：
-
-```typescript
-// 深链接支持：应用未加载时保存路由
-class DeepLinkResolver {
-  async resolve(fullPath: string) {
-    const context = this.routeTree.resolve(fullPath);
-    const app = this.appRegistry.getApp(context.appId);
-    
-    if (!app.isLoaded) {
-      // 保存待导航路径
-      this.pendingNavigation = fullPath;
-      // 加载应用
-      await this.lifecycleManager.load(context.appId);
-      await this.lifecycleManager.activate(context.appId);
-      // 应用加载完成后，导航到保存的路径
-      context.navigate(this.pendingNavigation);
-    }
-  }
-}
-```
-
-### 5.7 场景：同屏多应用多槽位 (Multi-Outlet / Multi-Instance Concurrent Routing)
-
-在复杂的企业级工作台中，通常需要同屏展示多个微应用（例如 Header Nav 应用 + Sidebar 应用 + Main Business 主业务应用 + Widget 挂件应用）。为了支持这种高维度的组合，Cordis 路由的 `RouteContextTree` 引入了**命名插槽（Named Outlets）**和**多实例并发路由**模型。
-
-#### 1. 核心模型与路由驱动隔离
-
-为防止同屏多应用的路由冲突，Taixu 将应用的路由驱动机制进行了严格区分：
-- **主路由应用（Primary Route Apps）**：由 URL 的 `pathname` 驱动（如主业务区），独占 URL 的主要路径。
-- **次级/挂件应用（Secondary / Widget Apps）**：由 `query` 参数、`hash` 片段或纯编程式状态（Programmatic State）驱动（如侧边栏、浮窗）。
-
-#### 2. 架构图解
-
-```mermaid
-graph TD
-    URL[Browser URL] -->|pathname| MainCtx[Main Outlet Context]
-    URL -->|query| SidebarCtx[Sidebar Outlet Context]
-    URL -->|hash| WidgetCtx[Widget Outlet Context]
-    
-    subgraph RouteContextTree
-        MainCtx --> MainApp[Primary App: Business]
-        SidebarCtx --> SidebarApp[Secondary App: Menu]
-        WidgetCtx --> WidgetApp[Widget App: Chat]
-    end
-```
-
-#### 3. 独立解析与隔离实现
-
-每个路由上下文可以挂载到特定的 Outlet 上，实现各个槽位的独立子路由解析：
-
-```typescript
-// 定义包含多槽位的路由树结构
-interface OutletContextNode {
-  outletName: string; // 'main', 'sidebar', 'header', 'widget'
-  context: RouteContext;
-  isActive: boolean;
-}
-
-class MultiOutletRouteManager {
-  private outlets: Map<string, OutletContextNode> = new Map();
-
-  // 注册应用到指定槽位
-  registerToOutlet(
-    outletName: string, 
-    context: RouteContext, 
-    driveType: 'pathname' | 'query' | 'hash'
-  ) {
-    this.outlets.set(outletName, { outletName, context, isActive: true });
-    // 基于 driveType 绑定不同的 URL 同步策略，利用 ctx.isolate() 实现范围隔离
-    this.bindDriveStrategy(outletName, context, driveType);
-  }
-
-  // 并发解析：当 URL 变化时，独立更新各个槽位
-  onUrlChange(url: URL) {
-    // 1. 解析 pathname 驱动的主应用 (main)
-    const mainCtx = this.outlets.get('main')?.context;
-    mainCtx?.syncFromPathname(url.pathname);
-
-    // 2. 解析 query 驱动的侧边栏 (sidebar)
-    const sidebarCtx = this.outlets.get('sidebar')?.context;
-    sidebarCtx?.syncFromQuery(url.searchParams.get('sidebar_path'));
-
-    // 3. 解析 hash 驱动的挂件 (widget)
-    const widgetCtx = this.outlets.get('widget')?.context;
-    widgetCtx?.syncFromHash(url.hash);
-  }
-}
-```
-
-通过 `ctx.isolate()`，各个槽位的应用在自己的隔离上下文中运行，即使它们共享同一个底层的 History API，在状态同步时也能做到互不干扰，完全解耦。
-
-### 5.8 场景：可取消的路由导航 (Cancellable Route Navigation)
-
-在微前端架构中，切换应用通常伴随着静态资源的下载（JS/CSS）、沙箱的初始化以及组件的挂载。如果用户在应用加载期间进行快速的前后点击（如快速跳跃 `/app-a` -> `/app-b` -> `/app-c`），会引发严重的竞态条件（Race Conditions）和 UI 闪烁。
-
-为了彻底解决此问题，Taixu 在 Cordis 路由控制器中引入了 `NavigatingController`，基于标准的 `AbortController` 实现了**可取消的路由导航**。
-
-#### 1. 竞态处理流程
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Router as NavigatingController
-    participant Loader as Lifecycle Manager
-    participant Network as Fetch API
-
-    User->>Router: Click /app-a
-    Router->>Loader: loadApp(/app-a, signalA)
-    Loader->>Network: fetch assets for /app-a
-    
-    User->>Router: Click /app-b (fast!)
-    Router->>Router: abort signalA
-    Router->>Loader: loadApp(/app-b, signalB)
-    
-    Network--xLoader: AbortError for /app-a
-    Loader--xRouter: Navigation aborted silently
-    
-    Loader->>Network: fetch assets for /app-b
-    Network-->>Loader: Assets loaded
-    Loader->>Router: mountApp(/app-b)
-```
-
-#### 2. TypeScript 实现细节
-
-核心机制在于：每次跨应用导航启动时，创建一个新的 `AbortController` 实例。如果之前的导航未完成，则调用 `abort()` 进行干净的取消，保证进行中的资产下载和 DOM 挂载操作立刻停止，不会造成 UI 闪烁。
-
-```typescript
-class NavigatingController {
-  private currentAbortController: AbortController | null = null;
-
-  async navigate(to: string, ctx: Context) {
-    // 1. 如果有正在进行的导航，立即取消，防止竞态
-    if (this.currentAbortController) {
-      this.currentAbortController.abort('Navigation cancelled by new route');
-    }
-
-    // 2. 创建全新的控制器
-    const abortController = new AbortController();
-    this.currentAbortController = abortController;
-    const signal = abortController.signal;
-
-    try {
-      // 3. 将 signal 传递给资产下载器和生命周期管理器
-      await ctx.service.lifecycleManager.loadApp(to, { signal });
-      
-      // 检查是否已被中止，避免在 load 之后意外 mount
-      if (signal.aborted) return;
-      
-      // 4. 结合 ctx.effect()，在挂载时如果抛出中断，可自动 rollback 副作用
-      const dispose = ctx.effect(() => {
-        return ctx.service.lifecycleManager.mountApp(to, { signal });
-      });
-
-      // 监听 signal，一旦中止自动触发副作用清理
-      signal.addEventListener('abort', () => dispose());
-
-      // 导航成功完成
-      this.currentAbortController = null;
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        ctx.logger.info(`Navigation to ${to} was aborted gracefully.`);
-      } else {
-        throw err;
-      }
-    }
-  }
-}
-
-// 资源下载器支持 AbortSignal
-async function fetchAppAssets(manifestUrl: string, options: { signal: AbortSignal }) {
-  const response = await fetch(manifestUrl, { signal: options.signal });
-  // 解析和加载资源...
-}
-```
-
-这种设计完美契合 Cordis 的 `ctx.effect()`，在导航被取消时，任何中途产生的临时状态或事件监听器都会被可靠回收。
-
----
-
-## 六、与 LinkJS 方案对比
-
-| 维度 | LinkJS | Cordis 路由适配层 |
-|------|--------|-------------------|
-| **子应用改动量** | 需要调用 `LinkJS.navigate()` | 零改动，`router.push` 原生使用 |
-| **路由独立性** | 子应用无法独立管理路由 | 子应用拥有完整路由表 |
-| **多版本共存** | 不支持 | 原生支持 |
-| **跨应用导航** | 依赖主应用路由表 | 基于 basePath 自动路由 |
-| **前进后退** | 偶有异常 | 汇合性保证一致性 |
-| **类型安全** | 部分丢失 | 保留原始 Vue Router 类型 |
-
----
-
-## 七、配置示例
-
-### 7.1 主应用配置
-
-```javascript
-// main-app/src/main.js
-import { createApp } from 'vue'
-import { createCordisRouter } from '@cordis/router'
-
-const app = createApp(App)
-
-// 创建根路由上下文
-const routeTree = createCordisRouter({
-  mode: 'history',
-  apps: {
-    '/app1': {
-      loader: () => import('app1/dist/main.js')
-    },
-    '/app2': {
-      loader: () => import('app2/dist/main.js')
-    }
-  }
-})
-
-app.use(routeTree)
-app.mount('#app')
-```
-
-### 7.2 子应用配置
-
-```javascript
-// sub-app1/src/main.js
-import { createApp } from 'vue'
-import App from './App.vue'
-
-// 子应用不需要知道 Cordis 的存在
-// 构建时插件会自动处理路由
-import router from './router'  // 原生 Vue Router 写法
-
-const app = createApp(App)
-app.use(router)  // 构建时被插件转换为 Cordis 桥接
-app.mount('#app')
-```
-
----
-
-## 八、实现优先级
-
-| 优先级 | 功能 | 说明 |
-|--------|------|------|
-| P0 | 子应用内部导航 | 基础功能，必须首先实现 |
-| P0 | 浏览器前进后退 | 基础体验保证 |
-| P1 | 跨应用跳转 | 微前端核心场景 |
-| P1 | Vue 3 桥接 | 新项目优先使用 Vue 3 |
-| P2 | Vue 2 桥接 | 兼容存量项目 |
-| P2 | 路由守卫协调 | 跨应用守卫顺序 |
-| P3 | 多版本路由共存 | 渐进式迁移场景 |
+| 旧设计问题（评审编号） | 本版修复 |
+|------------------------|----------|
+| R-1 "路由即 coeffect"伪理论/push-replace 互逆 | §二 修正表述 |
+| R-2 自研 RouteContextTree | §3.3 废除，isolate + ctx.effect 登记注销 |
+| R-3 `ctx.isolate()` 误解 | §二/§3.3 正确用于 router-view 隔离 |
+| R-4 `ctx.effect` 返回 Promise 当 disposer/双重 unmount | §二 watch 正确用法（返回真 disposer） |
+| R-5 `ctx.service.*`/全局 useRoute 自造 API | §二 统一 router 服务 API |
+| R-6 手工 priority 守卫管线 | §4.3 serial + prepend |
+| R-7 多槽位通道冲突/query 抹除/token 泄漏 | §3.1 保留字+仲裁 / §3.2 合并规则+sanitizeQuery |
+| R-8 popstate 绕过守卫/无导航序号 | §4.1/§4.2 |
+| R-9 守卫重定向死循环 | §4.3 depth 上限 8 |
+| R-10 Vue4 桥接 currentRoute 身份/push 假 Promise | §5.1 |
+| R-11 Vue2 桥接双写 History/锁版本/$router 注入 | §5.2 abstract 模式 + prototype |
+| R-12 前缀匹配歧义/静默覆盖 | §3.3 段边界 + 显式报错 |
+| R-13 pushState 写 hash 不触发 hashchange | §4.2 hashchange/popstate 去重管线 |
+| R-14 DeepLink 单槽位 pending/无 owner fallback | §4.1 序号化 + lifecycle fallback 应用有 owner（挂 main outlet） |
+| R-15 构建期 AST 不可靠承诺 | §5.3 收窄 + externals 路线 |
+| R-16 三种创建 API 并存/cordova 笔误 | §5.1 统一 createCordisRouter |
+| 缺失 history fallback/懒 outlet/保活快照 | §5.4/§六 |

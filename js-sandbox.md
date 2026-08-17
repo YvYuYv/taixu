@@ -1,4 +1,7 @@
-# Cordis JS 沙箱方案
+# Cordis JS 沙箱（JS Sandbox）
+
+> 对齐基线：[cordis-alignment.md](./cordis-alignment.md)。
+> **定位声明（全文一致的叙事）**：Proxy 沙箱提供的是**污染隔离与效应回收**，**不是安全边界**；安全边界只有 iframe `sandbox`（无 `allow-same-origin`）。第三方不可信应用一律走 iframe 沙箱（§五）。
 
 ## 一、问题分析
 
@@ -6,892 +9,397 @@
 
 | 问题类型 | 具体表现 | 严重性 |
 |----------|----------|--------|
-| **全局变量污染** | `window.Vue`、`window.React` 互相覆盖 | 高 |
-| **全局函数冲突** | `window.$` 被 jQuery 占用，其他库无法使用 | 高 |
-| **原型链污染** | `Array.prototype.xxx` 被修改影响所有应用 | 高 |
-| **定时器泄漏** | `setInterval` 未在卸载时清理，持续执行 | 中 |
-| **事件监听泄漏** | `addEventListener` 未移除，导致内存泄漏 | 中 |
-| **eval/Function 污染** | 动态代码执行污染全局作用域 | 中 |
+| 全局变量污染 | `window.Vue`、`window.React` 互相覆盖 | 高 |
+| 全局函数冲突 | `window.$` 被 jQuery 占用 | 高 |
+| 原型链污染 | `Array.prototype.xxx 被修改影响所有应用 | 高 |
+| 定时器/监听泄漏 | 卸载后残留执行 | 中 |
+| 逃逸与滥用 | 沙箱内代码获取真实 window/宿主能力 | 高 |
 
-### 1.2 现有沙箱方案的局限性
+### 1.2 Cordis 理论视角（修正旧版混淆）
 
-| 方案 | 优点 | 缺点 |
+Cordis 的 effect isolation（效应回收）由 runtime dispose 机制完成，**不依赖 JS 沙箱**；反过来，JS 沙箱解决不了效应回收。两者的正确分工：
+
+| 能力 | 归属 | 机制 |
 |------|------|------|
-| **iframe 沙箱** | 完全隔离 | 性能差、跨域通信复杂、DOM 操作受限 |
-| **Proxy 沙箱** | 性能好、兼容性强 | 无法拦截 `eval`、`with` 语句 |
-| **with + eval 沙箱** | 简单直接 | 性能差、无法拦截全局变量 |
-| **Web Worker 沙箱** | 完全隔离 | 无法访问 DOM、通信复杂 |
+| 定时器/监听/订阅的**自动清理** | Cordis | `ctx.effect` / `ctx.on`（fiber dispose 级联回收） |
+| 全局变量/原型链的**污染隔离** | JS 沙箱 | Proxy 双窗口 + 原型快照守护 |
+| 定时器/监听的**归因与冻结**（保活） | JS 沙箱 + SuspendScope | 包装 setTimeout/addEventListener 记账（沙箱侧），调度控制（lifecycle 侧） |
+| **安全边界** | iframe | `sandbox` 属性 + postMessage 协议 |
 
-### 1.3 Cordis 理论视角
+因此沙箱的正确形态是：**创建动作与 teardown 挂在应用 fiber 的 effect 上**（生命周期管理 §四所有权表），内部的一切包装（定时器/监听/网络/存储）仅做**记账与转发**，卸载由 Cordis 统一回收。
 
-在 Cordis 理论中，JS 沙箱是 **effect isolation** 的核心机制：
-- 全局变量修改 = effect
-- 原型链污染 = effect
-- 定时器/事件监听 = effect（可逆）
-
-沙箱的目标是让每个应用运行在独立的 **effect context** 中，互不干扰。
-
----
-
-## 二、整体架构
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Cordis Runtime（Cordis 运行时）                             │
-│  - 统一的沙箱管理入口                                         │
-├─────────────────────────────────────────────────────────────┤
-│  Sandbox Manager（沙箱管理器）                               │
-│  - 沙箱生命周期管理                                           │
-│  - 沙箱池化复用                                               │
-│  - 沙箱状态追踪                                               │
-├─────────────────────────────────────────────────────────────┤
-│  Sandbox Layer（沙箱层）                                     │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐              │
-│  │ Proxy      │ │ Snapshot   │ │ iframe     │              │
-│  │ Sandbox    │ │ Sandbox    │ │ Sandbox    │              │
-│  │ (推荐)     │ │ (强隔离)   │ │ (完全隔离) │              │
-│  └────────────┘ └────────────┘ └────────────┘              │
-├─────────────────────────────────────────────────────────────┤
-│  Effect Tracker（效应追踪器）                                │
-│  - 追踪全局变量修改                                           │
-│  - 追踪定时器/事件监听                                        │
-│  - 自动清理泄漏                                               │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 三、Proxy 沙箱（推荐方案）
-
-### 3.1 核心原理
-
-使用 `Proxy` 拦截对 `window` 的访问，将全局变量重定向到沙箱内部的 fakeWindow。
-
-### 3.2 实现代码
+## 二、沙箱架构
 
 ```typescript
-// @cordis/sandbox/proxy-sandbox
-class ProxySandbox {
-  private fakeWindow: Record<string, any> = {}
-  private proxy: WindowProxy
-  private active: boolean = false
-  private boundValueCache: WeakMap<Function, Function> = new WeakMap()
-  
-  constructor(private appId: string) {
-    // 创建 Proxy 拦截 window 访问
-    this.proxy = new Proxy(this.fakeWindow, {
-      get: (target, key) => {
-        // 特殊处理 window/self/globalThis
-        if (key === 'window' || key === 'self' || key === 'globalThis') {
-          return this.proxy
+class SandboxService extends Service {
+  static [Context.provide] = 'sandbox'
+  static inject = ['security', 'monitor']
+
+  /** 每应用一个沙箱实例（不池化，理由见 §4.4）；销毁幂等（双保险：lifecycle 显式 + fiber effect） */
+  async create(appId: string, options: SandboxOptions): Promise<Sandbox> {
+    const sandbox = options.trust === 'third-party'
+      ? new IframeSandbox(this.ctx, appId, options)
+      : new ProxySandbox(this.ctx, appId, options)
+    await sandbox.init()
+    return sandbox
+  }
+}
+
+interface Sandbox {
+  readonly proxy: WindowProxyLike      // 注入应用执行环境的 globalThis 替身
+  destroy(): Promise<void>             // 幂等
+}
+```
+
+## 三、Proxy 沙箱（first-party）
+
+### 3.1 逃逸向量清单（旧版完全缺失，全部显式缓解）
+
+| # | 逃逸向量 | 缓解措施 |
+|---|----------|----------|
+| 1 | `(0, eval)('...')` / 裸 `eval` / `Function(...)`（直接作用域解析到真实全局） | §3.4：exec 管控 + CSP 策略声明；拦截不承诺"绝对"，承诺"记账+告警" |
+| 2 | `sandbox.setTimeout.constructor('return this')()`（经透传函数对象取 constructor 链） | §3.2：透传函数对象的 `constructor/__proto__/prototype` 属性冻结为 getter（返回受控副本或触发告警）；关键：**冻结的是沙箱内可见的包装函数**，而包装函数本身是沙箱构造的新函数，其闭包不暴露真实引用 |
+| 3 | `Object.getPrototypeOf(sandbox).constructor...`（fakeWindow 原型逃逸） | §3.2：`getPrototypeOf` trap 返回 `null`；fakeWindow 以 `Object.create(null)` 为基座 |
+| 4 | `with(proxy)` + `Symbol.unscopables` | §3.2：`has` trap 恒真 + `get` 拦截 `Symbol.unscopables` 返回 undefined |
+| 5 | `document.currentScript`、`document.defaultView`、`window.top/parent/opener` | §3.5：document 代理重定向；top/parent/opener 返回沙箱自身 |
+| 6 | 动态 `import(url)`（引擎级解析，Proxy 拦不住） | heterogeneous-loading.md §六：统一 importmap + `__cordis_import__`（deps 服务白名单+SRI） |
+| 7 | Worker / ServiceWorker / SharedWorker 注册 | §3.7：`navigator.serviceWorker.register`、`Worker` 构造函数经安全策略（默认 first-party 允许 Worker 但禁止 SW 注册；策略可配，违例告警） |
+| 8 | 网络面（fetch/XHR/WebSocket/EventSource/sendBeacon/标签加载） | §3.6：全部经 bus.network 注入的包装（唯一链路） |
+| 9 | `customElements.define` 全局注册冲突 | 沙箱提供 per-app registry 转发（同名冲突时以 `appId-tag` 前缀注册并告警） |
+| 10 | `history.pushState` 劫持 | 重定向到 router 服务的受控 API（route-adaptation.md §4） |
+
+> 残余风险声明：Proxy 沙箱对**已知向量**缓解、未知向量记账告警（security/violation）。安全要求高的应用请用 iframe 沙箱。此声明与 security.md §一、README 完全一致。
+
+### 3.2 双窗口 fakeWindow（正确 trap 语义）
+
+```typescript
+class ProxySandbox implements Sandbox {
+  private fakeWindow: Record<PropertyKey, unknown>
+  private disposed = false
+
+  constructor(private ctx: Context, private appId: string, private options: SandboxOptions) {
+    // null 原型基座：关闭 getPrototypeOf 逃逸（向量 #3）
+    this.fakeWindow = Object.create(null)
+  }
+
+  get proxy(): WindowProxyLike {
+    return this._proxy ??= new Proxy(this.fakeWindow, {
+      get: (target, key, receiver) => {
+        if (this.disposed) throw new SandboxDisposedError(this.appId)
+        if (key === Symbol.unscopables) return undefined                     // 向量 #4
+        if (key === 'getPrototypeOf' || key === '__proto__') return () => null
+        if (this.fakeBlacklist.has(key)) {
+          this.ctx.emit('security/violation', { appId: this.appId, rule: 'sandbox-blacklist', detail: { key: String(key) } })
+          return undefined
         }
-        
-        // 只读属性直接返回真实 window
-        if (this.isReadonly(key)) {
-          return (window as any)[key]
+        if (key in target) return Reflect.get(target, key, receiver)
+        // 原生全局：Reflect + 正确 receiver（旧版 window[key] 解绑 this -> IllegalInvocation）
+        const value = Reflect.get(globalThis, key, globalThis)
+        if (typeof value === 'function' && this.nativeUnbound.has(key)) {
+          return this.wrapNative(key, value)     // 包装（记账/替换注入），包装函数为沙箱构造，见向量 #2 缓解
         }
-        
-        // 优先从 fakeWindow 获取
-        if (key in target) {
-          return target[key]
-        }
-        
-        // 透传到真实 window
-        const value = (window as any)[key]
-        
-        // 修复 Illegal Invocation：拦截对原生方法的访问并绑定到 window
-        if (typeof value === 'function' && !value.prototype) {
-          if (!this.boundValueCache.has(value)) {
-            this.boundValueCache.set(value, value.bind(window))
-          }
-          return this.boundValueCache.get(value)
-        }
-        
+        if (this.isReadonlyPassthrough(key)) return this.readonlyView(key)  // document/location 等受控视图
         return value
       },
-      
       set: (target, key, value) => {
-        // 拦截 window.xxx = yyy，不污染全局
-        target[key as string] = value
+        if (this.disposed) throw new SandboxDisposedError(this.appId)
+        if (this.isProtectedGlobal(key)) {
+          // location 赋值走 router 受控导航而非静默吞进 fakeWindow（旧版 window.location=x 静默失效）
+          if (key === 'location') { this.ctx.router.navigate(String(value)); return true }
+          this.ctx.emit('security/violation', { appId: this.appId, rule: 'protected-global-write', detail: { key: String(key) } })
+          return true    // 恒 true：deleteProperty/set 不返回 false（strict mode 下会抛 TypeError）
+        }
+        target[key] = value
+        this.modifiedKeys.add(key)            // 记账（供诊断与 snapshot 对比）
         return true
       },
-      
-      has: (target, key) => {
-        // 让 with 语句生效
-        return key in target || key in window
-      },
-      
       deleteProperty: (target, key) => {
-        if (key in target) {
-          delete target[key as string]
-          return true
-        }
-        return false
+        delete target[key]
+        return true                            // 恒 true（同上）
+      },
+      has: () => true,                          // with 语句绑定全部走 traps（仅限 §3.4 非严格产物场景）
+      getPrototypeOf: () => null,               // 向量 #3
+    })
+  }
+}
+```
+
+要点：
+
+- **set/deleteProperty 恒返回 true**（旧版键不存在时 `return false` 在 strict mode 直接 TypeError）
+- **`location.href` 行为统一**：无论 `window.location = x` 还是 `location.href = x`，都重定向 router（旧版一个真实导航、一个静默吞掉，行为分裂）
+- `readonlyPassthrough`（document/location/history）返回的是 **§3.5 的受控视图**，不是裸真实对象（旧版直接透传真实 document，"DOM 隔离"名不副实）
+
+### 3.3 原型守护（可用性优先的正确实现）
+
+旧版 `this.proxy.Object = { ...Object }` 展开只拷贝可枚举属性，`Object.keys` 直接变 undefined（子应用必挂）。修正：
+
+```typescript
+setupPrototypeGuard(ctx: Context) {
+  // 不复制 Object：直接冻结原型（宿主可控开关，默认冻结常见污染点）
+  const targets = [Object.prototype, Array.prototype, Function.prototype, String.prototype, ...]
+  ctx.effect(() => {
+    const descs: Record<string, PropertyDescriptorMap> = {}
+    for (const proto of targets) {
+      descs[key] = {}
+      for (const name of Object.getOwnPropertyNames(proto)) {
+        descs[key][name] = Object.getOwnPropertyDescriptor(proto, name)!
       }
-    })
-  }
-  
-  // 激活沙箱
-  activate() {
-    if (this.active) return
-    this.active = true
-    
-    // 记录当前 window 快照（用于恢复）
-    this.snapshot = this.takeSnapshot()
-  }
-  
-  // 停用沙箱
-  deactivate() {
-    if (!this.active) return
-    this.active = false
-    
-    // 清理 fakeWindow 中的动态属性
-    this.cleanup()
-  }
-  
-  // 在沙箱中执行代码
-  exec(code: string) {
-    // 注意：Proxy 无法拦截直接调用的 eval()
-    // 此外，严格模式下禁用 with 语句，以下提供替代方案：
-    
-    // 非严格模式
-    // with(this.proxy) { 
-    //   const __eval__ = this.fakeWindow.eval || eval; 
-    //   (0, __eval__)(code);
-    // }
-    
-    // 严格模式替代方案
-    const fn = new Function('window', 'self', 'globalThis', code);
-    fn.call(this.proxy, this.proxy, this.proxy, this.proxy);
-  }
-  
-  // 判断是否为只读属性
-  private isReadonly(key: PropertyKey): boolean {
-    const readonlyKeys = [
-      'location', 'history', 'document', 'navigator',
-      'console'
-    ]
-    return readonlyKeys.includes(key as string)
-  }
-  
-  // 清理沙箱状态
-  private cleanup() {
-    // 清理所有定时器
-    this.trackedTimers.forEach(id => {
-      clearTimeout(id)
-      clearInterval(id)
-    })
-    this.trackedTimers.clear()
-    
-    // 移除所有事件监听
-    this.trackedListeners.forEach(({ type, listener, options }) => {
-      window.removeEventListener(type, listener, options)
-    })
-    this.trackedListeners.clear()
-    
-    // 清空 fakeWindow
-    Object.keys(this.fakeWindow).forEach(key => {
-      delete this.fakeWindow[key]
-    })
-  }
-  
-  // 追踪的定时器
-  private trackedTimers: Set<number> = new Set()
-  
-  // 追踪的事件监听器
-  private trackedListeners: Map<string, {
-    type: string
-    listener: EventListener
-    options?: boolean | AddEventListenerOptions
-  }> = new Map()
-}
-```
-
-### 3.3 增强：拦截定时器和事件监听
-
-```typescript
-// 拦截 setTimeout/setInterval
-const originalSetTimeout = window.setTimeout
-const originalSetInterval = window.setInterval
-
-// 在沙箱中重写
-this.proxy.setTimeout = (fn: Function, delay: number, ...args: any[]) => {
-  const id = originalSetTimeout(fn, delay, ...args)
-  this.trackedTimers.add(id as number)
-  return id
-}
-
-this.proxy.setInterval = (fn: Function, delay: number, ...args: any[]) => {
-  const id = originalSetInterval(fn, delay, ...args)
-  this.trackedTimers.add(id as number)
-  return id
-}
-
-// 拦截 addEventListener
-const originalAddEventListener = window.addEventListener
-const originalRemoveEventListener = window.removeEventListener
-
-this.proxy.addEventListener = (
-  type: string,
-  listener: EventListener,
-  options?: boolean | AddEventListenerOptions
-) => {
-  originalAddEventListener.call(window, type, listener, options)
-  const key = `${type}_${listener.toString()}`
-  this.trackedListeners.set(key, { type, listener, options })
-}
-
-this.proxy.removeEventListener = (
-  type: string,
-  listener: EventListener,
-  options?: boolean | AddEventListenerOptions
-) => {
-  originalRemoveEventListener.call(window, type, listener, options)
-  const key = `${type}_${listener.toString()}`
-  this.trackedListeners.delete(key)
-}
-```
-
-### 3.4 增强：拦截 eval 和 Function
-
-```typescript
-// 拦截 eval
-this.proxy.eval = (code: string) => {
-  // 在沙箱上下文中执行 eval
-  const fn = new Function('window', `with(window) { ${code} }`)
-  return fn.call(this.proxy, this.proxy)
-}
-
-// 拦截 Function 构造函数
-this.proxy.Function = function(...args: string[]) {
-  const body = args.pop() || ''
-  const params = args.join(',')
-  const fn = new Function('window', `with(window) { return function(${params}) { ${body} } }`)
-  return fn.call(this.proxy, this.proxy)
-}
-```
-
-### 3.5 增强：拦截原型链污染
-
-```typescript
-// 拦截对 prototype 的修改
-const originalObjectDefineProperty = Object.defineProperty
-
-this.proxy.Object = {
-  ...Object,
-  defineProperty: (obj: any, key: string, descriptor: PropertyDescriptor) => {
-    // 检测是否在修改全局对象的 prototype
-    if (obj === Array.prototype || obj === Object.prototype || obj === String.prototype) {
-      console.warn(`[Cordis Sandbox] 检测到原型链污染: ${obj.constructor.name}.prototype.${key}`)
-      // 可以选择阻止或记录
+      Object.freeze(proto)                    // freeze 先于应用加载（宿主启动期执行，时序明确）
     }
-    return originalObjectDefineProperty(obj, key, descriptor)
-  }
-}
-```
-
-### 3.6 Dynamic Import 拦截
-
-`import()` 是语言级别的特性，`Proxy` 无法直接拦截对它的调用，这会导致沙箱逃逸。
-当前的解决方案是在构建时通过插件进行代码转换：
-
-```typescript
-// 构建时转换 dynamic import
-// import('./module.js') → __cordis_import__('./module.js', appId)
-```
-
-### 3.7 Document 代理（Scoped DOM & Event Isolation）
-
-为了实现 DOM 隔离以及防止全局事件泄漏，需要对 `document` 进行专门的代理。拦截对 DOM 的查询限制在子应用内部，并追踪全局事件。
-
-```typescript
-function createDocumentProxy(appId: string, container: HTMLElement, sandbox: ProxySandbox) {
-  const trackedDocListeners = new Map<string, { type: string, listener: EventListener, options: any }>()
-  const injectedNodes = new Set<Node>()
-
-  const documentProxy = new Proxy(document, {
-    get(target, key) {
-      const value = (target as any)[key]
-      const bindValue = typeof value === 'function' ? value.bind(target) : value
-
-      // 优先在子应用容器内查询 DOM
-      if (key === 'querySelector' || key === 'querySelectorAll' || key === 'getElementById') {
-        return (selector: string) => {
-          return (container as any)[key](selector)
-        }
-      }
-
-      // 追踪 Document 级别的事件
-      if (key === 'addEventListener') {
-        return (type: string, listener: EventListener, options?: any) => {
-          document.addEventListener(type, listener, options)
-          trackedDocListeners.set(`${type}_${listener}`, { type, listener, options })
-        }
-      }
-      if (key === 'removeEventListener') {
-        return (type: string, listener: EventListener, options?: any) => {
-          document.removeEventListener(type, listener, options)
-          trackedDocListeners.delete(`${type}_${listener}`)
-        }
-      }
-
-      // 拦截并追踪动态注入的样式和脚本
-      if (key === 'head' || key === 'body') {
-        return new Proxy(target[key as 'head' | 'body'], {
-          get(element, elKey) {
-            if (elKey === 'appendChild' || elKey === 'insertBefore') {
-              return (child: Node, referenceNode?: Node) => {
-                injectedNodes.add(child)
-                return (element as any)[elKey](child, referenceNode)
-              }
-            }
-            const elValue = (element as any)[elKey]
-            return typeof elValue === 'function' ? elValue.bind(element) : elValue
-          }
-        })
-      }
-
-      return bindValue
-    }
+    return () => { /* 宿主销毁时无需恢复（页面即卸载）；freeze 是进程级策略 */ }
   })
-
-  // 提供给 sandbox deactivate 时调用清理
-  sandbox.onDeactivate = () => {
-    trackedDocListeners.forEach(({ type, listener, options }) => {
-      document.removeEventListener(type, listener, options)
-    })
-    trackedDocListeners.clear()
-
-    injectedNodes.forEach(node => node.parentNode?.removeChild(node))
-    injectedNodes.clear()
-  }
-
-  return documentProxy
+  // defineProperty/直接赋值到原型：freeze 后 strict mode 抛错 -> 错误归因到 appId（monitor）
 }
 ```
 
-### 3.8 异步任务与观察者追踪（AsyncScopeTracker）
+- 以 `Object.freeze` 为主（静默失败模式抛 TypeError 且归因），**不再**复制 Object 造成 API 丢失
+- 类名混淆导致的 descriptor 键碰撞问题不存在（不再以 constructor.name 做键）
+- 需要猴子补丁的宿主（如 mock 场景）配置 `prototypeGuard: 'off'`
 
-为了防止子应用卸载后，遗留的异步任务（如 `requestAnimationFrame`）或观察者（如 `MutationObserver`）导致的 Detached DOM Tree 内存泄漏，需要全面追踪并自动清理。
+### 3.4 代码执行（诚实的能力边界）
+
+**结论先行：现代 ESM 产物不进 Proxy 沙箱执行。** 路由分派：
+
+| 产物形态 | 执行方式 | 拦截能力 |
+|----------|----------|----------|
+| ESM（`import()`，主流） | **不包 eval**。经 deps 服务 importmap 白名单加载，模块拿到的是"注入过的 globalThis"（通过模块环境的 `globalThis` 覆写：入口模块以 `new Proxy` 作为 `globalThis` 形参的工厂包裹，见 heterogeneous-loading.md §六） | 变量级：模块内裸 `document` 等标识符经闭包形参解析 |
+| 经典脚本字符串（遗留 UMD/IIFE） | `new Function('window','self','globalThis', withWrapped(code))`，仅限 `code` 不含 `"use strict"` 且产物兼容 `with` | 完整 Proxy trap 拦截 |
+| 需 `eval/new Function` 的运行时代码 | 不拦截执行，但 `eval/Function` 在沙箱 fakeWindow 上是**记账包装**：执行经宿主 CSP（默认无 `unsafe-eval` 时此类代码直接被浏览器阻断） | 记账 + CSP 兜底 |
+
+> 旧版"with 包裹 + has 恒真"对 ESM/严格模式产物直接 SyntaxError，且与框架自身的原生 `import()` 加载路线互相矛盾（跨文档 I-3）。本版把两种路线的能力边界写明。
+
+### 3.5 Document 代理（修复三处硬伤）
 
 ```typescript
-class AsyncScopeTracker {
-  private rafIds = new Set<number>()
-  private ricIds = new Set<number>()
-  private observers = new Set<MutationObserver | IntersectionObserver | ResizeObserver>()
+class DocumentProxy {
+  constructor(private container: HTMLElement, private tracker: InjectedNodesTracker) {}
 
-  track(proxyWindow: any) {
-    const originalRAF = window.requestAnimationFrame
-    const originalCancelRAF = window.cancelAnimationFrame
-    const originalRIC = window.requestIdleCallback
-    const originalCancelRIC = window.cancelIdleCallback
-
-    proxyWindow.requestAnimationFrame = (callback: FrameRequestCallback) => {
-      const id = originalRAF(callback)
-      this.rafIds.add(id)
-      return id
+  get(target: Document, key: PropertyKey, receiver: unknown) {
+    switch (key) {
+      // 旧版 bug：HTMLElement 上不存在 getElementById，调用即 TypeError。
+      // 修正：DOM 查询方法在 container 上等价存在（querySelector 等）才转发，getElementById 显式实现：
+      case 'getElementById': return (id: string) =>
+        this.container.querySelector(`[id="${cssEscape(id)}"]`) ?? target.getElementById(id).contains(this.container)
+          ? this.container.querySelector(`[id="${cssEscape(id)}"]`)
+          : null   // 只暴露容器内结果（scoped 查询语义）
+      case 'head':
+      case 'body': return this.stableView(key, target)      // 缓存单例代理：document.head === document.head（旧版每次 new Proxy）
+      case 'currentScript': return this.tracker.currentScript ?? null   // 注入脚本上下文（publicPath 依赖）
+      case 'defaultView': return this.sandbox.proxy
     }
-    proxyWindow.cancelAnimationFrame = (id: number) => {
-      this.rafIds.delete(id)
-      originalCancelRAF(id)
+    if (typeof key === 'string' && DOM_QUERY_KEYS.has(key)) {
+      return this.scoped(key)   // querySelector/querySelectorAll/getElementsByClassName/... 限定 container 作用域（找不到回落 null/空）
     }
-
-    if (originalRIC) {
-      proxyWindow.requestIdleCallback = (callback: IdleRequestCallback, options?: IdleRequestOptions) => {
-        const id = originalRIC(callback, options)
-        this.ricIds.add(id)
-        return id
-      }
-      proxyWindow.cancelIdleCallback = (id: number) => {
-        this.ricIds.delete(id)
-        originalCancelRIC(id)
-      }
-    }
-
-    // 代理 Observer 防止泄漏
-    this.trackObserver(proxyWindow, 'MutationObserver')
-    this.trackObserver(proxyWindow, 'IntersectionObserver')
-    this.trackObserver(proxyWindow, 'ResizeObserver')
-  }
-
-  private trackObserver(proxyWindow: any, name: string) {
-    if (typeof (window as any)[name] !== 'function') return
-    const OriginalObserver = (window as any)[name]
-    const tracker = this
-    
-    proxyWindow[name] = class SandboxObserver extends OriginalObserver {
-      constructor(...args: any[]) {
-        super(...args)
-        tracker.observers.add(this)
-      }
-      disconnect() {
-        super.disconnect()
-        tracker.observers.delete(this)
-      }
-    }
-  }
-
-  cleanup() {
-    this.rafIds.forEach(id => window.cancelAnimationFrame(id))
-    this.rafIds.clear()
-
-    this.ricIds.forEach(id => window.cancelIdleCallback?.(id))
-    this.ricIds.clear()
-
-    this.observers.forEach(observer => observer.disconnect())
-    this.observers.clear()
+    return Reflect.get(target, key, receiver)
   }
 }
-```
 
-### 3.9 存储隔离（Storage Isolation）
-
-为了避免不同子应用之间的 `localStorage` 和 `sessionStorage` 发生覆盖冲突，需对存储键值进行前缀隔离，同时支持配置共享键值的白名单。
-
-```typescript
-class StorageProxy {
-  constructor(private appId: string, private whitelist: string[] = ['theme']) {}
-
-  private getNamespacedKey(key: string) {
-    if (this.whitelist.includes(key)) {
-      return key
-    }
-    return `__taixu_${this.appId}__${key}`
-  }
-
-  createProxy(storage: Storage): Storage {
-    return new Proxy(storage, {
-      get: (target, key) => {
-        if (key === 'getItem') {
-          return (k: string) => target.getItem(this.getNamespacedKey(k))
-        }
-        if (key === 'setItem') {
-          return (k: string, v: string) => target.setItem(this.getNamespacedKey(k), v)
-        }
-        if (key === 'removeItem') {
-          return (k: string) => target.removeItem(this.getNamespacedKey(k))
-        }
-        if (key === 'clear') {
-          // 只清除属于当前应用的 key
-          return () => {
-            const keysToRemove: string[] = []
-            for (let i = 0; i < target.length; i++) {
-              const k = target.key(i)
-              if (k && k.startsWith(`__taixu_${this.appId}__`)) {
-                keysToRemove.push(k)
-              }
-            }
-            keysToRemove.forEach(k => target.removeItem(k))
-          }
-        }
-        const value = (target as any)[key]
-        return typeof value === 'function' ? value.bind(target) : value
+class InjectedNodesTracker {
+  // 追踪范围覆盖全部注入路径（旧版只拦 appendChild/insertBefore，append/prepend/replaceChildren/insertAdjacentHTML/innerHTML/write 全部绕过）
+  patch(el: HTMLElement) {
+    for (const method of ['appendChild', 'insertBefore', 'append', 'prepend', 'replaceChildren']) {
+      const raw = el[method].bind(el)
+      el[method] = (...nodes: Node[]) => {
+        for (const n of nodes) if (n instanceof HTMLStyleElement || n instanceof HTMLScriptElement) this.record(n)
+        return raw(...nodes)
       }
+    }
+    const desc = Object.getOwnPropertyDescriptor(Node.prototype, 'innerHTML')
+    Object.defineProperty(el, 'innerHTML', {
+      set(html) { desc!.set!.call(el, html); this.harvest(el) },   // 解析后收割新增 style/script
+      get: desc!.get!,
     })
   }
 }
-
-// 在 ProxySandbox 中注入
-// proxyWindow.localStorage = new StorageProxy(appId).createProxy(window.localStorage)
-// proxyWindow.sessionStorage = new StorageProxy(appId).createProxy(window.sessionStorage)
 ```
 
----
+- 每应用的 style/script 注入全部记账 -> 卸载时统一移除（同时是 style-isolation §4 样式生命周期的数据源）
+- `document.write` 直接禁用（first-party 场景告警）
 
-## 四、Snapshot 沙箱（强隔离方案）
-
-### 4.1 核心原理
-
-在沙箱激活前记录 window 快照，激活后允许修改，停用后恢复快照。
-
-### 4.2 实现代码
+### 3.6 网络与定时器包装（记账 + 转发）
 
 ```typescript
-// @cordis/sandbox/snapshot-sandbox
-class SnapshotSandbox {
-  private windowSnapshot: Record<string, any> = {}
-  private modifiedProps: Set<string> = new Set()
-  private active: boolean = false
-  
-  constructor(private appId: string) {}
-  
-  // 激活沙箱
-  activate() {
-    if (this.active) return
-    this.active = true
-    
-    // 记录当前 window 快照
-    this.windowSnapshot = {}
-    for (const key in window) {
-      if (window.hasOwnProperty(key)) {
-        this.windowSnapshot[key] = (window as any)[key]
-      }
-    }
+// 网络：不猴补 window.fetch（全局共享）；scopedFetch 经 bus.network 唯一链路注入（communication-protocol.md §六）
+injectNetwork(appId: string) {
+  this.fakeWindow.fetch = this.bus.network.scopedFetch(appId)
+  this.fakeWindow.XMLHttpRequest = this.scopedXHR(appId)          // open/send 包装：URL 白名单 + traceparent + 埋点
+  this.fakeWindow.WebSocket = this.scopedWS(appId)                 // 构造包装：URL 策略
+  this.fakeWindow.EventSource = this.scopedES(appId)
+  this.fakeWindow.navigator.sendBeacon = this.scopedBeacon(appId)
+}
+
+// 定时器：经 SuspendScope（lifecycle-management.md §5.2）-> 保活可冻结；dispose 由 fiber effect 兜底清除
+injectTimers(ctx: Context, scope: SuspendScopeService) {
+  this.fakeWindow.setTimeout = (fn, ms, ...args) => scope.setTimeout(() => fn(...args), ms)
+  this.fakeWindow.setInterval = (fn, ms, ...args) => {
+    const id = this.raw.setInterval(() => fn(...args), ms)
+    ctx.effect(() => () => clearInterval(id))     // Cordis 原生回收
+    return id
   }
-  
-  // 停用沙箱
-  deactivate() {
-    if (!this.active) return
-    this.active = false
-    
-    // 恢复快照
-    for (const key in this.windowSnapshot) {
-      if ((window as any)[key] !== this.windowSnapshot[key]) {
-        // 记录被修改的属性
-        this.modifiedProps.add(key)
-        // 恢复原值
-        (window as any)[key] = this.windowSnapshot[key]
-      }
-    }
-    
-    // 删除新增的属性
-    for (const key in window) {
-      if (!this.windowSnapshot.hasOwnProperty(key)) {
-        delete (window as any)[key]
-      }
-    }
-  }
-  
-  // 获取被修改的属性列表
-  getModifiedProps(): string[] {
-    return Array.from(this.modifiedProps)
-  }
+  this.fakeWindow.requestAnimationFrame = (cb) => scope.raf(cb)
+}
+
+// 事件监听：key 用 WeakMap<listener, {type, capture}>（旧版 listener.toString() 源码碰撞删错条目）
+addEventListener(target: EventTarget, type: string, listener: EventListener, options?: unknown) {
+  target.addEventListener(type, listener, options)
+  const ctx = this.currentCtx()   // 当前应用 fiber 的 ctx（同步注册期确定，异步回调内归因见 §4.3）
+  ctx.effect(() => () => target.removeEventListener(type, listener, options))
 }
 ```
 
-### 4.3 优缺点
+- **监听器清理**：注册即挂应用 fiber effect（旧版自建 trackedListeners 且 `removeEventListener('*')` 是无效代码）--Cordis 原生解决"卸载残留监听"
+- rAF 经 SuspendScope：保活冻结（旧版 AsyncScopeTracker 无冻结能力且 observe 重挂不登记）
 
-| 优点 | 缺点 |
-|------|------|
-| 实现简单 | 性能较差（需要遍历所有 window 属性） |
-| 兼容性强（不支持 Proxy 的环境） | 无法拦截动态添加的属性 |
-| 强隔离 | 多实例并存时会互相影响 |
-
----
-
-## 五、iframe 沙箱（完全隔离方案）
-
-### 5.1 核心原理
-
-使用 iframe 创建完全隔离的 JS 执行环境。
-
-### 5.2 实现代码
+### 3.7 存储隔离（真实 Storage 语义）
 
 ```typescript
-// @cordis/sandbox/iframe-sandbox
-class IframeSandbox {
-  private iframe: HTMLIFrameElement
-  private iframeWindow: Window
-  private iframeDocument: Document
-  
-  constructor(private appId: string) {
-    // 创建 iframe
-    this.iframe = document.createElement('iframe')
-    this.iframe.style.display = 'none'
-    this.iframe.setAttribute('data-cordis-sandbox', appId)
-    
-    // 设置 srcdoc 避免跨域问题
-    this.iframe.srcdoc = '<html><body></body></html>'
-    
-    document.body.appendChild(this.iframe)
-    
-    this.iframeWindow = this.iframe.contentWindow!
-    this.iframeDocument = this.iframe.contentDocument!
-  }
-  
-  // 在 iframe 中执行代码
-  exec(code: string) {
-    const script = this.iframeDocument.createElement('script')
-    script.textContent = code
-    this.iframeDocument.body.appendChild(script)
-    script.remove()
-  }
-  
-  // 在 iframe 中创建 DOM 元素
-  createElement(tag: string): HTMLElement {
-    return this.iframeDocument.createElement(tag)
-  }
-  
-  // 销毁沙箱
-  destroy() {
-    this.iframe.remove()
-  }
-}
-```
+class StorageNamespace {
+  constructor(private raw: Storage, private prefix: string) {}
 
-### 5.3 优缺点
-
-| 优点 | 缺点 |
-|------|------|
-| 完全隔离 | 性能差（需要创建 iframe） |
-| 无兼容性问题 | 跨 iframe 通信复杂 |
-| 可以隔离 DOM | 无法直接操作主页面 DOM |
-
----
-
-## 六、沙箱管理器
-
-### 6.1 统一管理入口
-
-```typescript
-// @cordis/sandbox/manager
-class SandboxManager {
-  private sandboxes: Map<string, Sandbox> = new Map()
-  private pool: Map<string, Sandbox[]> = new Map()
-  
-  // 创建沙箱
-  createSandbox(appId: string, type: 'proxy' | 'snapshot' | 'iframe' = 'proxy'): Sandbox {
-    let sandbox: Sandbox
-    
-    switch (type) {
-      case 'proxy':
-        sandbox = new ProxySandbox(appId)
-        break
-      case 'snapshot':
-        sandbox = new SnapshotSandbox(appId)
-        break
-      case 'iframe':
-        sandbox = new IframeSandbox(appId)
-        break
-      default:
-        throw new Error(`Unknown sandbox type: ${type}`)
-    }
-    
-    this.sandboxes.set(appId, sandbox)
-    return sandbox
-  }
-  
-  // 获取沙箱
-  getSandbox(appId: string): Sandbox | undefined {
-    return this.sandboxes.get(appId)
-  }
-  
-  // 销毁沙箱
-  destroySandbox(appId: string) {
-    const sandbox = this.sandboxes.get(appId)
-    if (sandbox) {
-      sandbox.deactivate()
-      sandbox.destroy?.()
-      this.sandboxes.delete(appId)
-    }
-  }
-  
-  // 沙箱池化（复用相同技术栈的沙箱）
-  acquireFromPool(tech: string, appId: string): Sandbox {
-    const pool = this.pool.get(tech) || []
-    
-    if (pool.length > 0) {
-      // 复用现有沙箱
-      const sandbox = pool.pop()!
-      sandbox.appId = appId
-      this.sandboxes.set(appId, sandbox)
-      return sandbox
-    }
-    
-    // 创建新沙箱
-    const sandbox = this.createSandbox(appId)
-    return sandbox
-  }
-  
-  // 归还沙箱到池
-  releaseToPool(tech: string, appId: string) {
-    const sandbox = this.sandboxes.get(appId)
-    if (sandbox) {
-      sandbox.deactivate()
-      sandbox.cleanup?.()
-      
-      if (!this.pool.has(tech)) {
-        this.pool.set(tech, [])
+  // 用 Proxy 保留真实 Storage 的完整接口（含命名属性访问），而不是普通对象包装
+  // （旧版普通对象导致 localStorage.token = 'x' 静默写进包装对象丢数据；length 每次全表扫描）
+  static wrap(raw: Storage, prefix: string): Storage {
+    const map = new Map<string, string>()
+    const enumerate = () => {
+      map.clear()
+      for (let i = 0; i < raw.length; i++) {
+        const k = raw.key(i)!
+        if (k.startsWith(prefix)) map.set(k.slice(prefix.length), raw.getItem(k)!)
       }
-      this.pool.get(tech)!.push(sandbox)
-      this.sandboxes.delete(appId)
     }
-  }
-}
-```
-
-### 6.2 自动选择沙箱类型
-
-```typescript
-// 根据场景自动选择沙箱类型
-function chooseSandboxType(config: {
-  needFullIsolation: boolean
-  supportProxy: boolean
-  performance: 'high' | 'medium' | 'low'
-}): 'proxy' | 'snapshot' | 'iframe' {
-  if (config.needFullIsolation) {
-    return 'iframe'  // 需要完全隔离
-  }
-  
-  if (!config.supportProxy) {
-    return 'snapshot'  // 不支持 Proxy，使用快照沙箱
-  }
-  
-  if (config.performance === 'high') {
-    return 'proxy'  // 高性能场景使用 Proxy 沙箱
-  }
-  
-  return 'proxy'  // 默认使用 Proxy 沙箱
-}
-```
-
----
-
-## 七、效应追踪器（Effect Tracker）
-
-### 7.1 追踪全局变量修改
-
-```typescript
-// @cordis/sandbox/effect-tracker
-class EffectTracker {
-  private modifications: Map<string, { oldValue: any, newValue: any }> = new Map()
-  
-  // 记录变量修改（应直接在 Proxy 的 set trap 中被调用）
-  track(key: string, oldValue: any, newValue: any) {
-    this.modifications.set(key, { oldValue, newValue })
-  }
-
-  /* 
-   注意：EffectTracker 不应该使用 Object.defineProperty，
-   因为那只能拦截特定属性名。正确的姿势是在 ProxySandbox 的 set 拦截器中集成：
-   
-   set: (target, key, value) => {
-     if (this.tracker) {
-       this.tracker.track(key as string, target[key as string], value)
-     }
-     target[key as string] = value
-     return true
-   }
-  */
-  
-  // 获取所有修改
-  getModifications(): Map<string, { oldValue: any, newValue: any }> {
-    return this.modifications
-  }
-  
-  // 生成修改报告
-  generateReport(): string {
-    const lines = ['=== Effect Tracker Report ===']
-    
-    this.modifications.forEach(({ oldValue, newValue }, key) => {
-      lines.push(`${key}: ${oldValue} -> ${newValue}`)
+    return new Proxy({} as Storage, {
+      get: (_, key: string) => {
+        switch (key) {
+          case 'length': { enumerate(); return map.size }   // O(n) 但带缓存窗口；批量操作经 batch API
+          case 'getItem': return (k: string) => raw.getItem(prefix + k)
+          case 'setItem': return (k: string, v: string) => { this.quotaCheck(); raw.setItem(prefix + k, v) }
+          case 'removeItem': return (k: string) => raw.removeItem(prefix + k)
+          case 'clear': return () => { enumerate(); for (const k of map.keys()) raw.removeItem(prefix + k) }
+          case 'key': return (i: number) => { enumerate(); return [...map.keys()][i] ?? null }
+        }
+        return raw.getItem(prefix + key) ?? undefined       // 命名属性访问（localStorage.token）
+      },
+      set: (_, key: string, v) => { raw.setItem(prefix + key, String(v)); return true },
+      deleteProperty: (_, key: string) => { raw.removeItem(prefix + key); return true },
     })
-    
-    return lines.join('\n')
   }
 }
 ```
 
-### 7.2 自动清理泄漏
+- 前缀统一 `__cordis__${appId}__`（旧文档两套前缀 `__taixu_`/`cordis_:` 并存，统一）
+- **此实现真正接线**：ProxySandbox init 时注入 `fakeWindow.localStorage/sessionStorage`（旧版整段被注释=零隔离）
+- IndexedDB：per-app database name 前缀 + 打开数量预算；Cookie：默认共享（同源语义），需隔离的应用配置 `cookieScoped`（iframe 沙箱）
+
+### 3.8 AsyncScopeTracker（Observers/rAF）
+
+- MutationObserver/ResizeObserver/IntersectionObserver 包装：`observe()` 调用时登记到当前应用 ctx 的 effect；`disconnect()` 时注销
+- 修复旧版"disconnect 后再 observe 不登记"：包装层维护 per-instance 状态（observed set），observe 幂等登记
+- Worker：包装构造，terminate 挂 effect
+
+## 四、生命周期接线
+
+### 4.1 创建与销毁（挂 fiber effect）
 
 ```typescript
-// 自动清理未移除的事件监听器
-class LeakDetector {
-  private trackedListeners: Map<string, Set<EventListener>> = new Map()
-  
-  trackListener(appId: string, type: string, listener: EventListener) {
-    if (!this.trackedListeners.has(appId)) {
-      this.trackedListeners.set(appId, new Set())
-    }
-    this.trackedListeners.get(appId)!.add(listener)
-  }
-  
-  untrackListener(appId: string, listener: EventListener) {
-    const listeners = this.trackedListeners.get(appId)
-    if (listeners) {
-      listeners.delete(listener)
-    }
-  }
-  
-  // 检测泄漏
-  detectLeaks(): Map<string, number> {
-    const leaks = new Map<string, number>()
-    
-    this.trackedListeners.forEach((listeners, appId) => {
-      if (listeners.size > 0) {
-        leaks.set(appId, listeners.size)
-      }
-    })
-    
-    return leaks
-  }
-  
-  // 自动清理
-  autoCleanup(appId: string) {
-    const listeners = this.trackedListeners.get(appId)
-    if (listeners) {
-      listeners.forEach(listener => {
-        window.removeEventListener('*', listener)  // 清理所有事件
-      })
-      listeners.clear()
-    }
-  }
+// lifecycle 挂载事务内（lifecycle-management.md §2.2）：
+const sandbox = await this.sandbox.create(appId, { trust, signal })
+// 双保险：teardown 注册在应用 fiber 上
+fiber.ctx.effect(() => () => sandbox.destroy())
+```
+
+### 4.2 destroy（幂等）
+
+```typescript
+async destroy() {
+  if (this.disposed) return
+  this.disposed = true
+  // fakeWindow 上记账的注入节点移除（§3.5 tracker）、存储句柄释放、
+  // modifiedKeys 报告（monitor：全局污染残留诊断）
+  // 定时器/监听已由 fiber effect 逆序回收（§3.6），此处只做沙箱自身资源
 }
 ```
 
----
+### 4.3 异步归因
 
-## 八、沙箱配置
+定时器/监听包装在**注册期**绑定应用 ctx（同步栈内）；异步回调内的行为经 tracing 的 span 携带 appId（monitoring.md §4.6），错误归因不失效。
 
-### 8.1 配置文件
+### 4.4 不池化（废除沙箱池）
 
-```json
-// cordis.sandbox.json
-{
-  "sandbox": {
-    "type": "proxy",
-    "strict": true,
-    "trackEffects": true,
-    "autoCleanup": true
-  },
-  "whitelist": [
-    "console",
-    "setTimeout",
-    "setInterval"
-  ],
-  "blacklist": [
-    "eval",
-    "Function"
-  ]
+旧版池化复用把上一应用的存储前缀、document proxy 容器引用、闭包残留带进下一应用（跨应用泄漏），且 `private appId` 赋值/`private cleanup` 外部调用均为编译错误。**沙箱对象轻量（两个 Proxy + 若干 Map），池化收益不抵风险，废除**。"相同技术栈复用沙箱"的优化改为：deps 服务的模块缓存复用（heterogeneous-loading.md §十）。
+
+## 五、iframe 沙箱（third-party，安全边界）
+
+```typescript
+class IframeSandbox implements Sandbox {
+  async init() {
+    this.frame = document.createElement('iframe')
+    // 关键：无 allow-same-origin（旧版 allow-scripts+allow-same-origin 组合可移除自身 sandbox 属性逃逸）
+    this.frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups')
+    this.frame.setAttribute('referrerpolicy', 'no-referrer')
+    if (this.config.csp) this.frame.setAttribute('csp', this.config.csp)   // iframe 级 CSP
+    this.frame.style.display = 'none'   // JS 执行环境；渲染容器由宿主决定是否显示
+    document.body.appendChild(this.frame)
+
+    // 加载完成 handshake 后再建立桥（旧版 appendChild 后立刻取 contentDocument 有竞态）
+    await this.loadEntry()
+    await this.handshake()
+    this.bridge = new IframeBridge(this.bus, this.frame, this.appId, this.expectedOrigin)
+  }
+  get proxy(): never { throw new Error('iframe sandbox: no shared proxy; use bus bridge') }
 }
 ```
 
-### 8.2 配置说明
+- 通信：postMessage 桥（origin 校验 + 信封 nonce，communication-protocol.md §八）；**不共享任何对象**
+- entry URL 跨源：默认 `crossOriginIsolated` 策略；`srcdoc` 仅用于同源受控内容（且仍带 sandbox 属性）
+- 样式天然隔离（style-isolation.md 引用此路径）；destroy = 桥解绑 + frame 移除
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `type` | `'proxy' \| 'snapshot' \| 'iframe'` | 沙箱类型 |
-| `strict` | boolean | 是否启用严格模式（拦截 eval/Function） |
-| `trackEffects` | boolean | 是否追踪效应（全局变量修改） |
-| `autoCleanup` | boolean | 是否自动清理泄漏 |
-| `whitelist` | string[] | 允许透传到真实 window 的属性 |
-| `blacklist` | string[] | 禁止访问的属性 |
+## 六、配置
 
----
+```typescript
+interface SandboxConfig {
+  defaultTrust: 'first-party' | 'third-party'
+  prototypeGuard: 'freeze' | 'off'          // 默认 freeze
+  blacklist: string[]                        // 沙箱内禁访全局（默认含 __CORDIS_* 全部句柄）
+  workers: { serviceWorker: 'deny' | 'allow'; dedicated: 'allow' | 'deny' }
+  storage: { quotaPerApp: number }
+  iframe?: { csp?: string; originAllowlist: string[] }
+}
+```
 
-## 九、与现有方案对比
+## 七、DevTools 联动
 
-| 维度 | qiankun | wujia | micro-app | Cordis |
-|------|---------|-------|-----------|--------|
-| **沙箱类型** | Proxy + Snapshot | iframe | Shadow DOM | Proxy（推荐） |
-| **隔离强度** | 中 | 强 | 中 | 中 |
-| **性能** | 优 | 低 | 中 | 优 |
-| **兼容性** | 优 | 优 | 优 | 优 |
-| **效应追踪** | 无 | 无 | 无 | 有 |
-| **自动清理** | 无 | 有（iframe 销毁） | 无 | 有 |
-| **沙箱池化** | 无 | 无 | 无 | 有 |
+- 沙箱面板：modifiedKeys、注入节点清单、监听/定时器记账（按 appId）
+- 泄漏探测：monitor 的 Detached DOM Monitor 消费 tracker 数据（monitoring.md §4.7）
 
----
+## 八、实施计划
 
-## 十、实现优先级
+| 优先级 | 内容 |
+|--------|------|
+| P0 | ProxySandbox 双窗口 + trap 语义修复 + fiber effect 接线 |
+| P0 | 定时器/监听包装（SuspendScope 接入）+ 存储命名空间（真接线） |
+| P1 | Document 代理（scoped 查询 + 注入记账）+ 网络 scopedFetch 注入 |
+| P1 | IframeSandbox（sandbox 属性 + handshake 桥） |
+| P2 | 原型 freeze 策略、customElements 前缀注册、AsyncScopeTracker 全覆盖 |
 
-| 优先级 | 功能 | 说明 |
-|--------|------|------|
-| P0 | Proxy 沙箱 | 基础功能，覆盖大多数场景 |
-| P0 | 定时器/事件监听追踪 | 防止泄漏 |
-| P1 | Snapshot 沙箱 | 兼容不支持 Proxy 的环境 |
-| P1 | 效应追踪器 | 调试和优化 |
-| P2 | iframe 沙箱 | 完全隔离场景 |
-| P2 | 沙箱池化 | 性能优化 |
-| P3 | 自动清理泄漏 | 长期运行场景 |
-| P3 | 原型链污染检测 | 强隔离场景 |
+## 九、与旧文档差异一览
+
+| 旧设计问题（评审编号） | 本版修复 |
+|------------------------|----------|
+| 1.1 全文无 ctx、EffectTracker 是 ctx.effect 劣质复刻 | §1.2/§4.1 记账挂 fiber effect，Cordis 原生回收 |
+| 2.1 `new Function('window',...)` 只换三个形参，裸标识符全穿透 | §3.4 诚实分派：ESM 不进 eval、经典脚本 with、eval 记账+CSP |
+| 2.2 with 包裹炸严格模式产物/拦截装饰性 | §3.4 路线分派表 + 能力边界声明 |
+| 2.3 deleteProperty 返回 false 抛 TypeError | §3.2 恒 true |
+| 2.4 Object 展开洗掉 API | §3.3 Object.freeze 策略 |
+| 2.5 getElementById TypeError/head 身份不稳定/注入追踪绕过 | §3.5 显式实现 + 缓存单例 + 全路径记账 |
+| 2.6 listener.toString() 碰撞 | §3.6 WeakMap 记账 |
+| 2.7 activate 调用未定义 takeSnapshot | 废除 snapshot 路径（双窗口不需要） |
+| 2.8 池化跨应用泄漏 + 编译错误 | §4.4 不池化 |
+| 2.9 destroy 调 IframeSandbox 不存在的 deactivate | §五 接口统一（destroy 幂等） |
+| 2.10 SnapshotSandbox 不完整/自认互扰 | Snapshot 模式降级为 legacy 附录（不推荐）；主推 Proxy 双窗口 |
+| 2.11 iframe 无 sandbox 属性非隔离 | §五 无 allow-same-origin + csp 属性 |
+| 2.12 LeakDetector `removeEventListener('*')` 无效代码 | 废除，fiber effect 原生回收 |
+| 2.13 Observer 重挂不追踪 | §3.8 per-instance 状态 |
+| 2.14 存储隔离被注释/丢命名属性语义 | §3.7 真接线 + Proxy 完整 Storage |
+| 2.15 location 行为分裂 | §3.2 统一重定向 router |
+| 缺失向量 #1-#10 | §3.1 清单化缓解 |

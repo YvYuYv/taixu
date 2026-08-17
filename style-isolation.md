@@ -1,360 +1,201 @@
-# 样式隔离 (Style Isolation)
+# Cordis 样式隔离（Style Isolation）
 
-## 1. 样式隔离概述
+> 对齐基线：[cordis-alignment.md](./cordis-alignment.md)。
+> 样式生命周期统一声明（修复旧版双重标准）：**样式的创建与移除经 `ctx.effect` 挂在应用 fiber 上；dispose 时移除；Suspended（保活）时保留**（与 lifecycle-management.md §5.1 一致）。
 
-微前端架构中，将多个独立开发、独立部署的应用集成到同一个页面中运行时，样式冲突是一个极为常见且棘手的问题。
+## 一、概述
 
-### 微前端样式冲突的根本原因
-由于 CSS 的设计天然是全局共享的，没有原生的作用域概念（除了较新的 Shadow DOM）。在一个 Document 下加载的所有样式表，都会影响整个页面的所有 DOM 元素。
+CSS 天然全局共享。三类冲突：
 
-### 三种典型的样式冲突场景
-1. **主应用与子应用冲突**：主应用的全局重置样式（如 `reset.css` 或 `normalize.css`）可能会影响子应用的布局；子应用也可能无意中覆盖主应用的样式。
-2. **子应用与子应用冲突**：当页面上同时存在多个子应用，或者在多个子应用之间切换时，如果存在同名的 CSS 类，后加载的样式会覆盖先加载的样式。
-3. **第三方组件库冲突**：不同应用如果使用了不同版本的同一个 UI 组件库（例如 antd v3 和 antd v4），且没有隔离类名前缀，会导致严重的样式错乱。
+1. 主应用与子应用冲突（全局 reset 互相影响）
+2. 子应用之间冲突（同名类后加载覆盖）
+3. 第三方组件库冲突（antd v3/v4 同页）
 
-## 2. 隔离策略
+## 二、隔离策略选型
 
-### 2.1 命名空间策略（推荐）
-在构建阶段，通过给所有的 CSS 选择器自动加上应用的特定前缀（如属性选择器或类名前缀），实现样式的隔离。这种方式对业务代码侵入性小，兼容性好。
+| 策略 | 机制 | 适用 | 局限 |
+|------|------|------|------|
+| 命名空间（推荐默认） | 构建期 PostCSS 前缀 | first-party 全部 | 需要构建接入；运行时生成的样式需 runtime 补丁（§2.4） |
+| Shadow DOM | 天然边界 + 事件修复 | 重隔离需求/三方组件密集 | @font-face/Portal/事件 retarget 问题（§三） |
+| CSS Modules / Scoped | 工程自身约定 | 已有工程 | 框架只做校验不做转换 |
+| iframe | 天然隔离 | third-party 应用 | js-sandbox §五（本文不重复） |
 
-#### PostCSS 插件实现
-可以借助 PostCSS 插件在编译时自动添加前缀：
+## 三、命名空间策略（构建期）
 
-```typescript
-// postcss.config.js
-module.exports = {
-  plugins: [
-    require('postcss-prefix-selector')({
-      prefix: '#taixu-app-react16',
-      transform: function (prefix, selector, prefixedSelector) {
-        if (selector === 'body' || selector === 'html') {
-          return prefix;
-        }
-        return prefixedSelector;
-      }
+### 3.1 PostCSS 前缀（修复 body/html 语义破坏）
+
+```javascript
+// @cordis-mf/postcss-prefix（宿主/子应用构建共用）
+module.exports = (opts = {}) => ({
+  postcssPlugin: 'cordis-prefix',
+  Root(root) {
+    root.walkRules((rule, i) => {
+      // 每条选择器独立处理；跳过 @keyframes 内部与 :root 相关的宿主保留规则
+      rule.selector = rule.selectors.map((sel) => {
+        // 1) html/body 级选择器：转译为容器作用域等价物，而非对宿主 div 设 margin
+        if (/^(html|body)$/.test(sel)) return `${opts.prefix} :where(*)`        // 容器内全元素选择器
+        if (/^(html|body)[ >]/.test(sel)) return sel.replace(/^(html|body)/, opts.prefix)
+        // 2) :root -> 容器（CSS 变量仍可经继承共享，见 §五）
+        if (sel === ':root') return opts.prefix
+        // 3) 普通选择器加前缀（保持特异性可控，用 :where 降权避免覆盖宿主）
+        return `${opts.prefix} ${sel}`
+      }).join(', ')
     })
-  ]
-};
+    // @keyframes 名字改写（§3.2）；@font-face 提升（§3.3）；@import 展开（§3.4）
+  },
+})
 ```
 
-#### 示例代码
-原始 CSS:
+- `body { margin:0 }` 语义修正：容器不是 body（vh/滚动/继承不同），转换为容器内 reset 并**文档声明差异**；宿主级 reset 属于宿主自己的样式域，不归子应用管
+- 复合选择器 `html body .x` 前缀化后真实可匹配（`#tx-app1 .x`）
+
+### 3.2 @keyframes / @counter-style 隔离（旧版完全缺失）
+
+```javascript
+// 构建期：名字重写为带应用前缀
+// @keyframes spin -> @keyframes tx-app1-spin
+root.walkAtRules('keyframes', (atRule) => {
+  atRule.params = `${opts.ns}-${atRule.params}`
+})
+root.walkDecls(/^animation(-name)?$/, (decl) => {
+  decl.value = decl.value.replace(/\b(spin|fade|...)\b/g, (n) => `${opts.ns}-${n}`)
+})
+```
+
+- 动画名是**文档级全局命名空间**（Shadow DOM 内也一样）：两个应用同名 `spin` 后者劫持前者--必须重写
+- 运行时兜底：js-sandbox 的 InjectedNodesTracker 发现未前缀的 style 注入时告警
+
+### 3.3 @font-face 提升（Shadow DOM 关键限制）
+
+- **Shadow DOM 内的 @font-face 不生效**（Chromium 行为）：构建期把 @font-face 规则**抽出为独立文件**，挂载时注入**文档级**（带 `tx-{appId}-` 字体家族前缀重写，避免家族名撞车）
+- 字体去重：宿主维护 font registry（family+src 哈希），重复注册复用同一 @font-face（避免多应用重复下载/FOUT）
+
+### 3.4 @import / @layer
+
+- `@import` 构建期展开进前缀管线（ bundler 标准行为，显式声明不依赖运行时）
+- `@layer` 名同样全局：`@layer base` -> `@layer tx-app1.base`（嵌套 layer 天然隔离）
+
+### 3.5 CSS 变量继承（与 `all: initial` 的冲突修复）
+
+- 旧 heterogeneous-loading 文档给容器 `all: initial`，会**重置自定义属性继承**，摧毁主题共享。修复：容器初始化改为**显式重置清单**：
+
 ```css
-.container { color: red; }
-```
-经过转换后的 CSS:
-```css
-#taixu-app-react16 .container { color: red; }
-```
-
-### 2.2 Shadow DOM 策略（强隔离）
-利用 Web Components 的 Shadow DOM 特性，将子应用挂载到 Shadow Root 中。Shadow DOM 内部的样式不会泄漏到外部，外部的样式也不会影响到内部。
-
-#### 优缺点分析
-- **优点**：提供浏览器原生的严格隔离，彻底解决样式冲突。
-- **缺点**：
-  - 弹窗组件问题：很多 UI 库的弹窗默认挂载到 `document.body`，会导致弹窗丢失内部样式。
-  - 性能开销：创建 Shadow DOM 有一定的性能成本。
-  - 事件代理：React 17 之前的版本，事件代理在 document 上，与 Shadow DOM 的事件冒泡机制存在冲突。
-
-#### CSS-in-JS 库的兼容性问题及解决方案
-许多 CSS-in-JS 库默认将 `<style>` 标签插入到 `<head>` 中，在 Shadow DOM 模式下会失效。需要通过配置将样式注入到 Shadow Root 中（见第5节）。
-
-### 2.3 CSS Modules 策略
-通过在构建时（如 Webpack、Vite）将类名进行 Hash 化处理，确保全局类名的唯一性。
-
-#### 与各框架的集成
-- React/Vue 中直接支持 `xxx.module.css`。
-```typescript
-import styles from './Button.module.css';
-// 编译后: .Button_primary__2k9j
-<button className={styles.primary}>Click</button>
-```
-缺点是只能隔离自己写的代码，无法自动隔离引用的第三方库样式。
-
-### 2.4 CSS Scoped 策略
-Vue 提供的 `<style scoped>` 方案。通过在 HTML 标签上添加唯一的 data 属性，并结合 CSS 属性选择器来实现样式的作用域。
-
-```html
-<style scoped>
-.example { color: red; }
-</style>
-<template>
-  <div class="example">hi</div>
-</template>
-```
-编译后：
-```html
-<style>
-.example[data-v-f3f3eg9] { color: red; }
-</style>
-<div class="example" data-v-f3f3eg9>hi</div>
-```
-
-## 3. 主题变量共享
-
-微前端中，通常希望各个子应用能够与主应用保持一致的主题风格。
-
-### CSS 自定义属性跨应用共享
-利用 CSS 变量（CSS Custom Properties）具有继承性的特点。主应用在 `:root` 或者子应用挂载的父节点上定义 CSS 变量，子应用直接消费这些变量。
-
-### 主题切换机制
-主应用负责维护主题状态并下发变量，子应用只需使用。
-
-```typescript
-// 主应用注册主题
-ctx.plugin((ctx) => {
-  ctx.on('theme/change', (theme: 'light' | 'dark') => {
-    const root = document.documentElement;
-    if (theme === 'dark') {
-      root.style.setProperty('--primary-color', '#000000');
-      root.style.setProperty('--text-color', '#ffffff');
-    } else {
-      root.style.setProperty('--primary-color', '#1890ff');
-      root.style.setProperty('--text-color', '#333333');
-    }
-  });
-});
-```
-
-## 4. 样式动态注入与清理
-
-为了避免卸载后的子应用样式污染全局，样式的生命周期必须与应用的生命周期绑定。在 Taixu 框架中，可以使用 Cordis 的 `ctx.effect()` 来管理副作用的自动清理。
-
-### 使用 cordis ctx.effect() 自动清理
-```typescript
-import { Context } from 'cordis';
-
-export function stylePlugin(ctx: Context, config: { url: string }) {
-  // 当插件/服务被激活时注册副作用
-  ctx.effect(() => {
-    // 动态插入 <style> 标签
-    const styleElement = document.createElement('link');
-    styleElement.rel = 'stylesheet';
-    styleElement.href = config.url;
-    document.head.appendChild(styleElement);
-
-    // 返回的函数会在插件卸载或该 effect 被清理时自动调用
-    return () => {
-      document.head.removeChild(styleElement);
-    };
-  });
+/* 容器初始化（不用 all:initial） */
+#tx-app1 {
+  all: unset;                    /* 只重置标准属性 */
+  /* 注意：部分实现中 all:unset 仍影响继承的自定义属性 -> 用变量白名单恢复 */
+  --tx-theme-primary: inherit;   /* 框架管理的主题变量显式透传（§五） */
+  display: block; contain: content;
 }
 ```
 
-## 5. CSS-in-JS 兼容性
+- 主题变量走**框架管理通道**（`--tx-*` 前缀），不依赖未受控继承
 
-在使用 Shadow DOM 作为样式隔离方案时，`styled-components` 和 `Emotion` 会遇到样式插入位置的问题。
+## 四、运行时与 Shadow DOM
 
-### styled-components 解决方案
-使用 `StyleSheetManager` 将样式重定向到对应的 Shadow Root 节点。
+### 4.1 Shadow DOM 路线
+
+- 容器创建唯一路径 `lifecycle.createOutletContainer()`（基线 §五）；Shadow 选项在此层
+- 样式注入：优先 **Constructable Stylesheets**（`adoptedStyleSheets`，替换式更新零重排；Safari 16.4+ 检测降级为 style 节点）
+- 文档级例外（@font-face、全局 reset）经 §3.3 提升注入
+
+### 4.2 Portal / 弹层容器重定向
 
 ```typescript
-import { StyleSheetManager } from 'styled-components';
-
-function App({ shadowRoot }) {
-  return (
-    <StyleSheetManager target={shadowRoot}>
-      <YourApp />
-    </StyleSheetManager>
-  );
-}
+// 应用 apply 内（antd/Element 弹层默认挂 document.body -> 重定向到应用自己的 portal 容器）
+ctx.effect(() => {
+  const portal = lifecycle.getPortalContainer(ctx)     // Shadow 外、容器旁（继承应用命名空间样式）
+  const doc = sandbox.documentProxy
+  const rawBody = doc.body
+  // 弹层容器查找重定向：Antd ConfigProvider getPopupContainer / Element appendTo 一等支持；
+  // 未适配的库经 document.body 代理重定向（仅 append 弹层类节点，判断 el.role/类名特征）
+  return () => { /* portal 随 fiber dispose 移除 */ }
+})
 ```
 
-### Emotion 解决方案
-使用 `CacheProvider` 创建自定义的缓存实例并指定 `container`。
+- 滚动锁（`document.body.style.overflow`）：portal 容器代理拦截该赋值，改为容器级 `overflow:hidden`（不泄漏到主应用 body）
+- z-index：宿主提供分层 registry（`--tx-z-modal` 等 token），弹层经 token 取值而非裸数字
+
+### 4.3 React 16/17 事件 Retargeting（补丁细化）
+
+- 合成事件名补全：`input/keydown/keyup/focusin/focusout/submit`（React16 focus 走 focusin 代理）
+- `InputEvent` 保真：重新派发时复制 `data/inputType/isComposing`（React 受控组件依赖）
+- `stopPropagation` 修复策略修正：**不再**在 shadow root 上无差别 stopPropagation（旧版误杀主应用 light DOM 合法监听）；改为 `composed: false` 重派发 + React 内部 listener 标记（React 17+ 事件挂 root 后该问题消失，补丁仅覆盖 16/17 legacy）
+
+### 4.4 运行时生成的样式（CSS-in-JS / cssinjs，旧版缺失）
+
+- antd v4 cssinjs / emotion/styled-components 运行时注入：命名空间路线下提供**运行时前缀补丁**（观测 style 注入，对规则文本做 §3.1 等价前缀重写，性能敏感应用建议改走 Shadow 路线）
+- 检测：InjectedNodesTracker 发现未前缀规则 -> 开发模式告警 + DevTools 面板展示
+
+## 五、主题共享
 
 ```typescript
-import { CacheProvider } from '@emotion/react';
-import createCache from '@emotion/cache';
+class ThemeService extends Service {
+  static [Context.provide] = 'theme'
 
-function App({ shadowRoot }) {
-  const cache = createCache({
-    key: 'taixu-emotion',
-    container: shadowRoot,
-  });
-
-  return (
-    <CacheProvider value={cache}>
-      <YourApp />
-    </CacheProvider>
-  );
-}
-```
-
-## 6. Shadow DOM 下的 React 16/17 事件代理问题 (Event Retargeting)
-
-### 事件重定向 (Event Retargeting) 现象
-在 Shadow DOM 中，为了保证内部的封装性，当事件从 Shadow DOM 内部冒泡到外部（Light DOM）时，事件的 `target` 会被重定向（Retargeting）为 Shadow Host 本身，而不是 Shadow DOM 内部的真实触发元素。
-
-### React 16 的合成事件失效原因
-React 16 及更早版本将所有的事件都代理到 `document` 上监听。当使用 Shadow DOM 隔离时：
-1. 子应用内部组件触发事件（如 `click`）。
-2. 事件冒泡出 Shadow Root，`target` 被重定向为 Shadow Host。
-3. `document` 上绑定的 React 事件代理捕获到该事件。
-4. React 尝试通过 `event.target`（此时是 Shadow Host）去分发事件，导致无法正确匹配到子应用内部的 React 组件，从而事件处理函数（如 `onClick`）不会被触发。
-
-*注：React 17+ 改变了事件委托的挂载点，将事件委托到 React 挂载的根节点（如 `<div id="root">`），只要该根节点位于 Shadow DOM 内部，就不会受事件重定向的影响。*
-
-### 修复方案：事件重定向补丁
-对于无法升级的 React 16 应用，可以通过手动拦截并分发事件来解决。可以使用类似事件重定向 Polyfill 的机制：
-
-```typescript
-// react-shadow-event-polyfill.ts
-export function retargetReact16Events(shadowRoot: ShadowRoot) {
-  const events = ['click', 'mousedown', 'mouseup', 'change', 'input']; // 列出需要代理的事件
-  
-  events.forEach(eventType => {
-    shadowRoot.addEventListener(eventType, (event) => {
-      // 阻止默认冒泡，防止外部 document 上的 React 代理收到被重定向的事件
-      event.stopPropagation(); 
-      
-      // 构建一个模拟的事件对象，将 target 指向内部真实元素
-      const simulatedEvent = new Event(event.type, {
-        bubbles: true,
-        cancelable: event.cancelable,
-      });
-      Object.defineProperty(simulatedEvent, 'target', { value: event.composedPath()[0] });
-      
-      // 找到 React 挂载的根节点（内部的真实 DOM）并重新派发
-      const reactRoot = shadowRoot.querySelector('#sub-app-root');
-      if (reactRoot) {
-        reactRoot.dispatchEvent(simulatedEvent);
-      }
-    });
-  });
-}
-```
-
-## 7. UI 组件弹窗与 Portal 挂载容器处理
-
-很多 UI 组件库（如 antd, Element UI）的 Modal 弹窗、Tooltip 提示、Select 下拉框等组件，默认会将 DOM 节点通过 `Portal` 等机制传送到全局的 `document.body` 下。
-
-### 样式丢失问题
-如果子应用使用了 Shadow DOM 或者命名空间（带特定前缀）进行样式隔离，这些被传送到 `document.body` 的弹窗节点将完全脱离该作用域，导致弹窗失去所有样式。
-
-### 解决方案：自定义挂载容器
-我们需要将这些 Portal 弹窗的挂载点，从全局的 `document.body` 路由重定向到子应用的 Shadow Root 内部，或带有特定样式的容器内。
-
-#### 1. 为子应用提供专门的 Portal Container
-在子应用挂载时，随之创建一个与之匹配的挂载容器：
-
-```typescript
-// 在主应用中准备挂载点
-ctx.plugin((ctx) => {
-  ctx.on('app/mount', (appInfo) => {
-    // 创建主应用容器
-    const shadowHost = document.createElement('div');
-    const shadowRoot = shadowHost.attachShadow({ mode: 'open' });
-    
-    // 注入子应用基础 HTML 容器
-    const appContainer = document.createElement('div');
-    appContainer.id = 'app-root';
-    
-    // 创建供弹窗挂载的专用容器
-    const portalContainer = document.createElement('div');
-    portalContainer.id = 'portal-root';
-    
-    shadowRoot.appendChild(appContainer);
-    shadowRoot.appendChild(portalContainer);
-    document.body.appendChild(shadowHost);
-    
-    // 将 portalContainer 传递给子应用
-    appInfo.mount(appContainer, { getPopupContainer: () => portalContainer });
-  });
-});
-```
-
-#### 2. 在子应用中配置 UI 组件库
-接收主应用传入的挂载节点，并配置给 UI 库。以 React 和 antd 为例：
-
-```typescript
-// 子应用入口
-import { ConfigProvider } from 'antd';
-
-export function mount(container: HTMLElement, props: { getPopupContainer: () => HTMLElement }) {
-  // 从 props 中获取指定的挂载节点，降级使用 document.body
-  const getContainer = props.getPopupContainer || (() => document.body);
-
-  ReactDOM.render(
-    <ConfigProvider getPopupContainer={getContainer}>
-      <App />
-    </ConfigProvider>,
-    container
-  );
-}
-```
-通过这种方式，所有的弹窗、下拉框等都会被渲染到 `portalContainer` 中。由于该容器与微应用主体位于同一隔离作用域（如 Shadow DOM 内部）下，从而完美继承子应用的 CSS 样式。
-
-## 8. 样式加载顺序控制
-
-当主应用和多个子应用同时存在时，样式的加载顺序决定了样式的覆盖优先级。
-
-### 样式优先级策略
-1. **主应用基础样式** 应该最先加载。
-2. **子应用样式** 随后加载，以便能够覆盖基础样式中不符合子应用需求的部分。
-3. **动态注入样式**（如组件库按需加载的 CSS）通常会附加到 `<head>` 尾部。
-
-Taixu 框架通过维护一个统一的样式注入锚点来控制：
-```typescript
-ctx.plugin((ctx) => {
-  const taixuStyleAnchor = document.createComment('taixu-styles-anchor');
-  document.head.appendChild(taixuStyleAnchor);
-
-  ctx.on('app/load-style', (styleNode) => {
-    // 确保子应用的样式始终插入在锚点之前
-    document.head.insertBefore(styleNode, taixuStyleAnchor);
-  });
-});
-```
-
-## 9. 样式热更新
-
-在开发模式下，Taixu 支持通过 WebSocket 监听样式文件的变化，并通过 HMR 机制进行热更新。
-当监听到样式变化时，Taixu 会拦截更新，不刷新整个页面，而是通过 Cordis 事件机制通知对应的微应用替换特定的 `<style>` 标签或重新加载 CSS。
-
-```typescript
-ctx.on('hmr/style-update', (payload) => {
-  const { appId, cssContent } = payload;
-  const styleNode = document.querySelector(`style[data-app-id="${appId}"]`);
-  if (styleNode) {
-    styleNode.innerHTML = cssContent;
+  setTheme(theme: ThemeTokens) {
+    // 文档级 :root 设置 --tx-* 变量（唯一写点；样式生命周期=宿主，不随应用卸载）
+    for (const [k, v] of Object.entries(theme)) root.style.setProperty(`--tx-${k}`, v)
   }
-});
-```
-
-## 10. 配置声明
-
-Taixu 支持通过配置文件声明应用的样式策略。
-
-### `cordis.styles.json` 格式
-```json
-{
-  "isolationMode": "namespace",
-  "namespace": {
-    "prefix": "#taixu-app-vue3"
-  },
-  "shadowDOM": false,
-  "theme": {
-    "inherit": true,
-    "variables": {
-      "primary-color": "#42b983"
-    }
-  },
-  "injectedStyles": [
-    "https://cdn.example.com/global.css"
-  ]
 }
 ```
 
-## 11. 最佳实践
+- 运行时 `ctx.on('theme/change')`（旧版）与静态 `cordis.styles.json` 的 `theme.variables`（旧版 §10）两套并存 -> 统一为 ThemeService（配置即初始主题）
+- 应用消费 `var(--tx-primary)`；主题变更应用自动响应（CSS 变量特性）
+- prefers-color-scheme：ThemeService 内聚处理（dark/light token 集切换），不再有第二机制
 
-### 不同场景下的策略选择建议
-- **新项目开发**：推荐首选 **CSS Modules** 或框架自带的 **Scoped CSS** 配合 **CSS Variables**，从源头避免冲突。
-- **老项目接入 / 巨石应用拆分**：由于老项目可能存在大量全局样式，推荐使用 **命名空间策略** (通过 PostCSS 构建时加前缀)，这种方式侵入性最小。
-- **极端严格要求 / 不信任的第三方接入**：使用 **Shadow DOM**，但需注意妥善处理弹窗组件挂载点和 CSS-in-JS 的兼容性。
+## 六、样式生命周期（与 lifecycle 对齐）
 
-### 性能考量
-- 尽量避免频繁插入和删除大量的 DOM 节点（如不断切换微应用时导致 `<style>` 的挂载和卸载）。
-- 对大规模 CSS 应用启用缓存，避免每次挂载微应用都重新解析相同的 CSS 文本。
-- Shadow DOM 在低端设备上创建多个隔离环境时可能会有内存和性能压力，按需使用。
+| 事件 | 行为 |
+|------|------|
+| 挂载 | 注入 style/link（经 InjectedNodesTracker 记账；挂 ctx.effect） |
+| Suspended | **保留**（保活恢复零闪烁） |
+| resume | 无操作 |
+| dispose | effect 逆序移除全部记账节点（含文档级字体例外） |
+| HMR（css-only） | §七真热替换 |
+
+## 七、HMR（修复目标节点找不到的 bug）
+
+```typescript
+// 注入时统一打标（style 与 link 两种节点都可被 HMR 定位）
+styleNode.dataset.cordisApp = appId          // 旧版注入 <link> 却用 style[data-app-id] 查询 + innerHTML 更新
+
+// css-only 热替换
+hmr.on('update', ({ appId, file, css }) => {
+  const target = document.querySelector(`style[data-cordis-app="${appId}"][data-file="${file}"]`)
+  if (target) target.textContent = css                          // style 节点
+  else sheet.replaceSync(css)                                   // Constructable Stylesheet 路线
+  // link 路线：换 href 带 cache-busting query
+})
+```
+
+## 八、验证与 DevTools
+
+- 冲突检测：开发模式扫描文档级规则的选择器命中数（跨应用同名类命中 -> 告警）
+- DevTools 样式面板：每应用注入规则数、文档级例外清单、字体 registry
+
+## 九、实施计划
+
+| 优先级 | 内容 |
+|--------|------|
+| P0 | PostCSS 前缀（含 html/body/:root 语义、keyframes 重写、@import 展开） |
+| P0 | 注入记账 + ctx.effect 生命周期（dispose 移除/保活保留） |
+| P1 | Shadow DOM 路线（Constructable Stylesheets + Portal 重定向 + React 事件补丁） |
+| P1 | @font-face 提升 + 字体 registry、运行时 CSS-in-JS 补丁 |
+| P2 | 主题服务、HMR css-only、冲突检测扫描 |
+
+## 十、与旧文档差异一览
+
+| 旧设计问题（评审编号） | 本版修复 |
+|------------------------|----------|
+| S-1 DOM 修改未用 ctx.effect（自违原则） | §六 统一声明 + 全部写点挂 effect |
+| S-3 body/html 转换语义破坏 | §3.1 语义等价转换 + 差异声明 |
+| S-4 @keyframes/@font-face/@import/@layer 缺失 | §3.2-3.4 |
+| S-5 `all: initial` 切断变量继承 | §3.5 显式重置清单 + `--tx-*` 管理通道 |
+| S-6 antd Portal 不完整/ReactDOM.render legacy | §4.2（渲染 API 统一 createRoot，基线 §五） |
+| S-7 HMR 查询目标节点不存在 | §七 dataset 统一打标 |
+| S-8 React16 事件补丁简化/stopPropagation 误杀 | §4.3 |
+| S-9 锚点时序 | 注入记账统一（js-sandbox §3.5），锚点插件 prepend 注册 |
+| S-10 Constructable Stylesheets 缺失 | §4.1 |
+| 主题双机制 | §五 ThemeService 唯一 |
+| 保活期间样式生命周期未定义 | §六 Suspended 保留 |
