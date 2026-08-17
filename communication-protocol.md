@@ -88,6 +88,8 @@ interface CordisMessage<T = any> {
     ttl?: number          // 消息存活时间（毫秒）
     correlationId?: string // 关联ID（用于请求-响应）
     traceId?: string      // 追踪ID（用于调试）
+    sticky?: boolean      // 是否为粘性/保留消息
+    traceparent?: string  // W3C Trace Context (00-traceId-spanId-01)
   }
 }
 
@@ -537,6 +539,54 @@ class CordisMessageQueue {
 interface MessageConsumer {
   (message: CordisMessage): Promise<void>
   retryOnError?: boolean
+}
+```
+
+### 4.4 粘性/保留事件机制 (Sticky / Retained Messages)
+
+在微前端场景中，由于子应用的加载时机存在差异（例如懒加载），后加载的子应用往往会错过初始的启动消息（如 `auth:token_ready` 或 `env:config_ready`）。为了解决这一问题，引入了粘性消息机制：EventBus 会缓存特定主题的最新消息，并在新的订阅者接入时立即触发。
+
+```typescript
+// @cordis/transport/sticky-events
+interface SubscribeOptions {
+  sticky?: boolean
+  targetAppId?: string
+}
+
+class ExtendedCordisEventBus extends CordisEventBus {
+  private retainedMessages: Map<string, CordisMessage> = new Map()
+
+  // 发布粘性消息
+  publishSticky(type: string, payload: any): void {
+    const message = new MessageBuilder(type)
+      .from('system') // 也可以根据上下文设置
+      .withPayload(payload)
+      .build()
+      
+    if (!message.metadata) message.metadata = {}
+    message.metadata.sticky = true
+    
+    // 缓存最新的一条粘性消息
+    this.retainedMessages.set(message.type, message)
+    this.publish(message)
+  }
+  
+  // 订阅消息，支持粘性触发
+  subscribe(type: string, handler: MessageHandler, options?: SubscribeOptions): () => void {
+    // 检查是否有保留的粘性消息
+    if (options?.sticky && this.retainedMessages.has(type)) {
+      const retainedMsg = this.retainedMessages.get(type)!
+      // 立即触发处理函数
+      setTimeout(() => handler(retainedMsg), 0)
+    }
+
+    return super.subscribe(type, handler)
+  }
+
+  // 快捷订阅粘性消息
+  subscribeSticky(type: string, handler: MessageHandler): () => void {
+    return this.subscribe(type, handler, { sticky: true })
+  }
 }
 ```
 
@@ -1034,6 +1084,88 @@ class CommunicationDevTools {
     })
     
     return mermaid
+  }
+}
+```
+
+### 7.3 W3C Trace Context (分布式全链路追踪)
+
+为了实现从前端到后端的端到端链路追踪，协议集成了 W3C `traceparent` 标准 (`00-traceId-spanId-01`)。这允许我们在子应用间的消息通信、路由跳转以及对外发起的 HTTP `fetch` 请求中自动生成或透传 `traceId`，从而与监控模块无缝对接。
+
+```typescript
+// @cordis/protocol/trace-context
+class TraceContextManager {
+  // 生成 W3C 标准的 traceparent
+  static generateTraceparent(traceId?: string): string {
+    const version = '00'
+    const newTraceId = traceId || this.generateHex(32)
+    const spanId = this.generateHex(16)
+    const flags = '01' // 01 表示 sampled (被采样记录)
+    return `${version}-${newTraceId}-${spanId}-${flags}`
+  }
+  
+  static extractTraceId(traceparent: string): string | null {
+    const match = traceparent.match(/^00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$/)
+    return match ? match[1] : null
+  }
+
+  private static generateHex(length: number): string {
+    const chars = '0123456789abcdef'
+    let result = ''
+    for (let i = 0; i < length; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length))
+    }
+    return result
+  }
+}
+
+// 扩展 MessageTracer 支持 W3C 标准
+class W3CMessageTracer extends MessageTracer {
+  protected recordTrace(message: CordisMessage): void {
+    // 如果没有 traceparent，自动注入一个
+    if (!message.metadata) message.metadata = {}
+    if (!message.metadata.traceparent) {
+      message.metadata.traceparent = TraceContextManager.generateTraceparent()
+    }
+    
+    const traceId = TraceContextManager.extractTraceId(message.metadata.traceparent)
+    const spanId = message.metadata.traceparent.split('-')[2]
+    
+    // 记录到监控系统 (假设有一个全局的 MonitoringModule)
+    /*
+    MonitoringModule.reportSpan({
+      traceId,
+      spanId,
+      name: `message:${message.type}`,
+      kind: 'PRODUCER',
+      attributes: {
+        'message.source': message.source,
+        'message.target': message.target || '*'
+      }
+    })
+    */
+    
+    super.recordTrace(message)
+  }
+}
+```
+
+结合第十一节的 Fetch 拦截器，可以将 `traceparent` 传递给后端服务器，实现全链路追踪：
+
+```typescript
+// 在 Fetch 拦截器中注入 Trace Context
+const tracingInterceptor: FetchInterceptor = {
+  onRequest: (request) => {
+    const traceparent = TraceContextManager.generateTraceparent()
+    
+    // 如果 init 是 undefined，初始化它
+    const init = request.init || {}
+    const headers = new Headers(init.headers || {})
+    
+    headers.set('traceparent', traceparent)
+    init.headers = headers
+    
+    return { input: request.input, init }
   }
 }
 ```

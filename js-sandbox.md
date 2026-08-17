@@ -75,6 +75,7 @@ class ProxySandbox {
   private fakeWindow: Record<string, any> = {}
   private proxy: WindowProxy
   private active: boolean = false
+  private boundValueCache: WeakMap<Function, Function> = new WeakMap()
   
   constructor(private appId: string) {
     // 创建 Proxy 拦截 window 访问
@@ -96,7 +97,17 @@ class ProxySandbox {
         }
         
         // 透传到真实 window
-        return (window as any)[key]
+        const value = (window as any)[key]
+        
+        // 修复 Illegal Invocation：拦截对原生方法的访问并绑定到 window
+        if (typeof value === 'function' && !value.prototype) {
+          if (!this.boundValueCache.has(value)) {
+            this.boundValueCache.set(value, value.bind(window))
+          }
+          return this.boundValueCache.get(value)
+        }
+        
+        return value
       },
       
       set: (target, key, value) => {
@@ -287,6 +298,202 @@ this.proxy.Object = {
 ```typescript
 // 构建时转换 dynamic import
 // import('./module.js') → __cordis_import__('./module.js', appId)
+```
+
+### 3.7 Document 代理（Scoped DOM & Event Isolation）
+
+为了实现 DOM 隔离以及防止全局事件泄漏，需要对 `document` 进行专门的代理。拦截对 DOM 的查询限制在子应用内部，并追踪全局事件。
+
+```typescript
+function createDocumentProxy(appId: string, container: HTMLElement, sandbox: ProxySandbox) {
+  const trackedDocListeners = new Map<string, { type: string, listener: EventListener, options: any }>()
+  const injectedNodes = new Set<Node>()
+
+  const documentProxy = new Proxy(document, {
+    get(target, key) {
+      const value = (target as any)[key]
+      const bindValue = typeof value === 'function' ? value.bind(target) : value
+
+      // 优先在子应用容器内查询 DOM
+      if (key === 'querySelector' || key === 'querySelectorAll' || key === 'getElementById') {
+        return (selector: string) => {
+          return (container as any)[key](selector)
+        }
+      }
+
+      // 追踪 Document 级别的事件
+      if (key === 'addEventListener') {
+        return (type: string, listener: EventListener, options?: any) => {
+          document.addEventListener(type, listener, options)
+          trackedDocListeners.set(`${type}_${listener}`, { type, listener, options })
+        }
+      }
+      if (key === 'removeEventListener') {
+        return (type: string, listener: EventListener, options?: any) => {
+          document.removeEventListener(type, listener, options)
+          trackedDocListeners.delete(`${type}_${listener}`)
+        }
+      }
+
+      // 拦截并追踪动态注入的样式和脚本
+      if (key === 'head' || key === 'body') {
+        return new Proxy(target[key as 'head' | 'body'], {
+          get(element, elKey) {
+            if (elKey === 'appendChild' || elKey === 'insertBefore') {
+              return (child: Node, referenceNode?: Node) => {
+                injectedNodes.add(child)
+                return (element as any)[elKey](child, referenceNode)
+              }
+            }
+            const elValue = (element as any)[elKey]
+            return typeof elValue === 'function' ? elValue.bind(element) : elValue
+          }
+        })
+      }
+
+      return bindValue
+    }
+  })
+
+  // 提供给 sandbox deactivate 时调用清理
+  sandbox.onDeactivate = () => {
+    trackedDocListeners.forEach(({ type, listener, options }) => {
+      document.removeEventListener(type, listener, options)
+    })
+    trackedDocListeners.clear()
+
+    injectedNodes.forEach(node => node.parentNode?.removeChild(node))
+    injectedNodes.clear()
+  }
+
+  return documentProxy
+}
+```
+
+### 3.8 异步任务与观察者追踪（AsyncScopeTracker）
+
+为了防止子应用卸载后，遗留的异步任务（如 `requestAnimationFrame`）或观察者（如 `MutationObserver`）导致的 Detached DOM Tree 内存泄漏，需要全面追踪并自动清理。
+
+```typescript
+class AsyncScopeTracker {
+  private rafIds = new Set<number>()
+  private ricIds = new Set<number>()
+  private observers = new Set<MutationObserver | IntersectionObserver | ResizeObserver>()
+
+  track(proxyWindow: any) {
+    const originalRAF = window.requestAnimationFrame
+    const originalCancelRAF = window.cancelAnimationFrame
+    const originalRIC = window.requestIdleCallback
+    const originalCancelRIC = window.cancelIdleCallback
+
+    proxyWindow.requestAnimationFrame = (callback: FrameRequestCallback) => {
+      const id = originalRAF(callback)
+      this.rafIds.add(id)
+      return id
+    }
+    proxyWindow.cancelAnimationFrame = (id: number) => {
+      this.rafIds.delete(id)
+      originalCancelRAF(id)
+    }
+
+    if (originalRIC) {
+      proxyWindow.requestIdleCallback = (callback: IdleRequestCallback, options?: IdleRequestOptions) => {
+        const id = originalRIC(callback, options)
+        this.ricIds.add(id)
+        return id
+      }
+      proxyWindow.cancelIdleCallback = (id: number) => {
+        this.ricIds.delete(id)
+        originalCancelRIC(id)
+      }
+    }
+
+    // 代理 Observer 防止泄漏
+    this.trackObserver(proxyWindow, 'MutationObserver')
+    this.trackObserver(proxyWindow, 'IntersectionObserver')
+    this.trackObserver(proxyWindow, 'ResizeObserver')
+  }
+
+  private trackObserver(proxyWindow: any, name: string) {
+    if (typeof (window as any)[name] !== 'function') return
+    const OriginalObserver = (window as any)[name]
+    const tracker = this
+    
+    proxyWindow[name] = class SandboxObserver extends OriginalObserver {
+      constructor(...args: any[]) {
+        super(...args)
+        tracker.observers.add(this)
+      }
+      disconnect() {
+        super.disconnect()
+        tracker.observers.delete(this)
+      }
+    }
+  }
+
+  cleanup() {
+    this.rafIds.forEach(id => window.cancelAnimationFrame(id))
+    this.rafIds.clear()
+
+    this.ricIds.forEach(id => window.cancelIdleCallback?.(id))
+    this.ricIds.clear()
+
+    this.observers.forEach(observer => observer.disconnect())
+    this.observers.clear()
+  }
+}
+```
+
+### 3.9 存储隔离（Storage Isolation）
+
+为了避免不同子应用之间的 `localStorage` 和 `sessionStorage` 发生覆盖冲突，需对存储键值进行前缀隔离，同时支持配置共享键值的白名单。
+
+```typescript
+class StorageProxy {
+  constructor(private appId: string, private whitelist: string[] = ['theme']) {}
+
+  private getNamespacedKey(key: string) {
+    if (this.whitelist.includes(key)) {
+      return key
+    }
+    return `__taixu_${this.appId}__${key}`
+  }
+
+  createProxy(storage: Storage): Storage {
+    return new Proxy(storage, {
+      get: (target, key) => {
+        if (key === 'getItem') {
+          return (k: string) => target.getItem(this.getNamespacedKey(k))
+        }
+        if (key === 'setItem') {
+          return (k: string, v: string) => target.setItem(this.getNamespacedKey(k), v)
+        }
+        if (key === 'removeItem') {
+          return (k: string) => target.removeItem(this.getNamespacedKey(k))
+        }
+        if (key === 'clear') {
+          // 只清除属于当前应用的 key
+          return () => {
+            const keysToRemove: string[] = []
+            for (let i = 0; i < target.length; i++) {
+              const k = target.key(i)
+              if (k && k.startsWith(`__taixu_${this.appId}__`)) {
+                keysToRemove.push(k)
+              }
+            }
+            keysToRemove.forEach(k => target.removeItem(k))
+          }
+        }
+        const value = (target as any)[key]
+        return typeof value === 'function' ? value.bind(target) : value
+      }
+    })
+  }
+}
+
+// 在 ProxySandbox 中注入
+// proxyWindow.localStorage = new StorageProxy(appId).createProxy(window.localStorage)
+// proxyWindow.sessionStorage = new StorageProxy(appId).createProxy(window.sessionStorage)
 ```
 
 ---

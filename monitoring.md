@@ -67,6 +67,7 @@
 | **运行时性能** | FPS | 每秒帧数 | requestAnimationFrame |
 | **运行时性能** | 内存占用 | JS 堆内存大小 | performance.memory |
 | **运行时性能** | CPU 占用 | 主线程阻塞时间 | Long Task API |
+| **运行时性能** | 游离 DOM 树 | 卸载后未回收的 DOM 节点 | WeakRef 检测 |
 | **通信性能** | 消息延迟 | 消息从发送到接收的时间 | 通信钩子 |
 | **通信性能** | 消息吞吐量 | 每秒处理消息数 | 通信钩子 |
 
@@ -861,6 +862,119 @@ interface SessionInfo {
 }
 ```
 
+### 4.6 分布式链路追踪 (W3C TraceContext)
+
+微前端架构下，一个完整的业务请求可能跨越宿主、多个子应用以及后端 API。我们采用 W3C TraceContext 标准（`traceparent` 和 `tracestate`）来实现全链路追踪，以便在发生错误或性能瓶颈时能完整回溯跨应用调用链。
+
+```typescript
+// @cordis/monitor/tracing
+import { Context, Service } from 'cordis'
+
+export class TracingService extends Service {
+  static [Service.provide] = 'tracing'
+  
+  private currentTraceId: string | null = null
+
+  constructor(ctx: Context) {
+    super(ctx)
+  }
+
+  // 生成符合 W3C 标准的 traceparent
+  private generateTraceparent(): string {
+    const version = '00'
+    const traceId = this.currentTraceId || this.generateId(32)
+    const spanId = this.generateId(16)
+    const traceFlags = '01' // sampled
+    
+    return `${version}-${traceId}-${spanId}-${traceFlags}`
+  }
+
+  private generateId(length: number): string {
+    return Array.from({ length }, () => Math.floor(Math.random() * 16).toString(16)).join('')
+  }
+
+  // 跨应用消息传递中注入 traceContext
+  injectTraceContext(message: any): any {
+    return {
+      ...message,
+      meta: {
+        ...message.meta,
+        traceparent: this.generateTraceparent()
+      }
+    }
+  }
+
+  // 从消息中提取 traceContext
+  extractTraceContext(message: any): void {
+    if (message.meta?.traceparent) {
+      const [, traceId] = message.meta.traceparent.split('-')
+      this.currentTraceId = traceId
+    }
+  }
+}
+
+// 在网络请求中自动注入 traceparent
+export function TracingPlugin(ctx: Context) {
+  ctx.plugin(TracingService)
+  
+  // 使用 ctx.effect 注册副作用，确保在插件卸载时恢复原状
+  ctx.effect(() => {
+    const originalFetch = window.fetch
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const traceparent = ctx.tracing.generateTraceparent()
+      
+      const headers = new Headers(init?.headers)
+      headers.set('traceparent', traceparent)
+      
+      return originalFetch(input, { ...init, headers })
+    }
+    
+    // 返回 disposer，在 ctx 销毁时恢复全局 fetch
+    return () => {
+      window.fetch = originalFetch
+    }
+  })
+}
+```
+
+### 4.7 内存泄漏与游离 DOM 检测
+
+微应用在卸载 (unmount) 后，可能因为未清理的事件监听器、观察者或闭包引用导致 DOM 树无法被垃圾回收，形成“游离 DOM” (Detached DOM Tree)，进而引发严重的内存泄漏。通过结合 Cordis 插件的生命周期和 `WeakRef`，我们可以主动检测此类问题。
+
+```typescript
+// @cordis/monitor/memory-leak
+import { Context } from 'cordis'
+
+export function MemoryLeakDetectionPlugin(ctx: Context) {
+  const detachedNodes = new Set<WeakRef<Element>>()
+
+  // 假设子应用挂载时会触发此事件
+  ctx.on('app:unmounted', (appCtx: Context, rootElement: Element) => {
+    // 1. 将应用根节点包装为 WeakRef
+    const weakRef = new WeakRef(rootElement)
+    detachedNodes.add(weakRef)
+
+    // 2. 在应用卸载后，延时检测游离 DOM（给 GC 留出时间）
+    setTimeout(() => {
+      const el = weakRef.deref()
+      if (el) {
+        // 如果元素依然能被 deref() 获取，说明被其他地方（如未销毁的 Fiber 或未解除的事件绑定）强引用了
+        console.warn(`[Memory Leak] Detached DOM Tree detected for app: ${appCtx.name}`)
+        
+        ctx.emit('monitor:alert', {
+          type: 'MEMORY_LEAK',
+          message: 'Detached DOM Tree detected after micro-app unmount',
+          appId: appCtx.name
+        })
+      } else {
+        // 正常被垃圾回收
+        detachedNodes.delete(weakRef)
+      }
+    }, 10000)
+  })
+}
+```
+
 ---
 
 ## 五、告警系统
@@ -1383,6 +1497,8 @@ interface ReportSummary {
 | P1 | 生命周期监控 | 应用状态、切换频率 |
 | P1 | 通信监控 | 消息频率、延迟 |
 | P1 | 批量上报 | sendBeacon、采样 |
+| P1 | 链路追踪 | W3C TraceContext 跨应用/API 追踪 |
 | P2 | 用户行为采集 | 点击、表单、应用切换 |
+| P2 | 内存泄漏检测 | 子应用卸载后的游离 DOM 检测 |
 | P2 | 实时大盘 | 可视化展示 |
 | P3 | 报告生成 | 历史报告、趋势分析 |

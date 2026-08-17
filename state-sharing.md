@@ -259,7 +259,99 @@ class CordisStateManager implements StateManager {
 }
 ```
 
-### 4.2 响应式状态（Vue 集成）
+### 4.2 深层响应式代理与变更拦截 (Deep Reactive Proxy)
+
+为了支持开发者更自然地直接修改嵌套状态（例如 `state.get('cart').items.push(item)` 或 `state.get('user').profile.name = 'Bob'`），而无需手动调用 `set()`，`CordisStateManager` 引入了深层响应式代理。
+
+#### 原理与实现
+
+当通过 `get(key)` 获取状态时，状态管理器会返回一个基于 `Proxy` 的深度代理对象。该代理会递归拦截对嵌套属性的赋值操作，自动追踪变更路径，记录历史，并派发更新通知。
+
+```typescript
+// 增强 CordisStateManager
+class CordisStateManager implements StateManager {
+  // ... 已有代码 ...
+
+  // 1. 增强的 get 方法，返回深层响应式代理
+  get<T>(key: string): T | undefined {
+    const value = this.state.get(key)
+    if (value !== null && typeof value === 'object') {
+      return this.createDeepProxy(key, value)
+    }
+    return value as T | undefined
+  }
+  
+  // 2. 深层响应式代理工厂
+  private createDeepProxy(rootKey: string, target: any, path: string[] = []): any {
+    if (typeof target !== 'object' || target === null) return target
+    
+    return new Proxy(target, {
+      get: (obj, prop: string | symbol) => {
+        const value = Reflect.get(obj, prop)
+        // 递归代理嵌套对象
+        return typeof value === 'object' && value !== null 
+          ? this.createDeepProxy(rootKey, value, [...path, prop as string]) 
+          : value
+      },
+      set: (obj, prop: string | symbol, value: any) => {
+        const oldValue = Reflect.get(obj, prop)
+        if (oldValue === value) return true
+        
+        Reflect.set(obj, prop, value)
+        
+        // 自动追踪深层路径，如 cart.items.0
+        const currentPath = [...path, prop as string].join('.')
+        const fullPath = `${rootKey}.${currentPath}`
+        
+        // 自动记录精确路径的变更历史
+        this.history.push({
+          key: fullPath,
+          oldValue,
+          newValue: value,
+          timestamp: Date.now()
+        })
+        
+        if (this.history.length > this.maxHistory) {
+          this.history.shift()
+        }
+        
+        // 触发多级通知：通知精确路径、根路径及通配符 (*) 订阅者
+        this.notify(fullPath, value, oldValue)
+        this.notify(rootKey, this.state.get(rootKey), undefined)
+        
+        return true
+      }
+    })
+  }
+
+  // 3. 支持对深层状态树的原子化批量更新与快照
+  batchDeepMutations(rootKey: string, mutator: (draft: any) => void): void {
+    const rootState = this.state.get(rootKey)
+    if (!rootState) return
+    
+    // 生成快照用于原子化回滚
+    const snapshot = structuredClone(rootState)
+    
+    try {
+      // 在暂存区（代理）上执行变更操作
+      const draft = this.createDeepProxy(rootKey, rootState)
+      mutator(draft)
+    } catch (error) {
+      // 发生异常时，原子化回滚状态树
+      this.state.set(rootKey, snapshot)
+      this.notify(rootKey, snapshot, rootState)
+      throw error
+    }
+  }
+}
+```
+
+通过这一机制：
+- **自动路径追踪**：深层修改（如 `cart.items[0] = newItem`）会自动生成精确路径的变更日志。
+- **透明的响应式更新**：无需手动调用 `set()`，框架即可捕获更新并通知具体的字段监听器与通配符 (`*`) 订阅者。
+- **原子性变更与快照**：借助于 `batchDeepMutations`，业务不仅可以进行多步深层变更，还能在异常时自动回滚到初始快照。
+
+### 4.3 响应式状态（Vue 集成）
 
 ```typescript
 // @cordis/vue-state
@@ -343,7 +435,7 @@ export default {
 }
 ```
 
-### 4.3 响应式状态（React 集成）
+### 4.4 响应式状态（React 集成）
 
 ```typescript
 // @cordis/react-state

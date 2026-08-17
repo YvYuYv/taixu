@@ -182,7 +182,111 @@ function App({ shadowRoot }) {
 }
 ```
 
-## 6. 样式加载顺序控制
+## 6. Shadow DOM 下的 React 16/17 事件代理问题 (Event Retargeting)
+
+### 事件重定向 (Event Retargeting) 现象
+在 Shadow DOM 中，为了保证内部的封装性，当事件从 Shadow DOM 内部冒泡到外部（Light DOM）时，事件的 `target` 会被重定向（Retargeting）为 Shadow Host 本身，而不是 Shadow DOM 内部的真实触发元素。
+
+### React 16 的合成事件失效原因
+React 16 及更早版本将所有的事件都代理到 `document` 上监听。当使用 Shadow DOM 隔离时：
+1. 子应用内部组件触发事件（如 `click`）。
+2. 事件冒泡出 Shadow Root，`target` 被重定向为 Shadow Host。
+3. `document` 上绑定的 React 事件代理捕获到该事件。
+4. React 尝试通过 `event.target`（此时是 Shadow Host）去分发事件，导致无法正确匹配到子应用内部的 React 组件，从而事件处理函数（如 `onClick`）不会被触发。
+
+*注：React 17+ 改变了事件委托的挂载点，将事件委托到 React 挂载的根节点（如 `<div id="root">`），只要该根节点位于 Shadow DOM 内部，就不会受事件重定向的影响。*
+
+### 修复方案：事件重定向补丁
+对于无法升级的 React 16 应用，可以通过手动拦截并分发事件来解决。可以使用类似事件重定向 Polyfill 的机制：
+
+```typescript
+// react-shadow-event-polyfill.ts
+export function retargetReact16Events(shadowRoot: ShadowRoot) {
+  const events = ['click', 'mousedown', 'mouseup', 'change', 'input']; // 列出需要代理的事件
+  
+  events.forEach(eventType => {
+    shadowRoot.addEventListener(eventType, (event) => {
+      // 阻止默认冒泡，防止外部 document 上的 React 代理收到被重定向的事件
+      event.stopPropagation(); 
+      
+      // 构建一个模拟的事件对象，将 target 指向内部真实元素
+      const simulatedEvent = new Event(event.type, {
+        bubbles: true,
+        cancelable: event.cancelable,
+      });
+      Object.defineProperty(simulatedEvent, 'target', { value: event.composedPath()[0] });
+      
+      // 找到 React 挂载的根节点（内部的真实 DOM）并重新派发
+      const reactRoot = shadowRoot.querySelector('#sub-app-root');
+      if (reactRoot) {
+        reactRoot.dispatchEvent(simulatedEvent);
+      }
+    });
+  });
+}
+```
+
+## 7. UI 组件弹窗与 Portal 挂载容器处理
+
+很多 UI 组件库（如 antd, Element UI）的 Modal 弹窗、Tooltip 提示、Select 下拉框等组件，默认会将 DOM 节点通过 `Portal` 等机制传送到全局的 `document.body` 下。
+
+### 样式丢失问题
+如果子应用使用了 Shadow DOM 或者命名空间（带特定前缀）进行样式隔离，这些被传送到 `document.body` 的弹窗节点将完全脱离该作用域，导致弹窗失去所有样式。
+
+### 解决方案：自定义挂载容器
+我们需要将这些 Portal 弹窗的挂载点，从全局的 `document.body` 路由重定向到子应用的 Shadow Root 内部，或带有特定样式的容器内。
+
+#### 1. 为子应用提供专门的 Portal Container
+在子应用挂载时，随之创建一个与之匹配的挂载容器：
+
+```typescript
+// 在主应用中准备挂载点
+ctx.plugin((ctx) => {
+  ctx.on('app/mount', (appInfo) => {
+    // 创建主应用容器
+    const shadowHost = document.createElement('div');
+    const shadowRoot = shadowHost.attachShadow({ mode: 'open' });
+    
+    // 注入子应用基础 HTML 容器
+    const appContainer = document.createElement('div');
+    appContainer.id = 'app-root';
+    
+    // 创建供弹窗挂载的专用容器
+    const portalContainer = document.createElement('div');
+    portalContainer.id = 'portal-root';
+    
+    shadowRoot.appendChild(appContainer);
+    shadowRoot.appendChild(portalContainer);
+    document.body.appendChild(shadowHost);
+    
+    // 将 portalContainer 传递给子应用
+    appInfo.mount(appContainer, { getPopupContainer: () => portalContainer });
+  });
+});
+```
+
+#### 2. 在子应用中配置 UI 组件库
+接收主应用传入的挂载节点，并配置给 UI 库。以 React 和 antd 为例：
+
+```typescript
+// 子应用入口
+import { ConfigProvider } from 'antd';
+
+export function mount(container: HTMLElement, props: { getPopupContainer: () => HTMLElement }) {
+  // 从 props 中获取指定的挂载节点，降级使用 document.body
+  const getContainer = props.getPopupContainer || (() => document.body);
+
+  ReactDOM.render(
+    <ConfigProvider getPopupContainer={getContainer}>
+      <App />
+    </ConfigProvider>,
+    container
+  );
+}
+```
+通过这种方式，所有的弹窗、下拉框等都会被渲染到 `portalContainer` 中。由于该容器与微应用主体位于同一隔离作用域（如 Shadow DOM 内部）下，从而完美继承子应用的 CSS 样式。
+
+## 8. 样式加载顺序控制
 
 当主应用和多个子应用同时存在时，样式的加载顺序决定了样式的覆盖优先级。
 
@@ -204,7 +308,7 @@ ctx.plugin((ctx) => {
 });
 ```
 
-## 7. 样式热更新
+## 9. 样式热更新
 
 在开发模式下，Taixu 支持通过 WebSocket 监听样式文件的变化，并通过 HMR 机制进行热更新。
 当监听到样式变化时，Taixu 会拦截更新，不刷新整个页面，而是通过 Cordis 事件机制通知对应的微应用替换特定的 `<style>` 标签或重新加载 CSS。
@@ -219,7 +323,7 @@ ctx.on('hmr/style-update', (payload) => {
 });
 ```
 
-## 8. 配置声明
+## 10. 配置声明
 
 Taixu 支持通过配置文件声明应用的样式策略。
 
@@ -243,7 +347,7 @@ Taixu 支持通过配置文件声明应用的样式策略。
 }
 ```
 
-## 9. 最佳实践
+## 11. 最佳实践
 
 ### 不同场景下的策略选择建议
 - **新项目开发**：推荐首选 **CSS Modules** 或框架自带的 **Scoped CSS** 配合 **CSS Variables**，从源头避免冲突。

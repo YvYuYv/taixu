@@ -786,9 +786,159 @@ app.load({
 
 ---
 
-## 六、统一通信机制
+## 六、动态资源基准路径解析 (Dynamic Public Path)
 
-### 6.1 跨框架事件总线
+当子应用部署在独立的 CDN 节点时，Webpack 或 Vite 构建出的动态资源（如异步 Chunk、字体、图片等）如果使用相对路径加载，会导致 404 错误。我们需要在运行时动态修正资源的基准路径（Public Path）。
+
+### 6.1 Webpack 动态 Public Path 解析
+
+Webpack 提供了 `__webpack_public_path__` 机制。我们可以通过 Cordis 沙箱在子应用执行前动态注入该变量。
+
+```typescript
+// @cordis/sandbox
+ctx.plugin(function WebpackPublicPathPlugin(ctx) {
+  ctx.on('sandbox:before-exec', (sandbox, appInfo) => {
+    // 根据子应用的 origin 动态设置 Webpack public path
+    sandbox.proxy.__webpack_public_path__ = appInfo.cdnBaseUrl || new URL(appInfo.entry).origin + '/';
+  });
+});
+```
+
+### 6.2 Vite 动态 Public Path 解析
+
+Vite 在生产构建时默认将基准路径编译到代码中。为了支持动态运行时 Public Path，可以使用 `import.meta.url`，并在 Cordis 的 Loader 层对模块进行 AST 转换或使用运行时 Polyfill。
+
+```typescript
+// vite-plugin-cordis-public-path
+export default function cordisPublicPathPlugin() {
+  return {
+    name: 'cordis-public-path',
+    renderChunk(code) {
+      // 将内置的硬编码 Public Path 替换为通过 Cordis 运行时获取
+      return code.replace(
+        /import\.meta\.url/g,
+        `(window.__cordis_import_meta_url__ || import.meta.url)`
+      );
+    }
+  }
+}
+```
+
+然后在运行时沙箱中提供 Polyfill：
+
+```typescript
+ctx.plugin(function VitePublicPathPlugin(ctx) {
+  ctx.on('sandbox:before-exec', (sandbox, appInfo) => {
+    sandbox.proxy.__cordis_import_meta_url__ = appInfo.entry;
+  });
+});
+```
+
+---
+
+## 七、共享依赖仲裁矩阵 (Dependency Negotiation Matrix)
+
+微前端场景中，多个子应用通常会依赖相同的公共库。借鉴 Import Maps 和 Module Federation 的设计，Cordis 提供了一套基于 SemVer（语义化版本）的依赖仲裁机制，通过配置 `cordis.dependencies.json` 实现依赖的共享与版本协商。
+
+### 7.1 `cordis.dependencies.json` 声明
+
+每个子应用在构建时会生成（或手动编写）依赖声明文件，标明需要共享的库、所需版本范围，以及是否要求单例（Singleton）：
+
+```json
+{
+  "shared": {
+    "vue": {
+      "version": "^3.2.0",
+      "singleton": true,
+      "fallback": "assets/vue-fallback.js"
+    },
+    "lodash": {
+      "version": "*",
+      "singleton": false
+    },
+    "cordis": {
+      "version": "^1.0.0",
+      "singleton": true
+    }
+  }
+}
+```
+
+### 7.2 动态模块解析流 (Dynamic Module Resolution Flow)
+
+Cordis 运行时维护一个全局的依赖注册表（Service Repository），利用 `ctx.service` 动态解析依赖版本。
+
+```typescript
+// @cordis/dependency-manager
+import { Service, Context } from 'cordis';
+import { satisfies } from 'semver';
+
+declare module 'cordis' {
+  interface Context {
+    dependencies: DependencyManager
+  }
+}
+
+interface SharedConfig {
+  version: string;
+  singleton?: boolean;
+  fallback?: string;
+}
+
+class DependencyManager extends Service {
+  private registry = new Map<string, Array<{ version: string; module: any }>>();
+
+  constructor(ctx: Context) {
+    super(ctx, 'dependencies');
+  }
+
+  // 注册已加载的共享模块
+  register(name: string, version: string, module: any) {
+    if (!this.registry.has(name)) {
+      this.registry.set(name, []);
+    }
+    this.registry.get(name)!.push({ version, module });
+  }
+
+  // 仲裁并获取符合要求的模块
+  async resolve(name: string, requiredRange: string, config: SharedConfig) {
+    const versions = this.registry.get(name) || [];
+    
+    // 1. 寻找符合 SemVer 的版本
+    const matched = versions.find(v => satisfies(v.version, requiredRange));
+    if (matched) {
+      return matched.module;
+    }
+
+    // 2. 检查单例冲突
+    if (config.singleton && versions.length > 0) {
+      console.warn(`[Cordis] 依赖冲突: ${name} 要求单例，但找到不兼容版本。`);
+      // 强制复用已有版本
+      return versions[0].module;
+    }
+
+    // 3. Fallback 回退机制
+    if (config.fallback) {
+      return await this.loadFallback(config.fallback);
+    }
+
+    throw new Error(`无法解析依赖: ${name}@${requiredRange}`);
+  }
+
+  private async loadFallback(url: string) {
+    // 动态加载私有打包副本
+    return import(/* @vite-ignore */ url);
+  }
+}
+```
+
+在加载子应用时，隔离层通过 `ctx.intercept` 或沙箱代理拦截所有的模块引入请求，代理到 `DependencyManager` 进行仲裁处理。
+
+---
+
+## 八、统一通信机制
+
+### 8.1 跨框架事件总线
 
 ```typescript
 // @cordis/event-bus
@@ -821,7 +971,7 @@ class UniversalEventBus {
 }
 ```
 
-### 6.2 统一的状态共享
+### 8.2 统一的状态共享
 
 ```typescript
 // @cordis/state
@@ -864,9 +1014,9 @@ class SharedState {
 
 ---
 
-## 七、路由协调
+## 九、路由协调
 
-### 7.1 异构路由统一管理
+### 9.1 异构路由统一管理
 
 ```typescript
 // @cordis/router
@@ -897,7 +1047,7 @@ class HeterogeneousRouter {
 }
 ```
 
-### 7.2 Vue Router + React Router 共存
+### 9.2 Vue Router + React Router 共存
 
 ```typescript
 // Vue 应用使用 Vue Router
@@ -922,9 +1072,9 @@ heterogeneousRouter.registerRouteContext('react-app', reactRouter)
 
 ---
 
-## 八、性能优化
+## 十、性能优化
 
-### 8.1 按需加载
+### 10.1 按需加载
 
 ```typescript
 // 只加载当前可见的应用
@@ -946,7 +1096,7 @@ class LazyLoader {
 }
 ```
 
-### 8.2 预加载
+### 10.2 预加载
 
 ```typescript
 // 预加载即将访问的应用
@@ -961,7 +1111,7 @@ class Preloader {
 }
 ```
 
-### 8.3 沙箱复用
+### 10.3 沙箱复用
 
 ```typescript
 // 沙箱实现（带状态重置功能）
@@ -1005,7 +1155,7 @@ class SandboxPool {
 }
 ```
 
-### 8.4 适配器懒加载
+### 10.4 适配器懒加载
 
 为了避免加载未使用的框架适配器代码（如应用中只使用了 Vue3 组件，却加载了 React 适配器），应当采用适配器懒加载策略：
 
@@ -1024,7 +1174,7 @@ async function getAdapter(framework: string): Promise<ComponentAdapter> {
 }
 ```
 
-### 8.5 SSR 与同构渲染支持
+### 10.5 SSR 与同构渲染支持
 
 在异构组件加载场景中支持服务端渲染（SSR）需要考虑以下关键点：
 
@@ -1034,7 +1184,7 @@ async function getAdapter(framework: string): Promise<ComponentAdapter> {
 
 ---
 
-## 九、与现有方案对比
+## 十一、与现有方案对比
 
 | 维度 | qiankun | wujia | micro-app | Cordis |
 |------|---------|-------|-----------|--------|
@@ -1048,7 +1198,7 @@ async function getAdapter(framework: string): Promise<ComponentAdapter> {
 
 ---
 
-## 十、实现优先级
+## 十二、实现优先级
 
 | 优先级 | 功能 | 说明 |
 |--------|------|------|

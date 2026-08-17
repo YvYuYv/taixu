@@ -189,82 +189,85 @@ class InputSanitizer {
 }
 ```
 
-#### 3.2.2 内容安全策略（CSP）
+#### 3.2.2 内容安全策略（CSP）与网络网关
+
+> [!WARNING]
+> **严重的浏览器局限性说明**：`<meta http-equiv="Content-Security-Policy">` 一旦附加到 DOM，该策略将不可逆且永久生效，无法按微应用级别（per-micro-app）进行独立隔离（scoped）。若在客户端动态注入 `<meta>` CSP 标签，将导致全局安全策略被污染，不可逆转地破坏后续加载的其他微应用！
+
+基于上述限制，我们弃用客户端动态 DOM `<meta>` 注入方案，改用两层架构：
+
+1. **宿主级基线安全**：主要 CSP 必须配置在宿主环境的 HTTP 响应头（`Content-Security-Policy`）中。
+2. **应用级软件网关**：在微应用网络层引入 `FetchInterceptorChain`，充当软件定义 CSP（Software-defined CSP），强制实施各应用的独立的网络目标白名单和协议限制。
 
 ```typescript
-// @cordis/security/csp
-class CSPManager {
-  private policies: Map<string, string[]> = new Map()
-  
-  // 设置 CSP 策略
-  setPolicy(appId: string, policy: CSPPolicy): void {
-    const directives: string[] = []
-    
-    if (policy.defaultSrc) {
-      directives.push(`default-src ${policy.defaultSrc.join(' ')}`)
-    }
-    if (policy.scriptSrc) {
-      directives.push(`script-src ${policy.scriptSrc.join(' ')}`)
-    }
-    if (policy.styleSrc) {
-      directives.push(`style-src ${policy.styleSrc.join(' ')}`)
-    }
-    if (policy.imgSrc) {
-      directives.push(`img-src ${policy.imgSrc.join(' ')}`)
-    }
-    if (policy.connectSrc) {
-      directives.push(`connect-src ${policy.connectSrc.join(' ')}`)
-    }
-    if (policy.frameSrc) {
-      directives.push(`frame-src ${policy.frameSrc.join(' ')}`)
-    }
-    
-    this.policies.set(appId, directives)
-    this.applyCSP(appId)
-  }
-  
-  // 应用 CSP 策略
-  private applyCSP(appId: string): void {
-    const directives = this.policies.get(appId)
-    if (!directives) return
-    
-    // 警告：通过 <meta> 标签设置 CSP 存在局限性，会忽略 frame-ancestors、report-uri、sandbox 等指令。
-    // 生产环境中强烈建议使用 HTTP 响应头（Content-Security-Policy）来配置 CSP。
-    const meta = document.createElement('meta')
-    meta.setAttribute('http-equiv', 'Content-Security-Policy')
-    meta.setAttribute('data-cordis-app', appId)
-    meta.setAttribute('content', directives.join('; '))
-    document.head.appendChild(meta)
-  }
-  
-  // 默认安全策略
-  static getDefaultPolicy(): CSPPolicy {
-    return {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],  // 开发环境需要
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", 'data:', 'https:'],
-      connectSrc: ["'self'"],
-      frameSrc: ["'none'"],
-      objectSrc: ["'none'"],
-      baseUri: ["'self'"],
-      formAction: ["'self'"]
-    }
+// @cordis/security/gateway
+import { Context, Service } from 'cordis'
+
+interface NetworkPolicy {
+  allowedDomains: string[]
+  allowedProtocols: string[]
+}
+
+declare module 'cordis' {
+  interface Context {
+    networkGateway: NetworkGateway
   }
 }
 
-interface CSPPolicy {
-  defaultSrc?: string[]
-  scriptSrc?: string[]
-  styleSrc?: string[]
-  imgSrc?: string[]
-  connectSrc?: string[]
-  frameSrc?: string[]
-  objectSrc?: string[]
-  baseUri?: string[]
-  formAction?: string[]
+class NetworkGateway extends Service {
+  private policies = new Map<string, NetworkPolicy>()
+
+  constructor(ctx: Context) {
+    super(ctx, 'networkGateway')
+  }
+
+  setPolicy(appId: string, policy: NetworkPolicy) {
+    this.policies.set(appId, policy)
+  }
+
+  interceptFetch(appId: string) {
+    const policy = this.policies.get(appId)
+    if (!policy) return
+
+    // 为该应用分配拦截器
+    this.ctx.effect(() => {
+      const originalFetch = window.fetch
+      const scopedFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const urlStr = typeof input === 'string' ? input : (input instanceof URL ? input.href : input.url)
+        const urlObj = new URL(urlStr, window.location.href)
+
+        // 验证协议
+        if (!policy.allowedProtocols.includes(urlObj.protocol.replace(':', ''))) {
+          throw new Error(`[Security] Protocol not allowed: ${urlObj.protocol}`)
+        }
+
+        // 验证域名白名单
+        const isAllowedDomain = policy.allowedDomains.some(domain => {
+          if (domain.startsWith('*.')) {
+            return urlObj.hostname.endsWith(domain.slice(1)) || urlObj.hostname === domain.slice(2)
+          }
+          return urlObj.hostname === domain
+        })
+
+        if (!isAllowedDomain) {
+          throw new Error(`[Security] Domain not allowed: ${urlObj.hostname}`)
+        }
+
+        return originalFetch(input, init)
+      }
+
+      // 将 scopedFetch 注入到该应用的沙箱中
+      // 此处假设通过某种机制替换应用沙箱的 fetch
+      // __injectToSandbox(appId, 'fetch', scopedFetch)
+
+      return () => {
+        window.fetch = originalFetch
+      }
+    })
+  }
 }
 ```
+
 
 #### 3.2.3 安全的 DOM 操作
 
@@ -1083,9 +1086,94 @@ class SensitiveDataManager {
 
 ---
 
-## 八、安全审计日志
+## 八、存储命名空间与机密隔离
 
-### 8.1 安全事件日志
+沙箱需要强制执行 Web Storage（localStorage, sessionStorage）、IndexedDB 和 Cookie 的隔离。这是通过自动键名前缀（Key Prefixing）和访问控制列表（ACL）来实现的。
+
+### 8.1 自动键名前缀与 ACL 隔离
+
+在沙箱中，微应用不能直接操作宿主的本地存储，我们需要代理 `localStorage` 和 `sessionStorage` 的相关操作，自动加上对应微应用的 namespace 前缀。
+
+```typescript
+// @cordis/security/storage
+import { Context, Service } from 'cordis'
+
+declare module 'cordis' {
+  interface Context {
+    storageIsolator: StorageIsolator
+  }
+}
+
+class StorageIsolator extends Service {
+  constructor(ctx: Context) {
+    super(ctx, 'storageIsolator')
+  }
+
+  createScopedStorage(appId: string, type: 'localStorage' | 'sessionStorage'): Storage {
+    const prefix = `cordis_${appId}:`
+    const originalStorage = window[type]
+
+    return {
+      get length() {
+        let count = 0
+        for (let i = 0; i < originalStorage.length; i++) {
+          if (originalStorage.key(i)?.startsWith(prefix)) count++
+        }
+        return count
+      },
+      clear: () => {
+        const keysToRemove: string[] = []
+        for (let i = 0; i < originalStorage.length; i++) {
+          const key = originalStorage.key(i)
+          if (key?.startsWith(prefix)) keysToRemove.push(key)
+        }
+        keysToRemove.forEach(k => originalStorage.removeItem(k))
+      },
+      getItem: (key: string) => originalStorage.getItem(`${prefix}${key}`),
+      key: (index: number) => {
+        let current = 0
+        for (let i = 0; i < originalStorage.length; i++) {
+          const k = originalStorage.key(i)
+          if (k?.startsWith(prefix)) {
+            if (current === index) return k.slice(prefix.length)
+            current++
+          }
+        }
+        return null
+      },
+      removeItem: (key: string) => originalStorage.removeItem(`${prefix}${key}`),
+      setItem: (key: string, value: string) => {
+        // ACL 或限制容量检查可在此处拦截
+        originalStorage.setItem(`${prefix}${key}`, value)
+      }
+    }
+  }
+
+  // 注入到沙箱中
+  applyStorageSandbox(ctx: Context, appId: string) {
+    ctx.effect(() => {
+      const scopedLocalStorage = this.createScopedStorage(appId, 'localStorage')
+      const scopedSessionStorage = this.createScopedStorage(appId, 'sessionStorage')
+      
+      // 此处假设存在一个注入沙箱全局对象的 API
+      // sandboxWindow.localStorage = scopedLocalStorage
+      // sandboxWindow.sessionStorage = scopedSessionStorage
+
+      return () => {
+        // 清理逻辑
+      }
+    })
+  }
+}
+```
+
+针对 IndexedDB 的隔离可以通过 Hook `indexedDB.open` 给数据库名加上前缀实现；对 Cookie 则可通过重写 `document.cookie` 的 Getter 和 Setter 根据规则控制应用可读写的 Cookie 项。
+
+---
+
+## 九、安全审计日志
+
+### 9.1 安全事件日志
 
 ```typescript
 // @cordis/security/audit
@@ -1156,7 +1244,7 @@ interface SecurityEventFilter {
 }
 ```
 
-### 8.2 安全告警
+### 9.2 安全告警
 
 ```typescript
 // @cordis/security/alert
@@ -1249,9 +1337,9 @@ interface SecurityAlert {
 
 ---
 
-## 九、CSRF 防护
+## 十、CSRF 防护
 
-### 9.1 CSRF Token
+### 10.1 CSRF Token
 
 ```typescript
 // @cordis/security/csrf
@@ -1344,9 +1432,9 @@ class CSRFProtection {
 
 ---
 
-## 十、安全配置
+## 十一、安全配置
 
-### 10.1 配置文件
+### 11.1 配置文件
 
 ```json
 // cordis.security.json
@@ -1398,7 +1486,7 @@ class CSRFProtection {
 
 ---
 
-## 十一、急停机制（Kill Switch）
+## 十二、急停机制（Kill Switch）
 
 在微前端架构中，如果某个微应用被攻破或出现严重故障，需要能够远程紧急禁用该应用，以防止影响全局或其他应用。
 
@@ -1439,7 +1527,7 @@ class RemoteAppControl implements EmergencyControl {
 
 ---
 
-## 十二、与现有方案对比
+## 十三、与现有方案对比
 
 | 维度 | qiankun | wujia | micro-app | Cordis |
 |------|---------|-------|-----------|--------|
@@ -1454,7 +1542,7 @@ class RemoteAppControl implements EmergencyControl {
 
 ---
 
-## 十三、实现优先级
+## 十四、实现优先级
 
 | 优先级 | 功能 | 说明 |
 |--------|------|------|

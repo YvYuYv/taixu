@@ -203,34 +203,33 @@ Taixu 使用 Cordis 统一事件总线，事件名称采用命名空间格式以
 
 ### 核心事件类型定义 (TypeScript)
 
-```typescript
-export interface TaixuEvents {
-    // 路由事件
-    'router:change': (from: string, to: string) => void;
-    'router:matched': (appId: string, path: string) => void;
+    // 路由与多槽位事件
+    'router:change': (from: string, to: string, options?: { outlet?: string, signal?: AbortSignal }) => void;
+    'router:matched': (appId: string, path: string, outlet?: string) => void;
+    'router:aborted': (path: string, reason: string) => void;
 
-    // 生命周期事件
-    'lifecycle:beforeLoad': (appId: string) => void;
+    // 生命周期事件 (依托 Cordis Fork / Plugin)
+    'lifecycle:beforeLoad': (appId: string, signal?: AbortSignal) => void;
     'lifecycle:loaded': (appId: string) => void;
-    'lifecycle:beforeMount': (appId: string) => void;
+    'lifecycle:beforeMount': (appId: string, container: HTMLElement) => void;
     'lifecycle:mounted': (appId: string) => void;
     'lifecycle:beforeUnmount': (appId: string) => void;
     'lifecycle:unmounted': (appId: string) => void;
     'lifecycle:error': (appId: string, error: Error) => void;
 
-    // 沙箱事件
+    // 沙箱与 DOM 隔离事件
     'sandbox:created': (appId: string, sandboxCtx: any) => void;
     'sandbox:destroyed': (appId: string) => void;
     'sandbox:activated': (appId: string) => void;
     'sandbox:deactivated': (appId: string) => void;
 
-    // 通信与状态事件
-    'comm:message': (sender: string, receiver: string, payload: any) => void;
-    'state:change': (appId: string, key: string, value: any, oldValue: any) => void;
+    // 通信与状态 (支持 Sticky 粘性消息与 Deep Reactive State)
+    'comm:message': (sender: string, receiver: string, payload: any, metadata?: { sticky?: boolean, traceId?: string }) => void;
+    'state:change': (appId: string, key: string, value: any, oldValue: any, path?: string) => void;
 
-    // 监控事件
-    'monitor:report': (metric: MetricPayload) => void;
-    'monitor:error': (errorPayload: ErrorPayload) => void;
+    // 监控与全链路追踪事件 (W3C TraceContext)
+    'monitor:report': (metric: MetricPayload, traceId?: string) => void;
+    'monitor:error': (errorPayload: ErrorPayload, traceId?: string) => void;
 }
 ```
 

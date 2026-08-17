@@ -15,15 +15,10 @@
 ### 1.2 Cordis 理论视角
 
 在 Cordis 理论中，生命周期管理是 **effect lifecycle** 的核心：
-- 应用加载 = effect installation（效应安装）
-- 应用激活 = effect activation（效应激活）
-- 应用卸载 = effect uninstallation（效应卸载）
-- 应用保活 = effect persistence（效应持久化）
-
-关键原则：
-- **可逆性**：每个生命周期阶段都有对应的逆操作
-- **确定性**：生命周期转换是确定的，无歧义
-- **可观测性**：每个阶段都可以被监听和调试
+- **微应用即插件 (App as Plugin)**：每个子应用作为一个完整的 Cordis 插件，通过 `ctx.plugin()` 或 `ctx.fork()` 挂载，产生一个独立的 Fork Context (子上下文)。
+- **依赖注入与自动激活 (DI & Fiber)**：应用声明其依赖项（如 `inject: ['router', 'state', 'auth']`），Cordis 原生的 Fiber 引擎会自动处理依赖等待 (PENDING) 和就绪激活 (ACTIVE)。
+- **级联清理 (Cascading Cleanup)**：应用卸载时只需调用 `forkCtx.dispose()`，即可自动回收通过该子上下文注册的所有 `ctx.effect()`、事件监听器和定时器。
+- **效应可逆性**：每个生命周期阶段（加载、激活）都有对应的逆操作，确保资源安全释放。
 
 ---
 
@@ -97,11 +92,11 @@ interface AppLifecycle {
 }
 
 interface LifecycleManager {
-  // 加载应用
-  load(appId: string, config: AppConfig): Promise<void>
+  // 加载应用（支持 AbortSignal 控制竞态）
+  load(appId: string, config: AppConfig, signal?: AbortSignal): Promise<void>
   
-  // 激活应用
-  activate(appId: string): Promise<void>
+  // 激活应用（支持 AbortSignal 控制竞态）
+  activate(appId: string, signal?: AbortSignal): Promise<void>
   
   // 停用应用
   deactivate(appId: string): Promise<void>
@@ -118,15 +113,33 @@ interface LifecycleManager {
 
 ```typescript
 // @cordis/lifecycle/manager
-import { Context, Service } from 'cordis'
+import { Context, Service, ForkScope } from 'cordis'
+
+interface AppInstance {
+  id: string
+  state: AppState
+  context: Context
+  fork?: ForkScope
+  module?: any
+}
 
 class CordisLifecycleManager extends Service implements LifecycleManager {
   static inject = ['sandbox', 'state', 'router']
   private apps: Map<string, AppInstance> = new Map()
   private transitionLocks = new Map<string, Promise<void>>()
+  private abortControllers = new Map<string, AbortController>()
   
   constructor(ctx: Context) {
     super(ctx, 'lifecycle', true)
+  }
+
+  private createAbortSignal(appId: string): AbortSignal {
+    if (this.abortControllers.has(appId)) {
+      this.abortControllers.get(appId)!.abort('Cancelled by new lifecycle request')
+    }
+    const controller = new AbortController()
+    this.abortControllers.set(appId, controller)
+    return controller.signal
   }
 
   private async withLock(appId: string, fn: () => Promise<void>) {
@@ -142,7 +155,9 @@ class CordisLifecycleManager extends Service implements LifecycleManager {
     }
   }
   
-  async load(appId: string, config: AppConfig): Promise<void> {
+  async load(appId: string, config: AppConfig, externalSignal?: AbortSignal): Promise<void> {
+    const signal = externalSignal || this.createAbortSignal(appId)
+
     return this.withLock(appId, async () => {
       const app = this.getOrCreateApp(appId)
       
@@ -153,11 +168,18 @@ class CordisLifecycleManager extends Service implements LifecycleManager {
       
       try {
         await this.ctx.serial('lifecycle:before-load', appId, app.context)
+        if (signal.aborted) return
+
         app.state = 'loading'
         
         // 加载应用资源
         const module = await this.loadAppModule(config)
+        if (signal.aborted) return
+
         app.module = module
+        
+        // 作为 Cordis 插件挂载，产生 Fork Context
+        app.fork = this.ctx.plugin(module.default || module, { appId, ...config })
         
         app.state = 'loaded'
         await this.ctx.serial('lifecycle:after-load', appId, app.context)
@@ -170,7 +192,9 @@ class CordisLifecycleManager extends Service implements LifecycleManager {
     })
   }
   
-  async activate(appId: string): Promise<void> {
+  async activate(appId: string, externalSignal?: AbortSignal): Promise<void> {
+    const signal = externalSignal || this.createAbortSignal(appId)
+
     return this.withLock(appId, async () => {
       const app = this.apps.get(appId)
       if (!app) throw new Error(`App not found: ${appId}`)
@@ -182,15 +206,14 @@ class CordisLifecycleManager extends Service implements LifecycleManager {
       
       try {
         await this.ctx.serial('lifecycle:before-activate', appId, app.context)
+        if (signal.aborted) return
+
         // 先设置为中间状态
         app.state = 'activating'
         
-        // 激活应用实例
-        if (app.instance?.activate) {
-          await app.instance.activate()
-        }
+        // 此处微应用逻辑受 Cordis Fiber 引擎管理
+        // 在依赖（如 router, state）就绪时，插件状态将自动变为 ACTIVE
         
-        // 钩子成功后才设置终态
         app.state = 'active'
         await this.ctx.serial('lifecycle:after-activate', appId, app.context)
         
@@ -214,15 +237,13 @@ class CordisLifecycleManager extends Service implements LifecycleManager {
       
       try {
         await this.ctx.serial('lifecycle:before-deactivate', appId, app.context)
-        // 先设置为中间状态
         app.state = 'deactivating'
         
-        // 停用应用实例
-        if (app.instance?.deactivate) {
-          await app.instance.deactivate()
+        // 在不卸载插件的情况下通知微应用进入后台
+        if (app.fork?.ctx) {
+          app.fork.ctx.emit('lifecycle:deactivated', appId, app.context)
         }
         
-        // 钩子成功后才设置终态
         app.state = 'deactivated'
         await this.ctx.serial('lifecycle:after-deactivate', appId, app.context)
         
@@ -235,21 +256,18 @@ class CordisLifecycleManager extends Service implements LifecycleManager {
   }
   
   async destroy(appId: string): Promise<void> {
+    // 销毁时终止一切正在进行的加载/激活流程
+    if (this.abortControllers.has(appId)) {
+      this.abortControllers.get(appId)!.abort('Destroying app')
+      this.abortControllers.delete(appId)
+    }
+
     return this.withLock(appId, async () => {
       const app = this.apps.get(appId)
       if (!app) return // 已经销毁或不存在
       
-      // 如果正在加载，先取消
-      if (app.state === 'loading') {
-        // await this.cancelLoading(app);
-      }
-      
-      // 如果已激活，先停用
       if (app.state === 'active') {
         await this.ctx.serial('lifecycle:before-deactivate', appId, app.context)
-        if (app.instance?.deactivate) {
-          await app.instance.deactivate()
-        }
         app.state = 'deactivated'
         await this.ctx.serial('lifecycle:after-deactivate', appId, app.context)
       }
@@ -257,9 +275,9 @@ class CordisLifecycleManager extends Service implements LifecycleManager {
       try {
         await this.ctx.serial('lifecycle:before-destroy', appId, app.context)
         
-        // 销毁应用实例
-        if (app.instance?.destroy) {
-          await app.instance.destroy()
+        // 直接利用 Cordis ForkContext 的 dispose()，自动级联清理绑定的各种 effect、事件和定时器
+        if (app.fork) {
+          app.fork.dispose()
         }
         
         app.state = 'destroyed'
@@ -621,75 +639,34 @@ export function apply(ctx: Context) {
 
 ## 七、应用间生命周期协调
 
-### 7.1 依赖关系管理
+### 7.1 运行时服务依赖 (Cordis Native DI)
+
+传统的微前端框架需要手动实现拓扑排序来管理应用加载和激活顺序。但在基于 Cordis 的架构中，我们**废弃了冗余的手动拓扑排序**，转而利用 Cordis 原生的依赖注入 (DI) 和 Fiber 引擎。
+
+当微应用作为插件被加载时，只需声明其依赖的运行时服务，Cordis 会自动完成 PENDING 等待与状态激活：
 
 ```typescript
-// @cordis/lifecycle/dependency
-interface AppDependency {
-  appId: string
-  required: boolean  // 是否必须
-  version?: string   // 版本要求
-}
+// sub-app/src/index.ts
+export const inject = ['router', 'state', 'auth']
 
-class DependencyManager {
-  private dependencies: Map<string, AppDependency[]> = new Map()
+export function apply(ctx: Context) {
+  // 只要代码执行到这里，说明 router, state, auth 均已就绪
+  // Cordis Fiber 引擎自动将插件状态由 PENDING 转换为 ACTIVE
   
-  // 注册依赖
-  registerDependency(appId: string, dependencies: AppDependency[]): void {
-    this.dependencies.set(appId, dependencies)
-  }
+  ctx.router.registerRoute('/app', { component: App })
   
-  // 检查依赖是否满足
-  checkDependencies(appId: string): boolean {
-    const deps = this.dependencies.get(appId)
-    if (!deps) return true
-    
-    return deps.every(dep => {
-      if (!dep.required) return true
-      
-      const depState = lifecycleManager.getAppState(dep.appId)
-      return depState === 'active' || depState === 'loaded'
-    })
-  }
-  
-  // 获取依赖加载顺序
-  getLoadOrder(appIds: string[]): string[] {
-    const graph = new Map<string, string[]>()
-    const visited = new Set<string>()
-    const recursionStack = new Set<string>() // 检测循环
-    const result: string[] = []
-    
-    // 构建依赖图
-    appIds.forEach(appId => {
-      const deps = this.dependencies.get(appId) || []
-      graph.set(appId, deps.map(d => d.appId))
-    })
-    
-    // 拓扑排序
-    const visit = (appId: string) => {
-      if (recursionStack.has(appId)) {
-        throw new Error(`[Cordis] 检测到循环依赖: ${[...recursionStack, appId].join(' → ')}`)
-      }
-      if (visited.has(appId)) return
-      
-      recursionStack.add(appId)
-      
-      const deps = graph.get(appId) || []
-      deps.forEach(dep => visit(dep))
-      
-      recursionStack.delete(appId)
-      visited.add(appId)
-      result.push(appId)
-    }
-    
-    appIds.forEach(visit)
-    
-    return result
-  }
+  // 使用 ctx.effect 注册的副作用
+  // 当应用被卸载 (forkCtx.dispose) 时会自动触发这里的返回函数，无需手动在 destroy 生命周期中清理
+  ctx.effect(() => {
+    const timer = setInterval(() => console.log('sub-app running'), 1000)
+    return () => clearInterval(timer)
+  })
 }
 ```
 
-### 7.2 并行加载优化
+### 7.2 静态资产依赖加载
+
+虽然运行时服务交由 Cordis 管理，但对于纯静态资产（如共享的 JS/CSS 模块库），我们依然保留轻量级的并发加载器，支持基于 URL 的并发获取：
 
 ```typescript
 // @cordis/lifecycle/parallel-loader
@@ -772,45 +749,44 @@ class ParallelLoader {
 }
 ```
 
-### 9.2 应用入口文件
+### 9.2 应用入口文件 (Cordis 插件模式)
 
 ```typescript
 // sub-app/src/main.ts
+import { Context } from 'cordis'
 import { createApp } from 'vue'
 import App from './App.vue'
 
-export default {
-  // Cordis 生命周期钩子
-  async activate(context: AppContext) {
-    const app = createApp(App)
-    
-    // 注入 Cordis 上下文
-    app.provide('cordis', context)
-    
-    // 挂载应用
-    app.mount(context.container)
-    
-    return {
-      unmount() {
-        app.unmount()
-      }
+// 声明应用所需依赖
+export const inject = ['router', 'state']
+
+export function apply(ctx: Context) {
+  // 挂载应用
+  const app = createApp(App)
+  app.provide('cordis', ctx)
+  
+  // 监听激活状态 (如从后台恢复)
+  ctx.on('lifecycle:after-activate', (appId) => {
+    console.log(`${appId} Activated`)
+  })
+  
+  // 监听后台停用状态
+  ctx.on('lifecycle:deactivated', (appId) => {
+    console.log(`${appId} Deactivated`)
+  })
+  
+  // 注册副作用（DOM挂载），当 ctx.dispose() 触发时自动执行清理
+  ctx.effect(() => {
+    const container = document.getElementById('sub-app-container')
+    if (container) {
+      app.mount(container)
     }
-  },
-  
-  async deactivate() {
-    // 清理资源
-    console.log('App deactivated')
-  },
-  
-  async destroy() {
-    // 销毁应用
-    console.log('App destroyed')
-  },
-  
-  // 错误处理
-  onError(error: Error) {
-    console.error('App error:', error)
-  }
+    
+    // 返回逆操作，destroy 时自动调用
+    return () => {
+      app.unmount()
+    }
+  })
 }
 ```
 

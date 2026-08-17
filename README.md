@@ -87,13 +87,14 @@ Cordis 是基于 **Cordis IoC 架构**设计的下一代微前端框架，核心
 
 ### 3.1 生命周期管理（Lifecycle Manager）
 
-**职责**：管理应用的完整生命周期，从加载到销毁。
+**职责**：管理应用的完整生命周期，基于 Cordis Fork Context 和 Fiber 调度实现。
 
 **核心能力**：
-- 状态机驱动的生命周期（Created → Loading → Loaded → Active → Deactivated → Destroyed）
+- Cordis 原生 Plugin / Fork Context 模型（挂载即 fork，销毁即 dispose）
+- 声明式依赖注入与响应式生命周期流转（PENDING → ACTIVE → DISPOSED）
+- 导航竞态消除（基于 AbortController 的可取消生命周期）
 - 应用保活机制（Memory/DOM/State 三种模式）
 - 错误恢复策略（重试、降级、错误边界）
-- 依赖关系管理（拓扑排序、并行加载）
 
 **设计文档**：[lifecycle-management.md](./lifecycle-management.md)
 
@@ -103,9 +104,10 @@ Cordis 是基于 **Cordis IoC 架构**设计的下一代微前端框架，核心
 
 **核心能力**：
 - 三层状态模型（Global/Shared/Local）
-- 响应式状态集成（Vue/React 适配器）
-- 状态版本控制（乐观锁、冲突解决）
-- 状态持久化（localStorage、服务端同步）
+- 深层响应式代理（Deep Reactive Proxy，自动捕获深层变更）
+- 跨标签页状态同步（基于 BroadcastChannel）
+- 权限受控状态修改（Read/Write 规则校验）
+- 状态版本控制与原子化事务更新（batch 机制）
 
 **设计文档**：[state-sharing.md](./state-sharing.md)
 
@@ -114,10 +116,10 @@ Cordis 是基于 **Cordis IoC 架构**设计的下一代微前端框架，核心
 **职责**：提供标准化的应用间通信机制。
 
 **核心能力**：
-- 消息协议定义（CordisMessage 类型）
+- 消息协议定义（CordisMessage 格式与 W3C TraceContext 贯穿）
+- 粘性/保留事件机制（Sticky/Retained Messages，解决未加载应用消息丢失）
 - 多种传输模式（EventBus、Request-Response、Message Queue）
-- 跨框架适配器（Vue/React/Angular）
-- 消息路由和追踪
+- 统一网络拦截链（FetchInterceptorChain）
 
 **设计文档**：[communication-protocol.md](./communication-protocol.md)
 
@@ -126,10 +128,11 @@ Cordis 是基于 **Cordis IoC 架构**设计的下一代微前端框架，核心
 **职责**：提供 JS 执行环境隔离，防止全局变量污染，并基于分级信任模型提供安全保障。
 
 **核心能力**：
-- Proxy 沙箱（适用于第一方应用，防止全局变量污染）
-- Snapshot 沙箱（兼容旧浏览器）
-- iframe 沙箱（适用于第三方应用，提供真正的安全隔离）
-- 效应追踪器（基于 cordis ctx.effect()，定时器、事件监听自动清理）
+- Proxy 沙箱（原生方法 Illegal Invocation 自动修复与缓存）
+- Document 代理（Scoped DOM 查询、样式/脚本生命周期追踪）
+- 异步作用域追踪器（AsyncScopeTracker，自动清理 Observers/rAF 防止 DOM 泄漏）
+- 存储命名空间隔离（StorageProxy 隔离 localStorage/sessionStorage）
+- iframe 沙箱（适用于第三方不可信应用，提供物理级安全隔离）
 
 **设计文档**：[js-sandbox.md](./js-sandbox.md)
 **安全文档**：[security.md](./security.md)
@@ -139,10 +142,10 @@ Cordis 是基于 **Cordis IoC 架构**设计的下一代微前端框架，核心
 **职责**：提供跨应用的路由协调和隔离。
 
 **核心能力**：
-- 路由即 Service（服务）
-- 三层路由上下文（Root/Sub/Component）
-- 构建时转换（零改动）
-- 多版本路由共存（Vue Router 2/3/4）
+- 多槽位/同屏多实例矩阵路由（Multi-Outlet，支持主页面与多 Widget 并存）
+- 可取消路由导航（Cancellable Navigation，解决快速点击竞态）
+- 深度链接保留（Deep Linking）与跨应用 Query/Hash 状态无损传递
+- 构建时零侵入转换与多版本路由桥接（Vue Router 2/3/4）
 
 **设计文档**：[route-adaptation.md](./route-adaptation.md)
 
@@ -151,10 +154,10 @@ Cordis 是基于 **Cordis IoC 架构**设计的下一代微前端框架，核心
 **职责**：防止 CSS 样式冲突和污染。
 
 **核心能力**：
-- 命名空间策略（推荐）
-- Shadow DOM 策略（强隔离）
-- CSS Modules 策略
-- 主题变量共享
+- 命名空间策略（PostCSS 构建时前缀，推荐）
+- Shadow DOM 策略（包含 React 16/17 事件 Retargeting 修复与 Portal 容器重定向）
+- CSS Modules / Scoped 策略
+- 主题变量动态共享与基于 ctx.effect() 的样式自动清理
 
 **设计文档**：[style-isolation.md](./style-isolation.md)
 
@@ -163,25 +166,23 @@ Cordis 是基于 **Cordis IoC 架构**设计的下一代微前端框架，核心
 **职责**：支持不同技术栈、不同版本的应用在同一页面运行。
 
 **核心能力**：
-- 同技术栈多版本（Vue 2 + Vue 3）
-- 不同技术栈（Vue + React + Angular + jQuery）
+- 动态 Public Path 自动注入（CDN 独立部署资源相对寻址）
+- 共享依赖仲裁矩阵（Dependency Negotiation Matrix，SemVer 匹配与 Fallback）
+- 同技术栈多版本（Vue 2 + Vue 3）与跨技术栈（Vue + React + Angular + jQuery）
 - 外部框架兼容（qiankun/wujia/micro-app）
-- 统一通信机制
 
 **设计文档**：[heterogeneous-loading.md](./heterogeneous-loading.md)
 
-### 3.8 开发调试工具（DevTools）
+### 3.8 开发调试与监控（DevTools & Monitoring）
 
-**职责**：提供微前端专用的调试和监控工具。
+**职责**：提供微前端专用的调试、性能监控与全链路追踪工具。
 
 **核心能力**：
-- 应用监控（状态、生命周期、性能）
-- 消息追踪（消息流可视化）
-- 状态检查（全局/共享/私有状态）
-- 性能分析（加载时间、渲染时间、内存占用）
-- 热更新控制
+- W3C TraceContext 全链路追踪（串联跨应用消息与后端 API）
+- 分离 DOM 树与内存泄漏主动探测（WeakRef + Detached DOM Monitor）
+- DevTools 浏览器扩展（增量 DOM 渲染、安全防 XSS、Vite HMR 实时热更）
 
-**设计文档**：[devtools.md](./devtools.md)
+**设计文档**：[devtools.md](./devtools.md) | [monitoring.md](./monitoring.md)
 
 ### 3.9 模块交互协议（Module Interaction Protocol）
 
@@ -189,9 +190,8 @@ Cordis 是基于 **Cordis IoC 架构**设计的下一代微前端框架，核心
 
 **核心能力**：
 - 统一事件系统（基于 cordis ctx.on()/ctx.emit()）
-- 模块初始化顺序
-- 关键流程时序图
-- 错误传播路径
+- 模块初始化顺序与依赖图谱
+- 关键流程时序图（首次加载、应用切换、多槽位并发、错误降级、热更新）
 
 **设计文档**：[module-interaction.md](./module-interaction.md)
 
@@ -227,35 +227,43 @@ export default {
 }
 ```
 
-### 4.2 无需注册表
+### 4.2 依赖协商与共享
 
-传统微前端需要全局注册表管理依赖，容易产生冲突。Cordis 基于 **Context 和 Service** 实现依赖的隔离共享：
+无需中心化全局注册表。Cordis 基于 **Dependency Negotiation Matrix 与 Service 注入** 实现依赖按需共享与版本仲裁：
 
 ```json
 // cordis.dependencies.json
 {
-  "dependencies": {
+  "shared": {
+    "vue": {
+      "version": "^3.2.0",
+      "singleton": true,
+      "fallback": "bundle"
+    },
     "lodash": {
-      "strategy": "service",
       "version": "^4.17.0"
     }
   }
 }
 ```
 
-### 4.3 动态应用角色
+### 4.3 动态应用角色与同屏多实例
 
-传统微前端需要预先定义应用角色（component/portal）。Cordis 的应用角色是**运行时动态决定**的：
+应用角色**运行时动态决定**，既能独立单页运行，也能作为子应用或 Widget 插入主应用的多槽位中：
 
 ```javascript
-// 同一个应用可以独立运行，也可以被其他应用加载
-export default {
-  activate(context) { /* 被加载时调用 */ },
-  bootstrap() { /* 独立运行时调用 */ }
+// 无论是独立运行还是作为插件挂载，均享受统一的 Context 生态
+export default function apply(ctx) {
+  ctx.effect(() => {
+    // 挂载
+    return () => {
+      // 卸载清理
+    }
+  })
 }
 ```
 
-### 4.4 完整的异构支持
+### 4.4 完整的异构与多版本共存
 
 Cordis 原生支持：
 - **同技术栈不同版本**：Vue 2 和 Vue 3 在同一页面共存

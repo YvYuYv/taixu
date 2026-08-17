@@ -489,6 +489,162 @@ class DeepLinkResolver {
 }
 ```
 
+### 5.7 场景：同屏多应用多槽位 (Multi-Outlet / Multi-Instance Concurrent Routing)
+
+在复杂的企业级工作台中，通常需要同屏展示多个微应用（例如 Header Nav 应用 + Sidebar 应用 + Main Business 主业务应用 + Widget 挂件应用）。为了支持这种高维度的组合，Cordis 路由的 `RouteContextTree` 引入了**命名插槽（Named Outlets）**和**多实例并发路由**模型。
+
+#### 1. 核心模型与路由驱动隔离
+
+为防止同屏多应用的路由冲突，Taixu 将应用的路由驱动机制进行了严格区分：
+- **主路由应用（Primary Route Apps）**：由 URL 的 `pathname` 驱动（如主业务区），独占 URL 的主要路径。
+- **次级/挂件应用（Secondary / Widget Apps）**：由 `query` 参数、`hash` 片段或纯编程式状态（Programmatic State）驱动（如侧边栏、浮窗）。
+
+#### 2. 架构图解
+
+```mermaid
+graph TD
+    URL[Browser URL] -->|pathname| MainCtx[Main Outlet Context]
+    URL -->|query| SidebarCtx[Sidebar Outlet Context]
+    URL -->|hash| WidgetCtx[Widget Outlet Context]
+    
+    subgraph RouteContextTree
+        MainCtx --> MainApp[Primary App: Business]
+        SidebarCtx --> SidebarApp[Secondary App: Menu]
+        WidgetCtx --> WidgetApp[Widget App: Chat]
+    end
+```
+
+#### 3. 独立解析与隔离实现
+
+每个路由上下文可以挂载到特定的 Outlet 上，实现各个槽位的独立子路由解析：
+
+```typescript
+// 定义包含多槽位的路由树结构
+interface OutletContextNode {
+  outletName: string; // 'main', 'sidebar', 'header', 'widget'
+  context: RouteContext;
+  isActive: boolean;
+}
+
+class MultiOutletRouteManager {
+  private outlets: Map<string, OutletContextNode> = new Map();
+
+  // 注册应用到指定槽位
+  registerToOutlet(
+    outletName: string, 
+    context: RouteContext, 
+    driveType: 'pathname' | 'query' | 'hash'
+  ) {
+    this.outlets.set(outletName, { outletName, context, isActive: true });
+    // 基于 driveType 绑定不同的 URL 同步策略，利用 ctx.isolate() 实现范围隔离
+    this.bindDriveStrategy(outletName, context, driveType);
+  }
+
+  // 并发解析：当 URL 变化时，独立更新各个槽位
+  onUrlChange(url: URL) {
+    // 1. 解析 pathname 驱动的主应用 (main)
+    const mainCtx = this.outlets.get('main')?.context;
+    mainCtx?.syncFromPathname(url.pathname);
+
+    // 2. 解析 query 驱动的侧边栏 (sidebar)
+    const sidebarCtx = this.outlets.get('sidebar')?.context;
+    sidebarCtx?.syncFromQuery(url.searchParams.get('sidebar_path'));
+
+    // 3. 解析 hash 驱动的挂件 (widget)
+    const widgetCtx = this.outlets.get('widget')?.context;
+    widgetCtx?.syncFromHash(url.hash);
+  }
+}
+```
+
+通过 `ctx.isolate()`，各个槽位的应用在自己的隔离上下文中运行，即使它们共享同一个底层的 History API，在状态同步时也能做到互不干扰，完全解耦。
+
+### 5.8 场景：可取消的路由导航 (Cancellable Route Navigation)
+
+在微前端架构中，切换应用通常伴随着静态资源的下载（JS/CSS）、沙箱的初始化以及组件的挂载。如果用户在应用加载期间进行快速的前后点击（如快速跳跃 `/app-a` -> `/app-b` -> `/app-c`），会引发严重的竞态条件（Race Conditions）和 UI 闪烁。
+
+为了彻底解决此问题，Taixu 在 Cordis 路由控制器中引入了 `NavigatingController`，基于标准的 `AbortController` 实现了**可取消的路由导航**。
+
+#### 1. 竞态处理流程
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Router as NavigatingController
+    participant Loader as Lifecycle Manager
+    participant Network as Fetch API
+
+    User->>Router: Click /app-a
+    Router->>Loader: loadApp(/app-a, signalA)
+    Loader->>Network: fetch assets for /app-a
+    
+    User->>Router: Click /app-b (fast!)
+    Router->>Router: abort signalA
+    Router->>Loader: loadApp(/app-b, signalB)
+    
+    Network--xLoader: AbortError for /app-a
+    Loader--xRouter: Navigation aborted silently
+    
+    Loader->>Network: fetch assets for /app-b
+    Network-->>Loader: Assets loaded
+    Loader->>Router: mountApp(/app-b)
+```
+
+#### 2. TypeScript 实现细节
+
+核心机制在于：每次跨应用导航启动时，创建一个新的 `AbortController` 实例。如果之前的导航未完成，则调用 `abort()` 进行干净的取消，保证进行中的资产下载和 DOM 挂载操作立刻停止，不会造成 UI 闪烁。
+
+```typescript
+class NavigatingController {
+  private currentAbortController: AbortController | null = null;
+
+  async navigate(to: string, ctx: Context) {
+    // 1. 如果有正在进行的导航，立即取消，防止竞态
+    if (this.currentAbortController) {
+      this.currentAbortController.abort('Navigation cancelled by new route');
+    }
+
+    // 2. 创建全新的控制器
+    const abortController = new AbortController();
+    this.currentAbortController = abortController;
+    const signal = abortController.signal;
+
+    try {
+      // 3. 将 signal 传递给资产下载器和生命周期管理器
+      await ctx.service.lifecycleManager.loadApp(to, { signal });
+      
+      // 检查是否已被中止，避免在 load 之后意外 mount
+      if (signal.aborted) return;
+      
+      // 4. 结合 ctx.effect()，在挂载时如果抛出中断，可自动 rollback 副作用
+      const dispose = ctx.effect(() => {
+        return ctx.service.lifecycleManager.mountApp(to, { signal });
+      });
+
+      // 监听 signal，一旦中止自动触发副作用清理
+      signal.addEventListener('abort', () => dispose());
+
+      // 导航成功完成
+      this.currentAbortController = null;
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        ctx.logger.info(`Navigation to ${to} was aborted gracefully.`);
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
+// 资源下载器支持 AbortSignal
+async function fetchAppAssets(manifestUrl: string, options: { signal: AbortSignal }) {
+  const response = await fetch(manifestUrl, { signal: options.signal });
+  // 解析和加载资源...
+}
+```
+
+这种设计完美契合 Cordis 的 `ctx.effect()`，在导航被取消时，任何中途产生的临时状态或事件监听器都会被可靠回收。
+
 ---
 
 ## 六、与 LinkJS 方案对比
