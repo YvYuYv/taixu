@@ -9,10 +9,10 @@ import type { AppPhase, ErrorMetric, Metric } from '../events'
  * - capture() 是所有错误的唯一上报入口：归因 appId、派发 monitor/report 通知族事件
  * - 违规上报走 security/violation 事件由 monitor 旁听，不构成 security -> monitor 依赖（ADR-0054）
  */
-export class MonitorService extends Service {
+export class MonitorService extends Service<Record<never, never>> {
   static provide = 'monitor'
 
-  constructor(ctx: Context) {
+  constructor(ctx: Context, _config: Record<never, never> = {}) {
     super(ctx, 'monitor')
     // 旁听 security/violation（事件旁听不构成服务依赖，ADR-0054）
     ctx.on('security/violation', (violation) => {
