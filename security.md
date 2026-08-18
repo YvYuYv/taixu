@@ -30,7 +30,7 @@
 ```typescript
 class SecurityService extends Service {
   static [Context.provide] = 'security'
-  static inject = ['monitor']
+  static inject = []    // 零业务依赖，权限裁决最先可用（基线 §2.3，ADR-0054）；违规上报经 ctx.emit('security/violation')，由 monitor 旁听，不 inject monitor
 
   constructor(ctx: Context, config: SecurityConfig) {
     super(ctx)
@@ -133,7 +133,8 @@ class PermissionManager {
     return allowed
   }
 
-  /** 通配转义（`*`->`.*`，其余字符 escape；修复旧版两套通配语义不一致） */
+  /** 通配转义（`*`->`.*`，其余字符 escape；修复旧版两套通配语义不一致）
+      编译产物缓存键挂权限表版本号：热更新 bump 版本自动失效（ADR-0039） */
   private compile(pattern: string): RegExp {
     const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')
     return new RegExp(`^${escaped}$`)
@@ -145,6 +146,12 @@ class PermissionManager {
   }
 }
 ```
+
+### 5.1 裁决的三个不变量（ADR-0024/0028/0039/0051）
+
+1. **无跨调用缓存**（ADR-0039）：权限表在内存（Map），单次查询 O(规则数) 匹配、微秒级--不是瓶颈（真正瓶颈是网络 I/O）；只有规则**编译产物**（glob->RegExp）可缓存，缓存键挂权限表版本号，热更新 bump 自动失效。**TTL 缓存禁止**：窗口期内"管理员封禁某 API 后 30s 仍可用"是安全漏洞
+2. **单点查询不走事件调度**（ADR-0028）：scopedFetch 等单裁决者场景直接 `await ctx.security.check()` 服务方法（并发请求并发裁决）；不进 serial 管线（顺序 await 会把高频并发请求串行化）。**超时 fail-closed**（ADR-0024）：默认 5s，超时视为裁决失败拒绝（`{ok:false, reason:'adjudication-timeout'}`）并 `monitor.capture` 上报（连续 N 次超时升级告警）
+3. **规则必须本地可判定**（ADR-0051）：只允许应用身份、API 模式（glob）、时间窗口（本地时钟）、环境标记四类判定要素；远程策略（如"仅工作日"）由管理后台**预编译为本地规则**下发，不在裁决路径做远程调用--网络分区时所有 fetch 不能因裁决卡死
 
 规则示例（含点分路径，state-sharing.md §五联用）：
 
@@ -275,7 +282,7 @@ class AuditLogger {
 }
 ```
 
-- 告警订阅：`ctx.on('monitor/alert', fn)`（Cordis 原生；旧版手写 callbacks 数组且无 bail 截断）
+- 告警订阅：`ctx.on('monitor/alert', fn)`（Cordis 原生；旧版手写 callbacks 数组且无 serial 逐回调 await）
 - 采样与限流：安全事件默认全量，网络违规类高频事件按 (appId, rule) 限流去重
 
 ## 十、Kill Switch（急停）

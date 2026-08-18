@@ -54,6 +54,24 @@ class MonitorService extends Service {
 - 错误采集兜底：`window.onerror / onunhandledrejection` 在 monitor 初始化时注册（挂 ctx.effect；经 tracing 异步上下文或栈 URL 归因 appId）
 - 旧版 `lifecycleManager.on('*', event, cb)` 三参自造 API 废除：统一 `ctx.on(name, fn, { global: true })`
 
+### 2.1 隔离边界：采集入口隔离，聚合汇于 root sink（ADR-0010/0025/0045）
+
+monitor 的隔离边界画在**两层入口**上：
+
+- **主动上报入口（按应用隔离）**：每个应用经 `ctx.isolate('monitor', appId)` 拿到独立 monitor 实例（isolate 白名单之一，ADR-0010）--应用调 `ctx.monitor.capture/metric/trace` 时**自动带 appId 归因**，不需要应用手动传；隔离实例遇到带 traceparent 的消息**续接为子 span**（同 traceId 贯通，ADR-0022）
+- **被动事件入口（不隔离，root sink 层）**：`app/*`、`security/violation`、`state/changed` 等事件以 `global: true` 在 root 上下文注册（隔离实例收不到 root 广播--Cordis 事件按 isolate 过滤），归因靠事件载荷的 appId 字段
+- **聚合 sink**：N 个隔离实例把带 appId 的数据汇入 monitor 内部一个**不隔离的 root 单例 sink**；全局仪表盘/DevTools 从 sink 读取（本地即可见全局视图，聚合不推给后端）
+
+```
+应用 A ctx.monitor.capture(err) ──isolate──> 实例 A（自动归因 A）──┐
+应用 B ctx.monitor.capture(err) ──isolate──> 实例 B（自动归因 B）──┼──> root sink ──> 告警/仪表盘/DevTools
+root 事件（app/error 等）──────────global──> root 监听（载荷 appId）──┘
+```
+
+### 2.2 挂起回放的 span 语义（ADR-0030）
+
+挂起队列滞留的消息回放时，以原 traceparent 为 **span link**（OpenTelemetry 语义）开新 span：traceId 保持关联（同一调用链可查），但 span 时长只计真实处理时间、不计队列滞留（避免 3 分钟巨型 span 触发 P99 告警爆炸）。追踪后端非 OTel 兼容时降级为如实长 span。
+
 ## 三、指标体系
 
 | 类别 | 指标 | 采集方式 | 说明 |

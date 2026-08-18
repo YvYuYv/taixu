@@ -21,10 +21,11 @@
 
 | Cordis 概念 | 在状态模块中的体现 |
 |-------------|-------------------|
-| **reactive coeffect**（声明式依赖 + 变更通知） | 应用声明依赖的状态键；键变更时注册的 watcher 重跑 |
-| **revertible effect**（可逆副作用） | `ctx.state.watch(key, fn)` 内部经 `ctx.effect` 注册，应用 dispose 时自动退订 |
-| **Service 可见性过滤**（isolate 标签） | Local 层经 `ctx.isolate('state')` 实现"仅本应用子树可见" |
-| **serial 事件** | `state/changed` 单一变更事件（含版本与来源） |
+| **reactive coeffect**（声明式依赖 + 变更通知） | 应用声明依赖的状态键；键变更时 `state/changed` 事件通知订阅回调 |
+| **revertible effect**（可逆副作用） | `ctx.state.watch` 内部经 `ctx.on('state/changed')` 注册（on 内部经 fiber.effect），应用 dispose 时自动退订（ADR-0001） |
+| **事件（通知族）** | `state/changed` 单一变更事件（含版本与来源）；挂起恢复经 `state/sync` 一次性拉取（ADR-0023） |
+
+注意：`ctx.isolate('state')` **不用于**键空间隔离（ADR-0003--isolate 是服务实例遮蔽，会让 shared 层跨应用不可见）。
 
 关键原则：
 
@@ -44,9 +45,9 @@
 │              StateService（root，基线 §2.2 服务清单）        │
 │                                                            │
 │  ┌──────────┐  ┌──────────────┐  ┌──────────────────────┐  │
-│  │ 三层键空间 │  │ 唯一写入管线  │  │ 观察者注册表(经effect) │  │
-│  │ Global   │  │ permission→  │  │ watch(key, fn)       │  │
-│  │ Shared   │  │ version→     │  │  └ ctx.effect 托管    │  │
+│  │ 三层键空间 │  │ 唯一写入管线  │  │ 事件订阅(ctx.on 托管) │  │
+│  │ Global   │  │ permission->  │  │ watch(key, fn)       │  │
+│  │ Shared   │  │ version->     │  │  └ 键过滤+自动退订     │  │
 │  │ Local    │  │ notify(once) │  │ 深层代理(稳定身份)     │  │
 │  └──────────┘  └──────────────┘  └──────────────────────┘  │
 │        │                │                    │              │
@@ -56,7 +57,7 @@
 └────────────────────────────────────────────────────────────┘
 ```
 
-与旧版架构的本质差异：旧版是"自研 Map + 手动 subscribers + 手动 notify"的 pub/sub；新版观察者的生命周期完全由 `ctx.effect` 托管（Cordis 原生），写入是一条**不可绕过**的管线。
+与旧版架构的本质差异：旧版是"自研 Map + 手动 subscribers + 手动 notify"的 pub/sub；新版观察者的生命周期由 `ctx.on` 托管（Cordis 原生，dispose 自动退订，ADR-0001），写入是一条**不可绕过**的管线。
 
 ## 三、三层状态模型（真实落地，非 PPT）
 
@@ -64,11 +65,13 @@
 |----|--------|--------|----------|
 | Global | `global:*` | 全部应用 | root 单例键空间 |
 | Shared | `shared:*` | 声明了该键的应用 | 权限清单（读/写分别授权） |
-| Local | `local:{appId}:{instanceId}:*` | 仅本实例子树 | 应用 ctx `ctx.isolate('state')` 派生的独立键空间（Service 可见性过滤，基线 §1.3） |
+| Local | `local:{appId}:{instanceId}:*` | 仅本实例子树 | **键前缀 + fiber 归属校验**（ADR-0003：`ctx.isolate('state')` 是服务级注入遮蔽，会让每个应用拿到独立 state 服务实例、破坏 shared 层跨应用可见性，禁止用于键空间） |
 
 - **命名空间是键前缀**（不是三个平行 Map），`state/changed` 事件的 `key` 携带全限定键
-- 应用 dispose 时：Local 层键空间整体回收（isolate 派生 ctx 随 fiber dispose）；Shared/Global 层的应用级订阅自动解绑（effect 托管）
+- Local 层归属校验：state 服务记录每个键的写入者 fiber，`get/set/watch` 校验调用方 fiber 是否为键的归属者（或经 security 授权）--**不使用 isolate**（同上）
+- 应用 dispose 时：Local 层键空间整体回收（state 服务按 fiber 归属批量删除）；Shared/Global 层的应用级订阅自动解绑（`ctx.on` 随 fiber dispose 自动退订，见 §4.3）
 - 多实例同应用：Local 键天然按 instanceId 隔离
+- **`local:` 键的使用条款**（ADR-0029/0034/0044）：值必须 JSON 可序列化（驱逐快照的前提）；**禁止存 token/密码/PII**（快照落 sessionStorage，同 tab 同源全部脚本可读）
 
 ## 四、核心实现
 
@@ -170,30 +173,34 @@ class DeepProxyFactory {
 - **oldValue 真实**：深层 set 通知携带 `prev`（旧版恒 undefined）
 - Map/Set/Date 等非 plain object **不做深层代理**（原样返回，变更走显式 `set()`）--避免旧版语义黑洞；需要细粒度的场景用 `watch('key.path')`
 
-### 4.3 watch：观察者经 ctx.effect 托管（废除手动 disposer 双轨）
+### 4.3 watch：事件订阅（ctx.on 自动退订，ADR-0001）
 
 ```typescript
 class StateService extends Service {
   watch(ctx: Context, key: string, fn: WatchFn, options?: WatchOptions): void {
-    // 订阅生命周期 = 插件生命周期（Cordis 原生），应用无需手动退订，也不存在"双重清理"
-    ctx.effect(() => {
-      const record: WatchRecord = { fn, ctx, deep: options?.deep ?? false }
-      this.addToWatchers(key, record)
-      fn(this.get(key))   // 立即以当前值执行一次（对齐 Cordis effect 首跑语义）
-      return () => this.removeFromWatchers(key, record)   // 唯一清理路径：fiber dispose 时 Cordis 调用
-    }, `state.watch(${key})`)
+    // 订阅生命周期 = 插件生命周期（Cordis ctx.on 内部经 fiber.effect 注册，dispose 自动退订）
+    // 不自建 watcher 注册表、不手写 effect 包裹--ADR-0001：手工登记是第二套生命周期真相源
+    ctx.on('state/changed', (payload) => {
+      if (!this.matchKey(key, payload.key)) return   // 键过滤（前缀/点分路径）
+      fn(payload.value)
+    })
+    fn(this.get(key))   // 立即以当前值执行一次（对齐 Cordis effect 首跑语义）
   }
+
+  /** 挂起恢复的一次性同步（ADR-0023）：state 通道走拉模型，不走 bus 队列 */
+  private onSuspendResume(instanceId: string) { /* 见 §七 挂起语义 */ }
 }
 
 // 应用内使用（reactive coeffect 的直接体现）：
 export default function apply(ctx: Context) {
   ctx.state.watch(ctx, 'shared:cart', (cart) => {
-    ctx['my-ui'].render(cart)   // cart 变更 -> 自动重跑；应用卸载 -> 自动退订
+    ctx['my-ui'].render(cart)   // cart 变更 -> 回调；应用卸载 -> ctx.on 自动退订
   })
 }
 ```
 
-- 废除旧版 `disposables.push(unsubscribe)` + `ctx.effect(() => unsubscribe)` 的**双重清理**（dispose 后再 destroy 二次调用）
+- **`state/changed` 事件派发**：`ctx.emit`（通知族，fire-and-forget，基线 §2.4.1）--state 服务在 root 单例派发、`global: true` 广播
+- **挂起语义**（ADR-0023）：state 服务经 `ctx.on('app/suspend')` / `ctx.on('app/resume')`（root 注册、global 监听）感知挂起态，**不 inject lifecycle**（依赖方向，基线 §2.3）；挂起期间对挂起应用**不推送** `state/changed`；恢复时按该应用 watch 的键集合派发一次性 `state/sync {keys: Record<key, {value, version}>}`（拉模型--状态可重拉、消息不可重放）
 - 框架适配器（useSharedState / useCordisState）内部调用 `watch(ctx, ...)`，组件卸载经 effect 归还（应用内组件级订阅仍由框架 hook 自身管理，但都以 ctx 为宿主）
 
 ### 4.4 batch：真原子性（draft 副本，异常零通知）

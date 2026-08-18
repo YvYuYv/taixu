@@ -220,24 +220,31 @@ class InjectedNodesTracker {
 ### 3.6 网络与定时器包装（记账 + 转发）
 
 ```typescript
-// 网络：不猴补 window.fetch（全局共享）；scopedFetch 经 bus.network 唯一链路注入（communication-protocol.md §六）
+// 网络：不猴补 window.fetch（全局共享）；scopedFetch 的唯一注入方是 lifecycle（ADR-0005）--
+// lifecycle 在沙箱创建之后、ctx.plugin() 之前注入（sandbox 服务不持有 bus 依赖，避免服务环）
+// 沙箱侧只预留注入位：
+declare injectSlot: { fetch?: typeof fetch }
+// lifecycle 侧（时序：createSandbox -> inject scopedFetch -> ctx.plugin(app)）：
+// sandbox.injectSlot.fetch = bus.network.scopedFetch(appId)   // 裁决经 ctx.security.check()（ADR-0028）
+
 injectNetwork(appId: string) {
-  this.fakeWindow.fetch = this.bus.network.scopedFetch(appId)
   this.fakeWindow.XMLHttpRequest = this.scopedXHR(appId)          // open/send 包装：URL 白名单 + traceparent + 埋点
-  this.fakeWindow.WebSocket = this.scopedWS(appId)                 // 构造包装：URL 策略
+  this.fakeWindow.WebSocket = this.scopedWS(appId)                 // 构造包装：URL 策略 + 挂起 close/重连描述符（ADR-0017）
   this.fakeWindow.EventSource = this.scopedES(appId)
   this.fakeWindow.navigator.sendBeacon = this.scopedBeacon(appId)
 }
 
-// 定时器：经 SuspendScope（lifecycle-management.md §5.2）-> 保活可冻结；dispose 由 fiber effect 兜底清除
-injectTimers(ctx: Context, scope: SuspendScopeService) {
-  this.fakeWindow.setTimeout = (fn, ms, ...args) => scope.setTimeout(() => fn(...args), ms)
-  this.fakeWindow.setInterval = (fn, ms, ...args) => {
-    const id = this.raw.setInterval(() => fn(...args), ms)
-    ctx.effect(() => () => clearInterval(id))     // Cordis 原生回收
-    return id
+// 定时器：包装函数内部查挂起注册表（ADR-0032/0048）--appId 由沙箱实例创建期闭包捕获，不做运行时推断
+injectTimers(scope: SuspendScopeService, suspendRegistry: SuspendRegistry, appId: string) {
+  const guard = <T,>(fn: (...a: T[]) => void) => (...args: T[]) => {
+    if (suspendRegistry.isSuspended(appId)) return 0   // 挂起：丢弃/延后（freeze 语义见 lifecycle §5.2）
+    return fn(...args)
   }
-  this.fakeWindow.requestAnimationFrame = (cb) => scope.raf(cb)
+  this.fakeWindow.setTimeout = guard(scope.setTimeout)         // 冻结计时由 SuspendScope 记账
+  this.fakeWindow.setInterval = guard(scope.setInterval)
+  this.fakeWindow.requestAnimationFrame = guard(scope.raf)
+  this.fakeWindow.requestIdleCallback = guard(scope.idle)      // ADR-0013 五类之一
+  // IntersectionObserver/MutationObserver/ResizeObserver 构造器同样包装（ADR-0013）
 }
 
 // 事件监听：key 用 WeakMap<listener, {type, capture}>（旧版 listener.toString() 源码碰撞删错条目）
@@ -249,7 +256,9 @@ addEventListener(target: EventTarget, type: string, listener: EventListener, opt
 ```
 
 - **监听器清理**：注册即挂应用 fiber effect（旧版自建 trackedListeners 且 `removeEventListener('*')` 是无效代码）--Cordis 原生解决"卸载残留监听"
-- rAF 经 SuspendScope：保活冻结（旧版 AsyncScopeTracker 无冻结能力且 observe 重挂不登记）
+- rAF/idle/observer/WS 经包装：保活冻结（旧版 AsyncScopeTracker 无冻结能力且 observe 重挂不登记）
+- **已知限制**（ADR-0027）：在沙箱激活前已缓存原生引用的库（如某些 UMD 加载时缓存 `setTimeout`）不受冻结约束--列入"保活不兼容清单"，建议 `keepAlive: false`
+- **样式注入的自动登记**（ADR-0042）：第三方库直接 `document.head.appendChild(style)` 的，由 InjectedNodesTracker（§3.5）自动把样式节点登记到当前应用的 SuspendScope--挂起时随 DOM 一并摘除，对库透明
 
 ### 3.7 存储隔离（真实 Storage 语义）
 

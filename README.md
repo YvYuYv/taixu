@@ -1,6 +1,17 @@
 # Cordis 微前端框架 - 整体架构概览
 
 > **必读**：[cordis-alignment.md](./cordis-alignment.md) 是全部设计文档的统一基线（Cordis 真实 API 语义、服务清单、事件契约、安全基线、跨文档一致性规则）。各模块文档与基线冲突时以基线为准。
+> **领域语言**：[CONTEXT.md](./CONTEXT.md) 是术语唯一权威来源（Fiber/槽位/容器/保活/键空间/暖启动等，含禁用同义词）。
+> **决策档案**：[docs/adr/](./docs/adr/) 收录 60 项架构决策（ADR-0001~0060），每项记录上下文、决策与被否备选；基线 §六 是按文档分组的决策地图。
+
+## 〇、全局设计主线（贯穿全部文档的六条决策背后的决策）
+
+1. **Cordis 原生能力优先，禁止自造轮子**--effect 追踪、事件总线、disposer 栈、等待服务就绪全部用 Cordis 原生；框架只建模微前端领域概念（保活/槽位/键空间/沙箱）
+2. **鉴权走服务方法，通知走事件**--需要鉴权的操作（发消息/挂起请求/权限裁决）是服务方法（可拦截可拒绝）；纯通知（状态变更/生命周期事件）是事件（fire-and-forget）；两者不可混用
+3. **丢失必须显式**--队列溢出上报 `bus/overflow`、WS 挂起断连由应用重建订阅、快照版本漂移丢弃上报；框架不假装"什么都没丢"
+4. **fail-closed**--安全服务未就绪则全部应用无法挂载、裁决超时拒绝、权限规则只本地可判定；安全侧默认值永远是拒绝
+5. **隔离是精确工具**--`ctx.isolate` 仅白名单两处（router 按槽位、monitor 按应用）；状态隔离用键前缀不用 isolate；沙箱按信任分级（Proxy vs iframe）
+6. **保活是框架层概念**--Cordis 无 deactivated 状态；保活是 lifecycle 在挂载层的建模（SuspendScope + LRU 池 + 分级裁决），dispose 永远不可逆
 
 ## 一、框架定位
 
@@ -94,7 +105,9 @@ Cordis 是基于 **Cordis IoC 架构**（[@cordisjs/core](https://github.com/cor
 **核心能力**：
 - 唯一范式：应用 = 插件（`apply(ctx)`），废除 bootstrap/mount/unmount 双轨
 - outlet 级挂载事务（promise 链互斥，无唤醒竞态；AbortSignal 全链透传）
-- 保活三模式（dom/state/memory）+ SuspendScope 效应冻结 + LRU 预算
+- 保活：挂起裁决单点化（来源分级：路由 > 系统信号 > 命令，ADR-0018/0031/0035）+ SuspendScope 五类全局冻结（ADR-0013/0027）+ 默认挂起（ADR-0020）
+- 驱逐：LRU 上限 5 + Chromium 内存水位（ADR-0019/0026）；驱逐前 local 键空间快照、重挂载暖启动（ADR-0029/0034/0052）
+- 挂起期间：bus 消息排队有界回放（ADR-0008/0015）+ state 走拉模型（ADR-0023）+ WS 断连框架重连（ADR-0017）
 - 错误恢复：重试主体明确（重走挂载事务）、fallback 应用、ErrorOutlet
 
 **设计文档**：[lifecycle-management.md](./lifecycle-management.md)
@@ -104,9 +117,11 @@ Cordis 是基于 **Cordis IoC 架构**（[@cordisjs/core](https://github.com/cor
 **职责**：跨应用状态共享与隔离。
 
 **核心能力**：
-- 三层键空间（global:/shared:/local:{appId}:，Local 经 `ctx.isolate('state')` 真实隔离）
+- 三层键空间（global:/shared:/local:{appId}:，Local 经**键前缀 + fiber 归属校验**实现，不用 isolate--ADR-0003）
 - 唯一写入管线：权限（security 接线，读写都校验）-> 版本推进 -> 单次通知
-- 观察者经 `ctx.effect` 托管（应用卸载自动退订）；深层代理身份稳定
+- 观察者经 `ctx.on('state/changed')` 订阅（dispose 自动退订，ADR-0001）；深层代理身份稳定
+- 挂起走拉模型：恢复时 `state/sync` 一次性同步（ADR-0023）
+- `local:` 键使用条款：JSON 可序列化、禁存 token/密码/PII（快照前提，ADR-0029/0044）
 - 跨标签页同步（版本仲裁 + 回声过滤 + 敏感键排除）
 
 **设计文档**：[state-sharing.md](./state-sharing.md)
@@ -116,8 +131,8 @@ Cordis 是基于 **Cordis IoC 架构**（[@cordisjs/core](https://github.com/cor
 **职责**：应用间通信。
 
 **核心能力**：
-- 上下文树路由：`message/send` 冒泡捕获 -> 目标 ctx 定向投递（不广播载荷）
-- 请求-响应基于 `ctx.serial/bail` 原生语义（超时必解绑、可取消）
+- 发送走 `ctx.bus.send` 服务方法（鉴权、source 从 fiber 派生不可伪造，ADR-0041/0055）；接收 `ctx.on('message/receive')` 定向投递（不广播载荷）
+- 请求-应答：`serial` + 统一包络 `{ok,value,reason}`（`bail` 禁用--不 await 异步回调，ADR-0014/0016）；单点查询走服务方法（ADR-0028）
 - 最新值机制（publishLatest）：响应式状态服务替代 MQTT 式 retained 消息
 - W3C TraceContext（CSPRNG + trace 延续 + span 上报）；唯一 fetch 拦截链
 
@@ -130,8 +145,9 @@ Cordis 是基于 **Cordis IoC 架构**（[@cordisjs/core](https://github.com/cor
 **核心能力**：
 - 双窗口 Proxy（trap 语义正确、恒返回 true、location 统一重定向 router）
 - 逃逸向量清单化缓解（constructor 链/getPrototypeOf/unscopables/Worker/SW/网络面等 10 项）
-- Document 代理（scoped 查询 + 全路径注入记账）+ 存储命名空间（真接线）
+- Document 代理（scoped 查询 + 全路径注入记账，样式 appendChild 自动登记 ADR-0042）+ 存储命名空间（真接线）
 - ESM 主路线经 importmap + 构建期标识符改写（零 eval，与 CSP 兼容）
+- 挂起冻结经包装函数内查挂起注册表（appId 创建期闭包捕获，ADR-0032/0048）；scopedFetch 由 lifecycle 在沙箱创建后、plugin() 前注入（ADR-0005）
 
 **设计文档**：[js-sandbox.md](./js-sandbox.md)
 **安全文档**：[security.md](./security.md)
@@ -143,7 +159,8 @@ Cordis 是基于 **Cordis IoC 架构**（[@cordisjs/core](https://github.com/cor
 **核心能力**：
 - 多槽位 URL 矩阵（`__tx_` 保留字前缀 + 通道仲裁 + 槽位参数合并不互抹）
 - 可取消导航 + 导航序号防竞态；popstate 走完整守卫管线（不逃逸）
-- 守卫 = `ctx.serial` 事件（重定向 8 次上限）；router 与 lifecycle 事件解耦（无依赖环）
+- 守卫 = `ctx.serial` 事件，结果为显式枚举 `{proceed|redirect|abort}`（ADR-0002）；router 与 lifecycle 事件解耦（无依赖环）
+- 视图隔离只读：`isolate('router-view', outlet)` 读本槽位，写经全局 NavigationController 合并（ADR-0006/0010）；槽位事件 `outlet/changed:{outlet}` 独立族（ADR-0047/0050），挂起恢复重放（ADR-0056）
 - Vue Router 4/3 桥接（abstract 模式，不双写 History）
 
 **设计文档**：[route-adaptation.md](./route-adaptation.md)
@@ -155,7 +172,7 @@ Cordis 是基于 **Cordis IoC 架构**（[@cordisjs/core](https://github.com/cor
 **核心能力**：
 - 命名空间策略（PostCSS：含 html/body 语义等价、@keyframes 重写、@font-face 提升、@layer 隔离）
 - Shadow DOM 策略（Constructable Stylesheets + Portal 重定向 + React16/17 事件补丁保真）
-- 主题变量经 `--tx-*` 管理通道（不受容器 reset 影响）；样式生命周期与 dispose/保活对齐
+- 主题变量经 `--tx-*` 管理通道（不受容器 reset 影响）；挂起时 shadow 内与 head 内样式节点一并摘除缓存、恢复还回（ADR-0033/0042）
 - 运行时 CSS-in-JS 补丁；HMR css-only 真热替换
 
 **设计文档**：[style-isolation.md](./style-isolation.md)
@@ -166,7 +183,8 @@ Cordis 是基于 **Cordis IoC 架构**（[@cordisjs/core](https://github.com/cor
 
 **核心能力**：
 - importmap 作为共享依赖运行时载体（消除沙箱与 ESM 的根本矛盾，零 eval）
-- 依赖仲裁：最高满足版本 + 单例冲突硬失败 + 私有副本白名单（split-brain 防护）
+- 依赖仲裁：最高满足版本 + 单例冲突硬失败 + 私有副本白名单（split-brain 防护）；版本分裂强制 iframe 隔离（ADR-0038）
+- iframe 沙箱 = 精简运行时 + 代理 ctx 经 postMessage 桥接；崩溃经 heartbeat 感知按 appId 批量清理（ADR-0043/0049）
 - Vue2/Vue3/React/jQuery 适配器（standalone+AOT 的 Angular 为实验性）
 - qiankun/wujie（正确拼写）兼容；版本偏斜恢复与多 CDN 容灾
 
@@ -177,10 +195,11 @@ Cordis 是基于 **Cordis IoC 架构**（[@cordisjs/core](https://github.com/cor
 **职责**：调试、性能监控与全链路追踪。
 
 **核心能力**：
-- monitor 为唯一错误入口（appId 归因 + sourcemap 还原）与唯一采集源
+- monitor 为唯一错误入口（appId 归因 + sourcemap 还原）与唯一采集源；按应用隔离实例只做主动上报归因，聚合汇于 root sink（ADR-0010/0025/0045）
+- TraceContext 经 bus 贯通隔离边界（ADR-0022）；挂起回放以 span link 关联（ADR-0030）
 - 泄漏探测（FinalizationRegistry + 特性降级，能力边界诚实声明）
 - 会话粘性采样 + 批量上报（含错误）+ 持久队列补发
-- DevTools 扩展：单一传输通道、XSS 全量防护、复用 monitor 数据、HMR 分级（css 真热替换/js 整重启）
+- DevTools 扩展：单一传输通道、XSS 全量防护、复用 monitor 数据、HMR 分级（css 真热替换/js 整重启且经快照保状态 ADR-0037）
 
 **设计文档**：[devtools.md](./devtools.md) | [monitoring.md](./monitoring.md)
 
@@ -189,8 +208,9 @@ Cordis 是基于 **Cordis IoC 架构**（[@cordisjs/core](https://github.com/cor
 **职责**：核心模块间的依赖方向、交互时序、统一事件契约。
 
 **核心能力**：
-- 无死锁依赖图（monitor/security 无业务依赖；router 经事件解耦 lifecycle）
-- 统一事件契约（`app/*`、`router/*`、`message/*`、`state/changed` 等唯一版本）
+- 依赖方向重画：lifecycle 是唯一多注入编排者（scopedFetch 注入、挂起协调），其余服务 ≤2 注入（ADR-0054）；monitor/security 无业务依赖，router 经事件解耦 lifecycle
+- 统一事件契约（基线 §2.4）：生命周期 `app/*`、槽位 `outlet/changed:{outlet}`（模板字面量类型，ADR-0050）、状态 `state/changed`/`state/sync`、溢出 `bus/overflow`、驱逐 `app/evicted`；`app/intent:*` 已删除（挂起意图走服务方法，ADR-0035）
+- 分发结果契约按事件族区分（基线 §2.4.1）：守卫族显式枚举 / 管线族统一包络 / 点对点直接方法返回 / 通知族忽略返回值
 - 初始化由 Cordis DI 自动解析（无手写顺序表）
 - 关键时序：首次加载/切换/消息/错误降级/HMR（含 fiber.dispose）
 
@@ -369,7 +389,7 @@ cdn.example.com/
 | **沙箱** | Proxy + Snapshot | Proxy（first-party 污染隔离）/ iframe sandbox（third-party 安全边界） |
 | **样式隔离** | Shadow DOM / StrictStyleIsolation | 命名空间（含 keyframes/font-face/layer）/ Shadow DOM / CSS Modules |
 | **状态管理** | globalState | 三层键空间 + 唯一写入管线（权限/版本） |
-| **通信机制** | globalState / CustomEvent | 上下文树定向路由 + serial/bail 请求响应 |
+| **通信机制** | globalState / CustomEvent | 上下文树定向路由 + serial 统一包络（bail 全局禁用） |
 | **共享依赖** | externals 约定 | importmap + SemVer 仲裁（冲突硬失败） |
 
 ### 8.3 与 wujie 对比

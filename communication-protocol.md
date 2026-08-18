@@ -1,7 +1,7 @@
 # Cordis 通信协议（Communication Protocol）
 
 > 对齐基线：[cordis-alignment.md](./cordis-alignment.md)。
-> 术语约定（基线 §1.4）：**coeffect** 指组件对 context 的声明式输入依赖。进程内消息传递在 Cordis 中的原生载体是**上下文树事件**（`ctx.on/emit`，监听随插件 dispose 自动回收）与 **`ctx.bail/serial`**（请求-响应语义）。本协议不再杜撰 "coeffect message" 类术语，而是把这些原生能力组装为微前端通信服务。
+> 术语约定（基线 §1.4）：**coeffect** 指组件对 context 的声明式输入依赖。进程内消息传递在 Cordis 中的原生载体是**上下文树事件**（`ctx.on/emit`，监听随插件 dispose 自动回收）与 **`ctx.serial`**（请求-应答语义；`bail` 不 await 异步回调，本框架禁用，ADR-0016）。本协议不再杜撰 "coeffect message" 类术语，而是把这些原生能力组装为微前端通信服务。
 
 ## 一、问题分析
 
@@ -20,16 +20,15 @@
 | Cordis 原生能力 | 本协议的用法 |
 |-----------------|-------------|
 | 上下文树事件（`ctx.on(name, fn)`，随插件销毁自动解绑） | 应用订阅挂在自己的 fork ctx 上--**应用卸载自动退订**（旧版订阅挂在总线根 ctx 上永不回收） |
-| 事件冒泡 + `Context.filter` | `message/send` 从应用 ctx 冒泡至根，bus 在根以 `global:true` 捕获 |
-| `ctx.bail` / `ctx.serial`（返回非空即截断） | 请求-响应的原生语义；bus 的 `request()` 基于它实现 |
-| `ctx.isolate` + Service 可见性 | 消息主题的权限边界（安全） |
+| `ctx.serial`（await 每个回调，非 null/false/undefined 即截断） | 请求-应答的原生语义；bus 的 `request()` 基于它 + 应答包络实现（ADR-0014）。**`bail` 禁用**（不 await 异步回调，ADR-0016）；**发送鉴权走 `bus.send` 服务方法**而非事件冒泡（ADR-0041） |
 
 关键原则：
 
+- **鉴权走服务方法、通知走事件**（全局主线）：`bus.send` 内鉴权（source 从 fiber 派生不可伪造）；`message/receive` 是被动订阅无鉴权需求
 - **显式声明**：应用在 manifest 中声明订阅/发布的消息类型（security 权限校验依据）
 - **定向优先**：点对点投递不广播载荷；广播是显式选择
 - **类型安全**：`MessageTypes` 契约经构建期生成接入 `bus` 的运行时校验
-- **可追踪**：W3C traceparent 贯穿消息/路由/fetch（CSPRNG 生成 + 全链传播）
+- **可追踪**：W3C traceparent 贯穿消息/路由/fetch（CSPRNG 生成 + 全链传播；挂起回放以 span link 关联，ADR-0030）
 
 ## 二、消息模型
 
@@ -69,50 +68,52 @@ class BusService extends Service {
   static [Context.provide] = 'bus'
   static inject = ['security', 'monitor']
 
-  constructor(ctx: Context) {
-    super(ctx)
-    // 在根上以 global 捕获所有应用冒泡上来的 send（基线 §2.5）
-    ctx.on('message/send', (e: { message: CordisMessage }) => this.dispatch(e.message), { global: true })
-  }
-
-  private async dispatch(message: CordisMessage) {
-    // 1. 发送权限（execute）：deny-by-default（security.md §五）
-    if (!this.security.checkPermission(message.source.appId, `message:${message.type}`, 'execute')) {
-      this.ctx.emit('security/violation', { appId: message.source.appId, rule: 'message-send', detail: { type: message.type } })
+  /** 发送走服务方法（ADR-0041）：emit 是 fire-and-forget，任何应用都能窃听/伪造--鉴权必须有拦截点 */
+  send(ctx: Context, message: Omit<CordisMessage, 'source' | 'id' | 'createdAt'>): boolean {
+    // 1. 身份不可伪造：source 从调用方 fiber 派生，不接受入参指定
+    const source = this.ids(ctx)   // { appId, instanceId } -- 从 ctx.fiber 归属派生
+    // 2. 发送权限（execute）：deny-by-default（security.md §五）
+    if (!this.security.checkPermission(source.appId, `message:${message.type}`, 'execute')) {
+      this.ctx.emit('security/violation', { appId: source.appId, rule: 'message-send', detail: { type: message.type } })
       return false
     }
-    // 2. TTL
+    return this.dispatch({ ...message, id: crypto.randomUUID(), source, createdAt: Date.now() })
+  }
+
+  private dispatch(message: CordisMessage): boolean {
+    // TTL
     if (message.metadata.ttl && Date.now() - message.createdAt > message.metadata.ttl) return false
-    // 3. 路由
+    // 路由：挂起目标进队列（§5.5）；ACTIVE 目标定向投递
     if (message.target) {
-      const targetCtx = this.lifecycle?.resolveCtx(message.target)   // 经 fiber 树定位目标 ctx
-      if (!targetCtx) {
-        // 目标未加载：未启用 retained 时进入死信（§5.4）；启用则暂存
-        return this.handleUnreachable(message)
-      }
-      targetCtx.emit('message/receive', { message })   // 定向：仅目标 ctx（及其冒泡路径上的 global 监听者）
-    } else {
-      this.broadcast(message)
+      const target = this.lifecycle?.resolveInstance(message.target)
+      if (!target) return this.handleUnreachable(message)   // 未加载：未启用 retained 时死信（§5.4）
+      if (target.suspended) return this.enqueue(target.instanceId, message)   // 挂起队列（ADR-0008）
+      target.ctx.emit('message/receive', { message })        // 定向：仅目标 ctx（及其冒泡路径上的 global 监听者）
+      return true
     }
+    this.broadcast(message)
     return true
   }
 
-  /** 广播：显式选择；对每个 ACTIVE 应用 ctx 投递 */
+  /** 广播：显式选择；挂起应用进队列而非直接投递（§5.5） */
   broadcast(message: CordisMessage) {
     for (const instance of this.lifecycle.activeInstances()) {
+      if (instance.suspended) { this.enqueue(instance.instanceId, message); continue }
       instance.ctx.emit('message/receive', { message })
     }
   }
 }
 ```
 
-### 3.2 应用侧收发（全部挂 fork ctx）
+> ADR-0055：`bus.send` 默认 fire-and-forget（同步返回，投递即完成）--消息语义本就是"发送即忘"；需要送达确认用 `bus.request`；需要背压的批量场景用显式 `bus.sendAndWait`。
+
+### 3.2 应用侧收发
 
 ```typescript
 // 应用内：订阅生命周期 = 应用生命周期
 export default function apply(ctx: Context) {
-  // 发送：从自己的 ctx 冒泡，bus 在根捕获
-  ctx.emit('message/send', { message: { id: crypto.randomUUID(), type: 'cart:add', payload: {...}, source: { appId: 'app-cart' }, createdAt: Date.now(), metadata: {} } })
+  // 发送：服务方法（source 自动从 fiber 派生，不能伪造；内部经 security 鉴权）
+  ctx.bus.send({ type: 'cart:add', payload: {...}, target: { appId: 'app-orders' } })
 
   // 接收：在自己 ctx 上订阅（dispose 自动解绑；旧版挂在总线根 ctx 泄漏）
   ctx.on('message/receive', ({ message }) => {
@@ -122,14 +123,24 @@ export default function apply(ctx: Context) {
 }
 ```
 
-- 应用也可用类型化门面：`ctx.bus.send('cart:add', payload, { target })` / `ctx.bus.on('cart:add', handler)`（内部就是上述 emit/on 的封装 + 契约校验）
 - **旁听（monitor/devtools）**：在根 `ctx.on('message/receive', fn, { global: true })`，且 DevTools 侧载荷脱敏（monitoring/devtools 联动）
 
-### 3.3 请求-响应（基于 bail/serial，废除手写 correlationId 链）
+### 3.3 请求-应答（serial + 应答包络，ADR-0014/0016）
+
+`bail` 在本框架禁用（源码验证：`bail` 不 await 异步回调，Promise 会被当真值立即截断）；请求-应答统一走 `serial`，结果用**应答包络**：
+
+```typescript
+/** 统一应答包络：三态可区分 */
+type Reply<T> = { ok: true; value: T } | { ok: false; reason: string }
+// 无应答者：bus.request 返回 undefined（serial 全部回调返回 null/undefined 未截断）
+// 应答但查无：{ ok: true, value: null }
+// 裁决失败（如权限拒绝）：{ ok: false, reason }
+// 应答者禁止返回 false（false 不截断但语义含混，ADR-0016）
+```
 
 ```typescript
 class RequestResponse {
-  async request<T>(ctx: Context, type: string, payload: unknown, options: { timeout?: number; signal?: AbortSignal } = {}): Promise<T> {
+  async request<T>(ctx: Context, type: string, payload: unknown, options: { timeout?: number; signal?: AbortSignal } = {}): Promise<Reply<T> | undefined> {
     const correlationId = crypto.randomUUID()
     const message: CordisMessage = {
       id: crypto.randomUUID(), type, payload,
@@ -137,31 +148,30 @@ class RequestResponse {
       createdAt: Date.now(),
       metadata: { correlationId, traceparent: ctx.tracing.current()?.outgoing() },
     }
-    // 响应经 serial 事件回传：目标应用 respond() 后沿树冒泡，首个非空结果胜出
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => { dispose(); reject(new CordisCommError('TIMEOUT', type)) }, options.timeout ?? 5000)
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { dispose(); resolve(undefined) }, options.timeout ?? 5000)   // 超时=无应答者
       const dispose = ctx.on('message/response', (e) => {
         const m = e.message
         if (m.metadata.correlationId !== correlationId) return
         clearTimeout(timer); dispose()               // 超时/成功都必解绑（旧版超时泄漏监听器）
-        if (m.type === 'response:error') reject(Object.assign(new Error(m.payload.message), m.payload))
-        else resolve(m.payload as T)
+        resolve(m.payload as Reply<T>)
       }, { global: true })
       options.signal?.addEventListener('abort', () => { clearTimeout(timer); dispose(); reject(new DOMException('aborted', 'AbortError')) }, { once: true })
-      ctx.emit('message/send', { message })
+      this.bus.send(ctx, message)   // 经鉴权发送（§3.1）
     })
   }
 
-  /** 响应方：串行守卫语义；多个响应者时按 ctx.serial 截断规则取第一个非空 */
-  respond(ctx: Context, type: string, handler: (payload: unknown, msg: CordisMessage) => Promise<unknown> | unknown) {
+  /** 应答方：返回包络或 null/undefined（不截断）；绝不返回 false */
+  respond(ctx: Context, type: string, handler: (payload: unknown, msg: CordisMessage) => Promise<Reply<unknown>> | Reply<unknown> | null) {
     ctx.on('message/receive', async (e) => {
       const m = e.message
-      if (m.type !== type || !m.metadata.correlationId || (m.source.instanceId === ctx.fiber.name)) return
+      if (m.type !== type || !m.metadata.correlationId) return
       try {
-        const result = await handler(m.payload, m)
-        ctx.emit('message/response', { message: { ...m, type: `response:${type}`, payload: result, target: m.source } })
+        const reply = await handler(m.payload, m)   // 先完成内部 await 再返回（serial 语义）
+        if (reply == null) return                   // 不应答，让给后续应答者
+        ctx.emit('message/response', { message: { ...m, type: `response:${type}`, payload: reply, target: m.source } })
       } catch (error) {
-        ctx.emit('message/response', { message: { ...m, type: 'response:error', payload: { message: String(error) }, target: m.source } })
+        ctx.emit('message/response', { message: { ...m, type: `response:${type}`, payload: { ok: false, reason: String(error) }, target: m.source } })
       }
     })
   }
@@ -169,7 +179,8 @@ class RequestResponse {
 ```
 
 - 超时**必解绑**；AbortSignal 可取消；迟到响应按 correlationId 自然丢弃且无监听残留
-- "多响应者竞争"由 serial 首个非空截断语义约束（bus 对 `message/response` 采用 serial 派发）
+- 多应答者按 serial 截断语义：**首个非 null/false/undefined 返回值胜出**（应答者只用包络/null 两种，false 禁用）
+- **能力调用 vs 单点查询**（ADR-0028）：多方可应答的真·管线（能力调用）走本节 serial + 包络；单裁决者（如 scopedFetch 权限裁决）绕过事件调度走 `await ctx.security.check()` 服务方法--避免 serial 顺序 await 把高频并发请求串行化
 
 ## 四、传输模式
 
@@ -249,6 +260,52 @@ class BusService extends Service {
 - 定向消息目标不存在且未声明 retained 语义 -> 进 DLQ + `QUEUE_DEAD_LETTER` 告警（旧版静默丢弃）
 - 目标应用存在但 PENDING -> 排队至其 ACTIVE（上限等待 30s，超时进 DLQ）
 
+### 5.5 挂起应用的消息队列（ADR-0008/0015/0021）
+
+挂起应用的事件订阅仍在（effect 未回收），但应用处于冻结态--直接投递会让应用在"冻结"状态下处理消息、产生与 UI 脱节的状态变更：
+
+```typescript
+class SuspendedQueue {
+  private queues = new Map<string, Q>()   // instanceId -> 队列
+
+  enqueue(instanceId: string, message: CordisMessage): void {
+    const q = this.queues.get(instanceId) ?? { items: [], coalesced: new Set<string>(), dropped: 0 }
+    if (q.items.length >= 1000) {          // 上限 1000
+      q.dropped++                          // FIFO 丢最旧在 dequeue 时执行（保留计数）
+      q.items.shift()
+    }
+    // 状态类同键合并（bus 通道内的状态快照消息；state 服务本身的变更走拉模型，见 state-sharing §4.3）
+    if (message.metadata.coalesceKey) {
+      const prev = q.items.findLastIndex(m => m.metadata.coalesceKey === message.metadata.coalesceKey)
+      if (prev >= 0) { q.items.splice(prev, 1); q.coalesced.add(message.metadata.coalesceKey) }
+    }
+    q.items.push(message)
+    this.queues.set(instanceId, q)
+  }
+
+  /** 恢复时按帧分批回放（每帧 50 条，避免长任务）；期间新消息入队尾保持全序（ADR-0015） */
+  async replay(instanceId: string): Promise<void> {
+    const q = this.queues.get(instanceId)
+    if (q?.dropped || q?.coalesced.size) {
+      // 溢出显式上报（ADR-0021）：合并键可列举，普通丢弃只给计数
+      this.targetCtx(instanceId).emit('message/receive', {
+        message: { type: 'bus/overflow', payload: { coalescedKeys: [...q.coalesced], droppedCount: q.dropped } },
+      })
+    }
+    while (q.items.length) {
+      const batch = q.items.splice(0, 50)
+      for (const m of batch) this.deliver(instanceId, m)
+      await nextFrame()
+    }
+    this.queues.delete(instanceId)
+  }
+}
+```
+
+- **全序保证**：回放期间新到的消息**入队尾**而非立即投递--否则应用先见新状态、再见旧状态（时间倒流）；最坏追平 1000÷50=20 帧 ≈333ms
+- **应用契约**：收到 `bus/overflow` 后，对 `coalescedKeys` 中自己关心的键主动重拉；普通消息语义上不可重放，只做告警上报
+- 队列随应用 dispose 一并销毁（lifecycle 通知 bus 清理）
+
 ## 六、网络拦截链（唯一 fetch 链路）
 
 ```typescript
@@ -271,7 +328,9 @@ class NetworkLayer {
 }
 ```
 
-- **修复三套 fetch 猴补并存**：security 的 NetworkGateway、monitor 的埋点、comm 旧版 FetchInterceptorChain 全部改为本链的 interceptor（基线 §五），由 bus 注入沙箱（js-sandbox.md §3.9），**不直接替换 `window.fetch`**
+- **修复三套 fetch 猴补并存**：security 的 NetworkGateway、monitor 的埋点、comm 旧版 FetchInterceptorChain 全部改为本链的 interceptor（基线 §五），**不直接替换 `window.fetch`**
+- **注入时序**（ADR-0005）：scopedFetch 由 **lifecycle 在沙箱创建之后、`ctx.plugin()` 之前**注入--sandbox 服务不持有 bus 依赖（避免 deps->sandbox->bus 服务环）；lifecycle 本就按序持有 deps/sandbox/bus 三个依赖
+- **权限裁决走单点查询**（ADR-0024/0028）：`await ctx.security.check()` 服务方法（不走 serial 事件调度）；内置默认 5s 超时，超时 fail-closed（`{ok:false, reason:'adjudication-timeout'}`）并 `monitor.capture` 上报裁决超时
 - CSRF：HTTP 头由服务端协议下发/校验（security.md §七），本层只负责附加
 
 ## 七、W3C Trace Context（CSPRNG + 全链传播）
@@ -306,12 +365,13 @@ class TracingService extends Service {
 }
 ```
 
-传播路径（唯一注入点，修复旧版"Tracer 订阅者改写消息"的顺序依赖）：
+传播路径（bus 是不隔离的公共层--TraceContext 贯通隔离边界的唯一合法位置，ADR-0022）：
 
 1. 应用发起消息：`bus.send` 在**构建消息时**（dispatch 之前）注入 `metadata.traceparent = tracing.child().outgoing()`
-2. 跨应用：目标应用 receive 后，bus 以 `tracing.run(...)` 包裹 handler 调用
+2. 跨应用：目标应用 receive 后，bus 以 `tracing.run(...)` 包裹 handler 调用；**按应用隔离的 monitor 实例**遇到带 traceparent 的消息**续接为子 span**（同 traceId 贯通）
 3. fetch：NetworkLayer §六 的 tracing interceptor 注入 header
 4. 路由：`router/navigate` 事件载荷可携带 traceparent（与消息同源）
+5. **挂起回放**（ADR-0030）：队列滞留的消息回放时以原 traceparent 为 **span link**（OpenTelemetry 语义）开新 span--traceId 关联保持，但 span 时长只计真实处理时间、不计队列滞留；追踪后端非 OTel 兼容时降级为如实长 span
 
 ## 八、iframe / 跨 origin 应用
 
@@ -378,8 +438,8 @@ bus.use((message, next) => { /* 日志/脱敏/采样 */; return next() })
 
 | 旧设计问题（评审编号） | 本版修复 |
 |------------------------|----------|
-| 1.1 单一事件 + 手工路由树绕开上下文传播 | §三 冒泡捕获 + 目标 ctx 定向投递 |
-| 1.2 手写 correlationId 重造 bail | §3.3 基于 serial/bail 语义 |
+| 1.1 单一事件 + 手工路由树绕开上下文传播 | §3.1 `bus.send` 服务方法（source 从 fiber 派生）+ 目标 ctx 定向投递（ADR-0041） |
+| 1.2 手写 correlationId 重造请求-应答 | §3.3 基于 serial 语义 + 统一包络（bail 禁用，ADR-0016） |
 | 1.3 订阅挂总线根 ctx 不回收 | §3.2 挂 fork ctx，dispose 自动解绑 |
 | 1.4 手写 subscribeOnce | 使用 `ctx.once`（门面内） |
 | 1.5/2.8 retained 回放乱序/僵尸回调/永不过期 | §5.3 响应式状态服务 |

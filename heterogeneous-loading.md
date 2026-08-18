@@ -212,10 +212,11 @@ class DepsService extends Service {
 }
 ```
 
-**fallback 双实例风险的管理**（旧版零提示）：
+**fallback 双实例风险的管理**（旧版零提示；ADR-0038 版本分裂策略）：
 
 - 私有副本启用前**静态检查**：应用 manifest 声明 `acceptsDuplicate: [dep]` 白名单（仅允许无全局单例假设的库，如 lodash）
 - 框架类（vue/react/组件库）**禁止**私有副本（split-brain：两份 Vue 的 provide/inject、两份 React 的 invalid hook call）--冲突时硬失败并引导宿主调整版本矩阵
+- **版本分裂 = iframe 隔离触发条件**（ADR-0038）：业务必须双实例共存时**强制走 iframe 沙箱**（物理隔离的 document，框架级全局副作用如 React 17 的 document 事件委托不冲突）而非 Proxy 沙箱；默认策略是**升级提示**（monitor 上报 `DEP_VERSION_SPLIT`，DevTools 提示统一升级）
 - 传递依赖：私有副本的依赖图同样进入仲裁（旧版 fallback 副本自带全套传递依赖造成双份闭包）
 
 ```jsonc
@@ -281,16 +282,26 @@ class ResilientLoader {
 
 - LazyLoader 的 IntersectionObserver 挂 ctx.effect（dispose 自动 disconnect）；回调内 try/catch
 
-## 十一、对比表（诚实化）
+## 十一、iframe 沙箱的运行时模型：精简运行时 + 代理 ctx（ADR-0043/0049）
+
+iframe 沙箱（third-party 与版本分裂场景）的 `window` 是真实的另一个 window--scopedFetch/挂起注册表/样式拦截都挂在 Proxy 沙箱的 window 上，两套沙箱能力面不对称。模型：
+
+- **iframe 内跑精简运行时（Lite Runtime）**：Cordis 子集--本地管理 fiber/effect（副作用随 iframe 卸载自然消亡），**不跑服务、不跑调度管线**
+- **代理 ctx 桥接**：iframe 内应用拿到的 ctx 对 `ctx.bus.send`、`ctx.state.set`、`ctx.monitor.capture` 等服务调用**序列化后经 postMessage 转发**到主框架执行、结果回传（所有能力调用异步化--跨边界的诚实语义）
+- **不复制能力面**：不在 iframe 里重建 scopedFetch/挂起注册表/样式拦截（那等于跑第二套框架）
+- **卸载清理**：正常 dispose 经 postMessage 通知；**崩溃**（非正常卸载）由主框架 heartbeat 超时感知（默认 5s 周期），按 appId **批量清理**主框架侧为该应用注册的所有资源（消息订阅、状态键权限、挂起注册表条目）
+- 桥接协议（信封校验/origin 白名单/nonce 防重放）见 communication-protocol.md §八
+
+## 十二、对比表（诚实化）
 
 | 能力 | Cordis | qiankun | wujie |
 |------|--------|---------|-------|
-| 隔离 | Proxy（first-party）/ iframe（third-party） | Proxy+Snapshot | iframe |
-| 共享依赖 | importmap + SemVer 仲裁 | externals 约定 | iframe 天然隔离+proxy 注入 |
+| 隔离 | Proxy（first-party）/ iframe（third-party + 版本分裂，ADR-0038） | Proxy+Snapshot | iframe |
+| 共享依赖 | importmap + SemVer 仲裁（分裂强制 iframe） | externals 约定 | iframe 天然隔离+proxy 注入 |
 | Angular | **实验性（standalone+AOT 路线，P2）** | 有限 | 支持 |
 | 零改动 | **约定式近零改动**（一行 defineCordisApp 或 externals 重定向） | 接近零改动 | 接近零改动 |
 
-## 十二、实施计划
+## 十三、实施计划
 
 | 优先级 | 内容 |
 |--------|------|
@@ -298,9 +309,10 @@ class ResilientLoader {
 | P0 | Vue3/React 适配器（defineCordisApp）+ 容器唯一路径 |
 | P1 | 共享依赖 release/冲突硬失败/私有副本白名单、预加载、容灾重试 |
 | P1 | qiankun/wujie 兼容适配 |
+| P1 | iframe 精简运行时 + 代理 ctx 桥 + heartbeat 清理（§十一） |
 | P2 | Vue2/Angular standalone 路线、AMD 命名空间、SSR 同构 |
 
-## 十三、与旧文档差异一览
+## 十四、与旧文档差异一览
 
 | 旧设计问题（评审编号） | 本版修复 |
 |------------------------|----------|

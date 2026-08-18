@@ -114,7 +114,8 @@ class HmrService extends Service {
     // 与 module-interaction §2.5 相同流程：
     // fiber.dispose（回收全部 effect/监听）-> deps.invalidateModuleCache(appId, changed)（import() 缓存穿透）
     // -> lifecycle.mount（走完整事务，含导航协调：router 当前槽位位置保持不变）
-    // 语义诚实声明：JS 变更 = 状态不保留的整应用重启（不做跨 HMR 状态迁移的假承诺）
+    // 语义：JS 变更 = 整应用重启 + local: 键空间经快照注水（ADR-0037：dispose 前自动快照，重跑后 pre-plugin() 注水；
+    // 版本漂移则丢弃并上报，ADR-0034/0044）；shared/global 层不经快照（快照隐私边界，ADR-0044）
     // 与导航竞态：reload 前检查 NavigationController 序号，导航在途则推迟至导航完成
   }
 }

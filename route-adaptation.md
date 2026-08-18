@@ -17,9 +17,9 @@
 
 | Cordis 能力 | 路由模块用法 |
 |-------------|-------------|
-| Service + isolate 可见性 | router 是 root 服务；**每个 outlet 的视图状态**经 `ctx.isolate('router-view')` 隔离（多槽位各自解析） |
-| reactive coeffect | 应用经 `ctx.router.watch(outlet, fn)` 订阅自己槽位的位置（内部 ctx.effect 托管） |
-| `ctx.serial`（返回非空即截断） | 导航守卫管线的原生载体（§4.4） |
+| Service + isolate 可见性 | router 是 root 服务；**每个 outlet 的视图**经 `ctx.isolate('router-view')` 隔离（isolate 白名单之一，ADR-0010）--**只读隔离**：隔离视图读本槽位位置；写（导航）必须经全局 NavigationController 做多槽位合并（ADR-0006） |
+| reactive coeffect | 应用经 `ctx.router.watch(outlet, fn)` 订阅本槽位位置（`ctx.on('outlet/changed:{outlet}')` + 首跑同步取值，ADR-0047/0050） |
+| `ctx.serial`（await 每个回调，非 null/false/undefined 截断） | 导航守卫管线的原生载体；守卫结果为显式枚举（ADR-0002，§4.3） |
 | 事件解耦 | router 不 inject lifecycle：发 `router/navigate` serial 事件，lifecycle 执行挂载（基线 §2.3，消除旧死锁环） |
 
 **废除的自造 API**（旧文档未定义、与 Cordis 惯用法冲突）：`ctx.service.lifecycleManager`、`ctx.onChange`、`ctx.addGuard`、`ctx.syncFromRoot/syncFromPathname/syncFromQuery/syncFromHash`、全局 `useRoute()/useRouter()`（无 ctx 参数）。统一经 router 服务：
@@ -29,17 +29,17 @@ class RouterService extends Service {
   static [Context.provide] = 'router'
   static inject = ['monitor', 'security']
 
-  /** 应用侧唯一入口：当前 outlet 的位置（reactive coeffect） */
+  /** 应用侧唯一入口：当前 outlet 的位置（reactive coeffect；经 outlet/* 事件族订阅） */
   watch(ctx: Context, outlet: string, fn: (loc: RouteLocation) => void) {
-    ctx.effect(() => {
-      const record = { fn, ctx }
-      this.views.get(outlet)!.watchers.add(record)
-      fn(this.current(outlet))                     // 首跑：同步拿到当前值（无异步回放乱序）
-      return () => this.views.get(outlet)!.watchers.delete(record)
-    }, `router.watch(${outlet})`)
+    // ADR-0001 同款：ctx.on 自动退订，不自建 watcher 注册表
+    ctx.on(`outlet/changed:${outlet}`, (e: { outlet: string; matched: MatchedApp | null }) => {
+      fn(this.toLocation(e))
+    })
+    fn(this.current(outlet))                     // 首跑：同步拿到当前值（无异步回放乱序）
   }
 
-  navigate(to: Partial<RouteLocation>, options: { outlet?: string; replace?: boolean } = {}) { /* §4.3 */ }
+  /** 导航（写侧）：隔离视图内也经全局 NavigationController 合并--隔离实例不得直写 URL（ADR-0006） */
+  navigate(to: Partial<RouteLocation>, options: { outlet?: string; replace?: boolean } = {}) { /* §4.1 */ }
 }
 ```
 
@@ -70,9 +70,11 @@ https://host/main/path?__tx_main=1&__tx_sidebar=%2Flist&__tx_w0=%2Fdetail#w=__tx
 
 旧版自研 `RouteContextNode/children/resolve` 复制了 Cordis 已有的上下文层级。新模型：
 
-- **槽位注册**：`router.registerOutlet(outlet, { owner: appId, basePath? })`（lifecycle 挂载时调用，注销随应用 fiber dispose 自动完成--登记挂 ctx.effect）
+- **槽位注册**：`router.registerOutlet(outlet, { owner: appId, basePath? })`（lifecycle 挂载时调用，注销随应用 fiber dispose 自动完成--登记挂 ctx.effect）；槽位名为运行时枚举（DevTools 可列出全部已注册槽位，ADR-0050）
 - **匹配**：pathname 前缀匹配按**路径段边界**（`/app1/mod` 不命中 `/app1/module-a` 的注册；同 basePath 重复注册显式报错，不静默覆盖）
-- **视图隔离**：`ctx.isolate('router-view')` 使每个 outlet 的 watcher 集合独立（Service 可见性过滤，基线 §1.3）
+- **视图隔离（读侧 only，ADR-0006/0010）**：`ctx.isolate('router-view', outlet)` 使每个 outlet 的 watcher 集合独立（Service 可见性过滤，基线 §1.3）；**写侧不隔离**--隔离视图的 `navigate` 全部汇聚到全局 NavigationController 做多槽位合并后写 URL（否则多槽位导航互相覆盖）
+- **事件拆分（ADR-0036/0047）**：每槽位事件 `outlet/changed:{outlet}`（载荷 `{outlet, matched}`，模板字面量类型）--隔离视图只订阅本槽位；全局 `router/changed`（全槽位矩阵）仅 root 层 DevTools/monitor 可见（`global: true`），不对应用暴露（防跨槽位信息泄漏）
+- **挂起恢复（ADR-0056）**：应用从保活池恢复后，router 对该槽位**重放一次 `outlet/changed:{outlet}`**（载荷为当前匹配结果），应用像响应正常导航一样同步--不为恢复发明第二套路由同步机制
 
 ## 四、导航管线
 
@@ -88,14 +90,15 @@ class NavigationController {
     // 1. 超序号作废：任何更新的导航开始后，本导航全部阶段检查 seq
     const stale = () => id !== this.seq || controller.signal.aborted
 
-    // 2. 守卫管线（serial，可拦截）
+    // 2. 守卫管线（serial，可拦截；结果为守卫枚举，见 §4.3）
     const verdict = await this.ctx.serial('router/navigate', {
       from: this.current(to.outlet), to: this.normalize(to), outlet: to.outlet, signal: controller.signal,
     })
     if (stale()) return { status: 'superseded' }        // 快速连点：旧导航静默让位
-    if (verdict !== undefined) {
+    if (verdict) {                                       // 非 undefined = 有守卫截断（§4.3 枚举裁决）
+      if (verdict.type === 'redirect') return this.handleRedirect(verdict.to, 0)
       this.ctx.emit('router/aborted', { outlet: to.outlet, reason: 'guard' })
-      return { status: 'guarded', redirect: verdict as string }
+      return { status: 'guarded' }
     }
 
     // 3. URL 写入（history.replaceState 防重复记录）
@@ -104,7 +107,9 @@ class NavigationController {
     // 4. 挂载/切换经 lifecycle（事件解耦，非 inject）
     await this.lifecycleEvents.mountFor(to)
     if (stale()) { /* 新导航已接管挂载 */ }
-    this.ctx.emit('router/changed', { location: this.location(), outlets: this.snapshot() })
+    // 5. 双层变更通知（ADR-0036/0047）：本槽位事件给隔离视图；全局矩阵仅 root 旁听
+    this.ctx.emit(`outlet/changed:${to.outlet}`, { outlet: to.outlet, matched: this.snapshot()[to.outlet] })
+    this.ctx.emit('router/changed', { location: this.location(), outlets: this.snapshot() })   // root-only
     return { status: 'ok' }
   }
 }
@@ -135,16 +140,30 @@ init(ctx: Context) {
 - **history.state 快照**：每次 commit 将全部槽位状态写入 `history.state`；恢复时从 state 而非重新猜测（保证前进后退跨应用一致性）
 - 在途导航（守卫 await 用户确认）期间 popstate 到达：`seq` 机制使旧导航 superseded，无交错写 URL
 
-### 4.3 守卫（serial 管线 + 防死循环）
+### 4.3 守卫（serial 管线 + 显式枚举结果，ADR-0002）
 
 ```typescript
+/** 守卫结果：显式枚举（ADR-0002）--绝不用真值判断 */
+type GuardResult =
+  | { type: 'proceed' }                       // 明确放行（截断后续守卫）
+  | { type: 'redirect'; to: string }          // 拦截并重定向
+  | { type: 'abort' }                         // 拦截且中止
+  | undefined                                  // 不表态，让给下一个守卫（serial 不截断）
+
 // 守卫注册（应用/宿主均可；执行顺序 = 注册顺序，prepend 可选）
-ctx.on('router/navigate', async (e) => {
-  if (!requiresAuth(e.to)) return                    // 无返回值 = 放行
-  if (!(await ctx.security.checkSession())) return '/login'   // 返回字符串/路由 = 拦截并重定向
+ctx.on('router/navigate', async (e): Promise<GuardResult> => {
+  if (!requiresAuth(e.to)) return undefined             // 不表态
+  if (!(await ctx.security.checkSession())) return { type: 'redirect', to: '/login' }
+  return { type: 'proceed' }
 }, { global: true })
 
-// NavigationController 内的重定向防死循环：
+// NavigationController 内的裁决与重定向防死循环：
+if (verdict) {                                          // 非 undefined = 有守卫截断
+  if (verdict.type === 'redirect') return this.handleRedirect(verdict.to, depth)
+  this.ctx.emit('router/aborted', { outlet: to.outlet, reason: 'guard' })
+  return { status: 'guarded' }
+}
+
 private async handleRedirect(redirect: string, depth: number) {
   if (depth >= 8) {                                   // 对齐 vue-router 的 8 次上限
     this.ctx.emit('monitor/alert', { alert: { type: 'ROUTER_REDIRECT_LOOP', detail: { redirect } } })
@@ -154,6 +173,8 @@ private async handleRedirect(redirect: string, depth: number) {
 }
 ```
 
+- **为什么枚举而非真值**（ADR-0002，论证依据经 ADR-0016 修正）：serial 的截断判据是 `isBailed`（非 null/false/undefined 截断）--`false` 虽不截断，但"返回 false = 放行"的隐式约定让读者无法区分"明确放行"与"忘了返回"；枚举使守卫意图可静态校验，且与请求-应答包络（基线 §2.4.1）在族边界上清晰分离
+- **守卫禁止返回 false 或裸字符串**（裸字符串属于"伪截断值"，语义不明）
 - 修复旧版 `CrossAppGuardManager` + 手工 priority 排序（重复发明 serial）
 - 修复旧版 `if (typeof result === 'string') { await this.navigate(result) }` 无上限重入
 

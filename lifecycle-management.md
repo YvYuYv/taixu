@@ -38,7 +38,7 @@ PENDING -> LOADING -> ACTIVE -> UNLOADING -> DISPOSED
 | 反模式 | 说明 |
 |--------|------|
 | 平行状态机 | ❌ 不维护 `loaded/activating/active` 等自有状态字符串；应用状态**从 `fiber.state` 派生**（见 §2.3） |
-| 双生命周期协议 | ❌ 废除 `bootstrap/mount/unmount` 钩子协议；唯一范式是 `apply(ctx)`（外部框架产物经适配器包装，见 heterogeneous-loading.md §5） |
+| 双生命周期协议 | ❌ 废除 `bootstrap/mount/unmount` 钩子协议；唯一范式是 `apply(ctx)`（外部框架产物经适配器包装，见 heterogeneous-loading.md §四/§五） |
 | 自建钩子接口 | ❌ `AppLifecycle.onCreated/onLoading/...` 接口废除；扩展点 = 基线 §2.4 事件契约 |
 | 自建拓扑排序 | ❌ 服务依赖交给 Cordis inject；应用级依赖（appId 依赖）见 §七 |
 
@@ -78,7 +78,7 @@ interface SuspendState {
 ```typescript
 class LifecycleService extends Service {
   static [Context.provide] = 'lifecycle'
-  static inject = ['monitor', 'deps', 'sandbox']
+  static inject = ['security', 'router', 'sandbox', 'bus', 'state', 'deps', 'monitor']   // 唯一多注入编排者（ADR-0054）；security 显式注入 = fail-closed（ADR-0009）
 
   /** outlet 级串行队列：同一槽位的事务按序执行；不同槽位并行 */
   private outletLocks = new Map<string, Promise<void>>()
@@ -256,64 +256,48 @@ Cordis 的 dispose 不可逆、`ctx.on` 监听在 dispose 时才清理。因此�
 
 > **Suspended = 应用 fiber 保持 ACTIVE，但 DOM 摘离渲染树、效应预算被冻结、对用户不可见。**
 
-- 监听器/订阅**保留**（应用可继续收消息，如后台刷新数据）--与 module-interaction.md "失活即清理监听"的旧表述互斥，以本节为准（该文档已同步修订）
+- 监听器/订阅**保留**（挂起期间 bus 为应用排队消息，见 §5.6--与"应用在冻结态直接处理消息"互斥）--与 module-interaction.md "失活即清理监听"的旧表述互斥，以本节为准（该文档已同步修订）
 - 定时器/rAF **冻结而非清除**（见 §5.2），恢复时继续
 - module-interaction.md 旧版"切换 = unmount + 冻结沙箱"统一修订为：切换走 §3.3 事务 + 本节保活
 
-### 5.2 SuspendScope：效应冻结的机制
+### 5.1.1 挂起裁决：单点 + 来源分级（ADR-0018/0031/0035）
 
-Cordis effect 的 disposer 只在 dispose 时执行，保活需要的是**可暂停的效应**。方案：lifecycle 向应用 ctx 注入 **SuspendScope 服务**，沙箱的定时器/rAF 包装经过它：
+挂起/恢复的**唯一裁决入口是 lifecycle 服务**。意图经**服务方法**表达（不走全局事件--emit 是 fire-and-forget，无法阻止恶意应用挂起他人）：
 
 ```typescript
-// 应用内业务代码无感知（沙箱 setTimeout/rAF 自动走这里）
-class SuspendScopeService extends Service {
-  static [Context.provide] = 'suspend-scope'   // 每实例经 ctx.isolate('suspend-scope') 独立
-
-  private frozen = false
-  private pending = new Map<number, TimerRecord>()
-  private pendingRaf = new Map<number, { fn: FrameRequestCallback; real: number }>()
-
-  /** 沙箱包装后的 setTimeout 走这里：冻结期间不计时 */
-  setTimeout(fn: () => void, ms: number): number {
-    if (this.frozen) {
-      const id = ++this.seq
-      this.pending.set(id, { fn, remaining: ms, startedAt: 0 })
-      return id
-    }
-    const startedAt = Date.now()
-    const real = this.raw.setTimeout(() => { this.pending.delete(id); fn() }, ms)
-    const id = ++this.seq
-    this.pending.set(id, { fn, remaining: ms, startedAt, real })
-    return id
-  }
-
-  freeze() {
-    this.frozen = true
-    for (const [, t] of this.pending) {
-      if (!t.startedAt) continue
-      clearTimeout(t.real)
-      t.remaining -= Date.now() - t.startedAt   // 保留剩余时长
-      t.startedAt = 0
-    }
-    for (const [, r] of this.pendingRaf) cancelAnimationFrame(r.real)
-  }
-
-  unfreeze() {
-    this.frozen = false
-    for (const [, t] of this.pending) {
-      if (t.startedAt) continue
-      t.startedAt = Date.now()
-      t.real = this.raw.setTimeout(() => { this.pending.delete(t.id); t.fn() }, Math.max(0, t.remaining))
-    }
-    for (const [id, r] of this.pendingRaf) {
-      r.real = requestAnimationFrame((ts) => { this.pendingRaf.delete(id); r.fn(ts) })
-    }
-  }
+interface Lifecycle {
+  /** 鉴权：调用者只能操作自己的 instanceId（root/系统来源除外，ADR-0035） */
+  requestSuspend(instanceId: string, reason: string): Promise<void>
+  requestResume(instanceId: string): Promise<void>
 }
 ```
 
-- 这不是"绕过 Cordis"：SuspendScope 自身在应用 fiber 上以 effect 注册（dispose 时强制清空全部挂起计时），freeze/unfreeze 只是对**未决效应的调度控制**
-- 应用主动注册的"需要在后台继续跑"的效应，用 `ctx.effect` 原样注册（不冻结）--声明 `backgroundEffects: true` 的应用启用此行为（§八配置）
+裁决规则：
+
+- **挂起取并集**：任一来源（路由失配 / 系统信号 / 手动命令）请求即挂起
+- **恢复分级解除**：来源分级 `路由（用户显式导航意图）> 系统信号 > 手动命令`；高优先级来源的恢复意图可单独解除低优先级来源的挂起（ADR-0031--用户主动切到的页签不能是死的）
+- 经路由来源恢复且系统压力仍在的应用，进入"**压力下候选驱逐**"名单--若压力持续，它是下一个 LRU 驱逐对象（§5.4）
+- 系统信号（Page Visibility / 内存水位 / 电池）由 lifecycle 自己在 root 上下文监听，不经任何应用
+
+### 5.1.2 默认策略（ADR-0020）
+
+路由失配默认进保活池（微前端典型交互是页签来回切换，默认 dispose 会让每次切换付全量冷启动）；应用可声明 `keepAlive: false` 直接 dispose。
+
+### 5.2 SuspendScope：效应冻结的机制（ADR-0013/0027/0032/0048）
+
+Cordis effect 的 disposer 只在 dispose 时执行，保活需要的是**可暂停的效应**。机制分三层：
+
+1. **沙箱注入包装**：沙箱对 timer / rAF / requestIdleCallback / 三类 observer（IO/MO/RO）/ WebSocket 五类全局注入包装函数（Proxy `get` trap）--库内部经 `window.x` 的调用也拿到包装版
+2. **挂起注册表**：包装函数执行前查询 `suspendRegistry.isSuspended(appId)`--挂起则丢弃/延后，否则执行；appId 由沙箱实例**创建期闭包捕获**（ADR-0048，不做 zone.js 式运行时推断）
+3. **WebSocket 特殊处理**：挂起即 `close(1000)` 并记录连接描述符（URL/协议），恢复时框架自动重建连接；**订阅状态由应用重建**（框架无法知道频道订阅语义，ADR-0017）
+
+**不冻结项（挂起语义边界，诚实清单）**：
+
+- **fetch 不冻结**：响应回调照常执行（网络栈的诚实语义）；应用需在回调中检查挂起标志--"挂起期间到达的响应可能基于陈旧状态"
+- 播放中的媒体、未 settle 的 Promise 链：不冻结、不伪装
+- **已知限制**：在沙箱激活前已缓存原生引用的库（如某些 UMD 加载时缓存 `setTimeout`）不受冻结约束--列入"保活不兼容清单"，建议 `keepAlive: false`
+
+（SuspendScope 的定时器冻结实现与旧版一致：`freeze()` 保留剩余时长、`unfreeze()` 续期，此处不重复。）
 
 ### 5.3 三种保活模式
 
@@ -328,21 +312,56 @@ class SuspendScopeService extends Service {
 - **旧 `evictLowestPriority` 只删 Map 不 destroy** -> 淘汰统一走 §3.2 destroy（真正释放 fiber/DOM/内存）
 - **旧 `setTimer` 重设前不清旧定时器（误杀新缓存）** -> 淘汰即 destroy，SuspendScope 随之终结，无定时器残留
 - **旧 `'state'` 模式快照全量全局状态（恢复时覆写其它应用）** -> `state.snapshot(scopeKeys)` 只快照应用声明的作用域键（与 state-sharing.md 权限联动）
+- **样式节点**：挂起时经 SuspendScope 登记的应用样式节点（head 里的 `<style>`/`<link>`，ADR-0033/0042）随 DOM 一并摘除到同一文档片段缓存，恢复时一并还回--不留"幽灵样式"
 
-### 5.4 LRU 与预算
+### 5.4 LRU 与预算（ADR-0019/0026/0057）
 
 ```typescript
 interface KeepAliveConfig {
-  maxCount: number          // 最大同时保活实例数
-  maxMemoryBytes?: number   // 内存预算（估算来源见 monitoring.md §4.1）
+  maxCount: number          // 默认 5；最大同时保活实例数
   ttlMs?: number            // 单实例最长保活
-  priority?: number         // 应用声明；同预算下先淘汰低优先级、再淘汰 LRU
 }
 ```
 
+- **数量上限为主**（默认 5）：超限自动 dispose 最久未用（LRU）的挂起应用，触发 `app/evicted` 事件
+- **内存水位辅助**（ADR-0026，Chromium 限定）：`performance.memory.usedJSHeapSize / jsHeapSizeLimit > 0.85` 时按 LRU 顺序驱逐（即便池内未满）并 `monitor.capture` 上报"内存压力驱逐"；Firefox/Safari 无此 API，降级为纯数量上限（优雅退化）
+- **水位检查策略**（ADR-0057）：操作触发为主（每次挂起/恢复/挂载/驱逐时顺带检查）+ 30s 低频轮询兜底
 - LRU 键 = `lastAccessAt`（resume/message 均刷新）
-- 淘汰决策在 `requestIdleCallback` 中执行，避免切换关键路径卡顿
+- 驱逐决策在 `requestIdleCallback` 中执行，避免切换关键路径卡顿
 - 后台标签页：`document.hidden` 时暂停 TTL 计时（浏览器节流 setTimeout 不可靠，改记录 `detachedAt`、在可见性恢复事件时补算）
+
+### 5.5 驱逐快照：冷启动 -> 暖启动（ADR-0029/0034/0044/0052）
+
+驱逐是 dispose（状态全丢），但用户切回被驱逐页签不应看到白屏表单丢失：
+
+```typescript
+interface Lifecycle {
+  /** 驱逐与 HMR 共用的内部能力（ADR-0037） */
+  snapshotLocalKeys(appId: string): Snapshot | null      // {version, data}
+  hydrateLocalKeys(appId: string, snapshot: Snapshot): void
+}
+```
+
+- **快照载荷** `{version, data}`：`data` 是 `local:{appId}:` 键空间的序列化（值必须 JSON 可序列化，见 state-sharing §三使用条款）
+- **压缩与池化**（ADR-0052）：快照经 lz-string 压缩（JSON 文本 ~70% 压缩率），存 sessionStorage 键 `__tx_snapshot:{appId}`；快照池总量上限 6MB，超限按 LRU 驱逐最旧快照（哪怕对应应用还在保活池--快照丢失仅降级为冷启动）
+- **版本迁移**（ADR-0034）：重挂载时版本匹配直接注水；不匹配查应用清单的 `migrate(snapshot, fromVersion)` 纯函数（无副作用、沙箱外执行）--有则迁移后注水，无则丢弃快照冷启动并 `monitor.capture` 上报"快照版本漂移丢弃"
+- **注水时机**：`plugin()` **之前**预注水到 state 服务（应用 apply 时 local 键空间已就位）
+- **隐私边界**（ADR-0044）：sessionStorage 同 tab 同源共享，快照键前缀防误读不防恶意读取；真正的边界是使用条款--`local:` 键空间禁止存 token/密码/PII
+- **HMR 复用**（ADR-0037）：开发态 HMR 触发应用 fiber 重跑前自动快照、重跑后注水
+
+### 5.6 挂起期间的消息与状态（ADR-0008/0015/0021/0023）
+
+挂起不等于失联，但也不能让应用在冻结态处理消息：
+
+- **bus 通道（消息队列）**：挂起期间 bus 为应用排队消息--上限 1000；普通消息 FIFO 丢最旧；溢出投递 `bus/overflow {coalescedKeys, droppedCount}`（同键合并的状态键可列举，普通丢弃只给计数）。恢复时按帧分批（50/帧）回放，**回放期间新消息入队尾保持全序**（最坏追平 ≈333ms）。详见 communication-protocol.md
+- **state 通道（拉模型，ADR-0023）**：state 服务不推送 `state/changed`（经监听 `app/suspend`/`app/resume` 感知，不 inject lifecycle）；恢复时按应用 watch 键集合派发一次性 `state/sync {keys}`。详见 state-sharing.md §4.3
+- **恢复后的路由同步（ADR-0056）**：恢复后 router 对该槽位重放一次 `outlet/changed:{outlet}`（载荷为当前匹配结果），应用像响应正常导航一样同步--不为恢复发明第二套路由同步机制
+
+### 5.7 服务替换语义（ADR-0007/0011）
+
+- Cordis 响应式 coeffect：被注入服务替换时，inject 它的 fiber **重跑**（旧执行环境的 effect 回滚后重新执行）--对微应用即**整应用重挂载**（HMR 全量重启语义），非原位热替换；适配器 unmount 清理器必须校验容器已清空（防重跑时旧 DOM 残留双挂载）
+- 源码验证：重跑只作用于直接 inject 的 fiber，**子 fiber 不级联**；但核心服务（基线 §2.2 八服务）被替换时其 fiber 子树会被连带 dispose
+- **核心层不可替换**（ADR-0011）：八个核心服务运行时替换 = 框架级重启事件，必须经框架入口而非散落的 `ctx.set`；第三方插件服务替换按整应用重挂载语义处理
 
 ## 六、错误恢复
 
@@ -422,8 +441,8 @@ interface LifecycleConfig {
 |--------|------|
 | P0 | 挂载事务（§2.2）+ 状态派生（§2.3）+ destroy 级联（§3.2） |
 | P0 | 事件契约接入（基线 §2.4）+ app/loading/ready/error |
-| P1 | SuspendScope + 三模式保活 + LRU |
-| P1 | 错误恢复策略 + ErrorOutlet |
+| P1 | SuspendScope（五类全局包装）+ 三模式保活 + LRU/内存水位 |
+| P1 | 分级挂起裁决（§5.1.1）+ 驱逐快照（§5.5）+ 错误恢复策略 |
 | P2 | 切换事务 mountHidden 优化、后台标签页 TTL 补算、DEADLOCK_SUSPECT 告警 |
 
 ## 十、与旧文档差异一览

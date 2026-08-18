@@ -1,7 +1,7 @@
 # Cordis 样式隔离（Style Isolation）
 
 > 对齐基线：[cordis-alignment.md](./cordis-alignment.md)。
-> 样式生命周期统一声明（修复旧版双重标准）：**样式的创建与移除经 `ctx.effect` 挂在应用 fiber 上；dispose 时移除；Suspended（保活）时保留**（与 lifecycle-management.md §5.1 一致）。
+> 样式生命周期统一声明（修复旧版双重标准）：**样式的创建与移除经 `ctx.effect` 挂在应用 fiber 上；dispose 时移除；Suspended（保活）时 shadow 内与文档级（head）样式节点一并摘除缓存、resume 一并还回**（与 lifecycle-management.md §5.3 一致，ADR-0033/0042）。
 
 ## 一、概述
 
@@ -149,10 +149,17 @@ class ThemeService extends Service {
 | 事件 | 行为 |
 |------|------|
 | 挂载 | 注入 style/link（经 InjectedNodesTracker 记账；挂 ctx.effect） |
-| Suspended | **保留**（保活恢复零闪烁） |
-| resume | 无操作 |
+| Suspended | **scoped 到 shadow root 的样式随容器 DOM 一并摘除缓存；文档级（head）样式节点也一并摘除**（ADR-0033--否则挂起期间出现"幽灵样式"：应用看不见但样式仍作用于全局） |
+| resume | 摘除的全部节点（shadow 内 + head 内）一并还回--恢复零闪烁 |
 | dispose | effect 逆序移除全部记账节点（含文档级字体例外） |
 | HMR（css-only） | §七真热替换 |
+
+**样式节点的两条登记路径**（ADR-0033/0042）：
+
+1. 显式 API：应用经 `ctx.style.inject(...)` 注册（lifecycle 可直接追踪）
+2. 自动兜底：第三方库直接 `document.head.appendChild(style)` 的，由沙箱的 InjectedNodesTracker（js-sandbox §3.5）拦截 `appendChild`/`insertBefore`/`append`/`prepend`/`replaceChildren` 自动登记到当前应用的 SuspendScope--对库透明
+
+挂起摘除/恢复还回由 lifecycle 执行（它持有 SuspendScope 的记账数据）；样式模块只保证记账完整。
 
 ## 七、HMR（修复目标节点找不到的 bug）
 
@@ -198,4 +205,4 @@ hmr.on('update', ({ appId, file, css }) => {
 | S-9 锚点时序 | 注入记账统一（js-sandbox §3.5），锚点插件 prepend 注册 |
 | S-10 Constructable Stylesheets 缺失 | §4.1 |
 | 主题双机制 | §五 ThemeService 唯一 |
-| 保活期间样式生命周期未定义 | §六 Suspended 保留 |
+| 保活期间样式生命周期未定义 | §六 Suspended 摘除缓存（shadow 内 + head 内一并）、resume 还回 |
