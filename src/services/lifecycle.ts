@@ -106,6 +106,10 @@ export class LifecycleService extends Service<LifecycleConfig> {
     attempt: number,
   ): Promise<AppInstance> {
     const instanceId = `${appId}:${crypto.randomUUID()}`
+    // 容器在事务开头（首个 await 前）创建：async 函数体第一个 await 即让出，
+    // 后续步骤均在微任务批次恢复；容器在 sandbox.create 前就位即不再触发
+    // sandbox-missing-container 降级（js-sandbox §3.5 scoped 查询边界 = 容器）
+    const container = this.createOutletContainer(outlet)
     this.ctx.emit('app/loading', { appId, instanceId, signal })
 
     try {
@@ -113,20 +117,20 @@ export class LifecycleService extends Service<LifecycleConfig> {
       const plugin = (await this.ctx.deps.loadApp(appId, { signal })) as Record<string, unknown>
       if (signal.aborted) throw new DOMException('aborted', 'AbortError')
 
-      // 2. 沙箱创建（first-party；teardown 双保险注册在 fiber effect 上，§四所有权表）
-      const sandbox = await this.ctx.sandbox.create(appId, {})
+      // 2. sandbox 创建（first-party；teardown 双保险注册在 fiber effect 上，§四所有权表）
+      const sandbox = await this.ctx.sandbox.create(appId, { container })
       if (signal.aborted) {
         await sandbox.destroy()
+        this.removeOutletContainer(container)
         throw new DOMException('aborted', 'AbortError')
       }
 
-      // 3. 容器准备（唯一路径 createOutletContainer，基线 §五）
-      const container = this.createOutletContainer(outlet)
-
-      // 4. scopedFetch 注入（ADR-0005：沙箱创建后、plugin() 前）
+      // 3. scopedFetch 注入（ADR-0005：沙箱创建后、plugin() 前）
       sandbox.injectSlot.fetch = this.scopedFetch(appId)
 
-      // 5. 插件挂载：inject 未满足时 fiber 停留 PENDING（Cordis reactive coeffect）
+      // 4. 插件挂载：inject 未满足时 fiber 停留 PENDING（Cordis reactive coeffect）。
+      //    plugin() 的 apply 经 _reload 在微任务中执行；实例在 plugin() 返回后同步登记，
+      //    故 apply 运行时 containerOf 已可解析（fiber 判等见其注释）
       const fiber = this.ctx.plugin(plugin as never, options.config as never)
       const instance: AppInstance = {
         instanceId,
@@ -137,6 +141,7 @@ export class LifecycleService extends Service<LifecycleConfig> {
         container,
         sandbox,
       }
+      this.instances.set(instanceId, instance)
 
       // 沙箱 teardown 双保险：fiber dispose 时自动销毁（幂等）
       fiber.ctx.effect(() => () => {
@@ -145,20 +150,23 @@ export class LifecycleService extends Service<LifecycleConfig> {
 
       try {
         await fiber // resolve = ACTIVE；reject = FAILED
+        if (signal.aborted) {
+          // 结果作废：激活完成但调用方已取消 -> 级联清理不留半挂载现场
+          await this.cascadeCleanup(fiber, sandbox, container)
+          this.instances.delete(instanceId)
+          throw new DOMException('aborted', 'AbortError')
+        }
       } catch (error) {
+        this.instances.delete(instanceId)
         await this.cascadeCleanup(fiber, sandbox, container)
         throw error
       }
-      if (signal.aborted) {
-        // 结果作废：激活完成但调用方已取消 -> 级联清理不留半挂载现场
-        await this.cascadeCleanup(fiber, sandbox, container)
-        throw new DOMException('aborted', 'AbortError')
-      }
 
-      this.instances.set(instanceId, instance)
       this.ctx.emit('app/ready', { appId, instanceId })
       return instance
     } catch (error) {
+      // 事务失败统一回收容器（loadApp/sandbox 失败路径不经过 fiber 级联清理）
+      this.removeOutletContainer(container)
       if (signal.aborted || (error as Error).name === 'AbortError') {
         throw error instanceof Error ? error : new Error(String(error))
       }
@@ -293,6 +301,18 @@ export class LifecycleService extends Service<LifecycleConfig> {
 
   getInstances(): AppInstance[] {
     return [...this.instances.values()]
+  }
+
+  /** 应用 ctx -> 槽位容器（heterogeneous §4.1：适配器 mount 的目标，容器唯一路径的读取面） */
+  containerOf(ctx: Context): HTMLElement | null {
+    for (const instance of this.instances.values()) {
+      // ctx.plugin() 返回 Object.create(fiber) 的 thenable 包装（cordis registry），
+      // 而 ctx.fiber 是原 fiber -- 以原型链判等
+      if (instance.fiber === ctx.fiber || Object.getPrototypeOf(instance.fiber) === ctx.fiber) {
+        return instance.container
+      }
+    }
+    return null
   }
 }
 
