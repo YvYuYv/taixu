@@ -7,6 +7,7 @@ import { DepsService, type AppManifestEntry } from './services/deps'
 import { LifecycleService, type RecoveryConfig } from './services/lifecycle'
 import { StyleService } from './services/style'
 import { RouterService, type RouteRule, type RouterConfig } from './services/router'
+import { StateService } from './services/state'
 import { defineCordisApp } from './vue3-adapter'
 
 export { MonitorService } from './services/monitor'
@@ -26,6 +27,8 @@ export { StyleService } from './services/style'
 export type { StyleAsset } from './services/style'
 export { RouterService } from './services/router'
 export type { RouteRule, RouterConfig, GuardResult } from './services/router'
+export { StateService } from './services/state'
+export type { WatchOptions as StateWatchOptions, GetOptions as StateGetOptions, SetOptions as StateSetOptions } from './services/state'
 export { defineCordisApp } from './vue3-adapter'
 export type { CordisAppOptions } from './vue3-adapter'
 export * from './events'
@@ -62,7 +65,8 @@ export function defineApp(appId: string, entry: () => unknown): AppManifestEntry
  * 03 号票：+ deps（最小加载）+ lifecycle（挂载事务）。
  * 04 号票：+ style（样式登记辅助服务）+ Vue 3 参考适配器（defineCordisApp）。
  * 05 号票：+ router（URL 矩阵 + 守卫管线 + 槽位事件族；不 inject lifecycle，基线 §2.3）。
- * 其余服务（bus/state）由后续票挂接；初始化顺序由 Cordis DI 解析，禁止手写顺序表。
+ * 06 号票：+ state（三层键空间 + 唯一写管线 + 订阅；不 inject lifecycle，ADR-0023）。
+ * 其余服务（bus）由后续票挂接；初始化顺序由 Cordis DI 解析，禁止手写顺序表。
  *
  * @returns 宿主 ctx（根上下文）
  */
@@ -74,6 +78,7 @@ export function createCordis(options: CreateCordisOptions = {}): Context {
   ctx.plugin(DepsService, { apps: options.apps })
   ctx.plugin(StyleService)
   ctx.plugin(RouterService, { routes: options.routes, onResolve: options.onResolve })
+  ctx.plugin(StateService)
   ctx.plugin(LifecycleService, {
     recovery: options.recovery,
     outlets: options.outlets,

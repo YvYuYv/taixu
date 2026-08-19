@@ -52,10 +52,10 @@ export class SecurityService extends Service {
   }
 }
 
-/** 通配匹配：`*` 全量、`net:*` 前缀族、`net:fetch` 精确 */
+/** 通配匹配：`*` 全量、`net:*`/`shared:cart.*` 前缀族（冒号/点分通配一体，state-sharing §4.1-2）、`net:fetch` 精确 */
 function matchAction(pattern: string, action: string): boolean {
   if (pattern === '*') return true
-  if (pattern.endsWith(':*')) return action.startsWith(pattern.slice(0, -1))
+  if (pattern.endsWith(':*') || pattern.endsWith('.*')) return action.startsWith(pattern.slice(0, -1))
   return pattern === action
 }
 
