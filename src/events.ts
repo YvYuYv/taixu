@@ -63,6 +63,19 @@ export function fiberStateName(state: FiberState): FiberStateName {
   return FiberStateNames[state] as FiberStateName
 }
 
+/** 槽位事件载荷（`outlet/changed:{outlet}` 族，ADR-0047/0050） */
+export interface OutletChangedPayload {
+  outlet: string
+  matched: MatchedApp | null
+}
+
+/** 守卫结果：显式枚举（ADR-0002）--绝不用真值判断；undefined = 不表态 */
+export type GuardResult =
+  | { type: 'proceed' } // 明确放行（serial 截断后续守卫）
+  | { type: 'redirect'; to: string } // 拦截并重定向
+  | { type: 'abort' } // 拦截且中止
+  | undefined
+
 declare module 'cordis' {
   interface Events {
     // 生命周期（由 lifecycle 服务派发；旁听用 { global: true } 在根注册）
@@ -75,7 +88,9 @@ declare module 'cordis' {
     'app/evicted'(payload: { appId: string; instanceId: string }): void
     'app/disposed'(payload: { appId: string; instanceId: string }): void
     // 路由
-    'router/navigate'(payload: { from: RouteLocation; to: RouteLocation; outlet: string; signal: AbortSignal }): void
+    // 路由。router/navigate 是 serial 守卫管线（ADR-0002）：监听器返回 GuardResult
+    // 显式枚举（{proceed|redirect|abort} 或 undefined 不表态）；经 serial 链式裁决
+    'router/navigate'(payload: { from: RouteLocation; to: RouteLocation; outlet: string; signal: AbortSignal }): GuardResult | Promise<GuardResult>
     'router/aborted'(payload: { outlet: string; reason: 'guard' | 'superseded' | 'unmount' }): void
     'router/changed'(payload: { location: RouteLocation; outlets: Record<string, MatchedApp | null> }): void
     // 通信
@@ -90,6 +105,10 @@ declare module 'cordis' {
     'monitor/alert'(payload: { alert: Alert }): void
     // 安全
     'security/violation'(payload: { appId: string; rule: string; detail: unknown }): void
+    // 槽位事件族（ADR-0047/0050，模板字面量键）：router 以每槽位具体键派发；
+    // 载荷形状 `{ outlet, matched }`（基线 §2.4）；emit 侧以 'outlet/changed:main'
+    // 形式落键（interface 不支持计算模板键，实现侧窄化见 router 服务）
+    'outlet/changed:main'(payload: OutletChangedPayload): void
   }
 }
 

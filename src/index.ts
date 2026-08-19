@@ -6,6 +6,7 @@ import { SandboxService } from './services/sandbox'
 import { DepsService, type AppManifestEntry } from './services/deps'
 import { LifecycleService, type RecoveryConfig } from './services/lifecycle'
 import { StyleService } from './services/style'
+import { RouterService, type RouteRule, type RouterConfig } from './services/router'
 import { defineCordisApp } from './vue3-adapter'
 
 export { MonitorService } from './services/monitor'
@@ -23,6 +24,8 @@ export { LifecycleService } from './services/lifecycle'
 export type { AppInstance, MountOptions, RecoveryConfig, LifecycleConfig, AppExternalState } from './services/lifecycle'
 export { StyleService } from './services/style'
 export type { StyleAsset } from './services/style'
+export { RouterService } from './services/router'
+export type { RouteRule, RouterConfig, GuardResult } from './services/router'
 export { defineCordisApp } from './vue3-adapter'
 export type { CordisAppOptions } from './vue3-adapter'
 export * from './events'
@@ -37,6 +40,10 @@ export interface CreateCordisOptions {
   recovery?: RecoveryConfig
   /** 槽位选择器映射 */
   outlets?: Record<string, string>
+  /** 路由规则（basePath -> appId，路径段边界匹配，route-adaptation §3.3） */
+  routes?: RouteRule[]
+  /** 挂载意图回调（lifecycle -> router 单向接线，基线 §2.3；测试/宿主注入） */
+  onResolve?: RouterConfig['onResolve']
 }
 
 /**
@@ -54,7 +61,8 @@ export function defineApp(appId: string, entry: () => unknown): AppManifestEntry
  * 02 号票：+ sandbox（双窗口 Proxy 沙箱工厂，first-party）。
  * 03 号票：+ deps（最小加载）+ lifecycle（挂载事务）。
  * 04 号票：+ style（样式登记辅助服务）+ Vue 3 参考适配器（defineCordisApp）。
- * 其余三服务（bus/state/router）由后续票挂接；初始化顺序由 Cordis DI 解析，禁止手写顺序表。
+ * 05 号票：+ router（URL 矩阵 + 守卫管线 + 槽位事件族；不 inject lifecycle，基线 §2.3）。
+ * 其余服务（bus/state）由后续票挂接；初始化顺序由 Cordis DI 解析，禁止手写顺序表。
  *
  * @returns 宿主 ctx（根上下文）
  */
@@ -65,6 +73,7 @@ export function createCordis(options: CreateCordisOptions = {}): Context {
   ctx.plugin(SandboxService)
   ctx.plugin(DepsService, { apps: options.apps })
   ctx.plugin(StyleService)
+  ctx.plugin(RouterService, { routes: options.routes, onResolve: options.onResolve })
   ctx.plugin(LifecycleService, {
     recovery: options.recovery,
     outlets: options.outlets,
