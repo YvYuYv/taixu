@@ -5,7 +5,7 @@
  * 通知族（app/*、state/*、message/*、monitor/*、outlet/*）fire-and-forget。
  * 调度结果契约按事件族划分见基线 §2.4.1（守卫枚举 / serial+包络 / 单点方法 / 通知）。
  */
-import type { FiberState } from 'cordis'
+import type { Context, FiberState } from 'cordis'
 
 export interface RouteLocation {
   path: string
@@ -23,8 +23,18 @@ export interface CordisMessage {
   source: string
   target: string
   payload: unknown
+  /** 创建时间（TTL 裁决基准，bus 构建时注入） */
+  createdAt: number
+  /** 请求-应答关联（crypto.randomUUID；§3.3） */
+  correlationId?: string
+  /** 生存期 ms；过期消息投递前丢弃（含 retained，§3.1） */
+  ttl?: number
+  /** W3C Trace Context（ADR-0022；CSPRNG trace-id，bus 构建消息时自动注入） */
   traceparent?: string
 }
+
+/** 统一应答包络（ADR-0014）：三态可区分——ok 应答带值 / 裁决失败带因 / undefined 无应答者 */
+export type Reply<T = unknown> = { ok: true; value: T } | { ok: false; reason: string }
 
 /** 错误采集阶段（与 app/error 的 phase 枚举一致，基线 §2.4） */
 export type AppPhase = 'load' | 'activate' | 'runtime'
@@ -95,7 +105,9 @@ declare module 'cordis' {
     'router/changed'(payload: { location: RouteLocation; outlets: Record<string, MatchedApp | null> }): void
     // 通信
     'message/send'(payload: { message: CordisMessage }): void
-    'message/receive'(payload: { message: CordisMessage }): void
+    'message/receive'(payload: { message: CordisMessage; targetCtx: Context }): void
+    // 请求-应答（§3.3）：应答方 emit（type 前缀 response:），请求方 global 监听按 correlationId 匹配
+    'message/response'(payload: { message: CordisMessage }): void
     'bus/overflow'(payload: { instanceId: string; coalescedKeys: string[]; droppedCount: number }): void
     // 状态
     'state/changed'(payload: { key: string; value: unknown; old: unknown; path: string; source: string; version: number }): void

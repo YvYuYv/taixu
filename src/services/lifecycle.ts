@@ -60,9 +60,9 @@ function sleep(ms: number): Promise<void> {
 export class LifecycleService extends Service<LifecycleConfig> {
   static provide = 'lifecycle'
   // 唯一多注入编排者（ADR-0054）；security 显式注入 = fail-closed（ADR-0009）。
-  // 03 号票裁剪：router/bus/state 尚未落地（05/06/07 号票），先行注入已有四服务，
-  // 后续票逐个补入（依赖方向不变，只是时序上的渐进）
-  static inject = ['security', 'sandbox', 'deps', 'monitor']
+  // 03 号票裁剪：router/bus/state 于 05/06/07 号票落地后逐个补入
+  // （router 经 onResolve 事件解耦不 inject；bus/state 由 lifecycle 单向登记/监听）
+  static inject = ['security', 'sandbox', 'deps', 'monitor', 'state', 'bus']
 
   /** outlet 级串行队列（§2.2-1）：promise 链天然串行、无唤醒竞态 */
   private outletLocks = new Map<string, Promise<void>>()
@@ -154,13 +154,18 @@ export class LifecycleService extends Service<LifecycleConfig> {
           // 结果作废：激活完成但调用方已取消 -> 级联清理不留半挂载现场
           await this.cascadeCleanup(fiber, sandbox, container)
           this.instances.delete(instanceId)
+          this.ctx.bus.unregister(instanceId)
           throw new DOMException('aborted', 'AbortError')
         }
       } catch (error) {
         this.instances.delete(instanceId)
+        this.ctx.bus.unregister(instanceId)
         await this.cascadeCleanup(fiber, sandbox, container)
         throw error
       }
+
+      // bus 实例登记（lifecycle -> bus 单向，基线 §2.3：send 定向投递的目标解析数据源）
+      this.ctx.bus.register({ appId, instanceId, ctx: fiber.ctx })
 
       this.ctx.emit('app/ready', { appId, instanceId })
       return instance
@@ -272,6 +277,7 @@ export class LifecycleService extends Service<LifecycleConfig> {
         await instance.sandbox?.destroy().catch(() => {})
         this.removeOutletContainer(instance.container)
         this.instances.delete(instanceId)
+        this.ctx.bus.unregister(instanceId)
         this.ctx.emit('app/disposed', { appId: instance.appId, instanceId })
       }
     })
