@@ -155,6 +155,25 @@ export class StateService extends Service<Record<never, never>> {
     return this.commit(key, value, { source: options.appId ?? 'system', path: key })
   }
 
+  /** local: 键空间导出（lifecycle §5.5 驱逐快照；系统身份，ADR-0029） */
+  dumpLocal(appId: string): Record<string, unknown> {
+    const prefix = `local:${appId}:`
+    const out: Record<string, unknown> = {}
+    for (const [key, entry] of this.store) {
+      if (key.startsWith(prefix)) out[key] = entry.value
+    }
+    return out
+  }
+
+  /** local: 键空间注水（lifecycle §5.5 pre-plugin() 阶段；系统身份走唯一写管线） */
+  hydrateLocal(appId: string, data: Record<string, unknown>): void {
+    const prefix = `local:${appId}:`
+    for (const [key, value] of Object.entries(data)) {
+      if (!key.startsWith(prefix)) continue // 隐私边界（ADR-0044）：只注 local 层
+      this.commit(key, value, { source: 'hydrate', path: key })
+    }
+  }
+
   /** 深层写入（§4.2 set trap 同款路径）：唯一管线 + path 全限定 + 真实 old；权限按全限定 path 裁决（通配一体） */
   setDeep(key: string, path: string, value: unknown, options: SetOptions & { old?: unknown } = {}): number {
     // 路径归一：接受相对（'ui.theme'）与全限定（'global:cfg.ui.theme'）两种形式

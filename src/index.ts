@@ -4,7 +4,7 @@ import { MonitorService } from './services/monitor'
 import { SecurityService, type PermissionRule } from './services/security'
 import { SandboxService } from './services/sandbox'
 import { DepsService, type AppManifestEntry } from './services/deps'
-import { LifecycleService, type RecoveryConfig } from './services/lifecycle'
+import { LifecycleService, type RecoveryConfig, type KeepAliveConfig } from './services/lifecycle'
 import { StyleService } from './services/style'
 import { RouterService, type RouteRule, type RouterConfig } from './services/router'
 import { StateService } from './services/state'
@@ -23,7 +23,7 @@ export type { ProbeReport, ProbeOptions } from './probe'
 export { DepsService } from './services/deps'
 export type { AppManifestEntry } from './services/deps'
 export { LifecycleService } from './services/lifecycle'
-export type { AppInstance, MountOptions, RecoveryConfig, LifecycleConfig, AppExternalState } from './services/lifecycle'
+export type { AppInstance, MountOptions, RecoveryConfig, LifecycleConfig, KeepAliveConfig, AppExternalState } from './services/lifecycle'
 export { StyleService } from './services/style'
 export type { StyleAsset } from './services/style'
 export { RouterService } from './services/router'
@@ -52,14 +52,21 @@ export interface CreateCordisOptions {
   onResolve?: RouterConfig['onResolve']
   /** bus 配置（挂起队列上限/回放批大小，§5.5；测试注小值） */
   bus?: BusConfig
+  /** 保活池预算（LRU 上限/水位/快照池，§5.4/§5.5；测试注小阈值触发） */
+  keepAlive?: KeepAliveConfig
 }
 
 /**
- * 声明应用清单条目：defineApp(appId, entryFactory)。
+ * 声明应用清单条目：defineApp(appId, entryFactory, options?)。
  * 入口工厂在每次挂载事务中调用（重试 = 新事务 = 新插件实例）。
+ * options.version/migrate 参与驱逐快照的版本裁决（ADR-0034）。
  */
-export function defineApp(appId: string, entry: () => unknown): AppManifestEntry {
-  return { appId, entry }
+export function defineApp(
+  appId: string,
+  entry: () => unknown,
+  options: { version?: number; migrate?: AppManifestEntry['migrate'] } = {},
+): AppManifestEntry {
+  return { appId, entry, ...options }
 }
 
 /**
@@ -89,6 +96,7 @@ export function createCordis(options: CreateCordisOptions = {}): Context {
   ctx.plugin(LifecycleService, {
     recovery: options.recovery,
     outlets: options.outlets,
+    keepAlive: options.keepAlive,
   })
   return ctx
 }

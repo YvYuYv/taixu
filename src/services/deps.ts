@@ -7,11 +7,21 @@
 import { Service, type Context } from 'cordis'
 import '../events'
 
+/** 快照载荷（lifecycle §5.5，ADR-0029/0034）：data = local:{appId}: 键空间序列化 */
+export interface Snapshot {
+  version: number
+  data: Record<string, unknown>
+}
+
 /** 应用清单条目（宿主经 createCordis({ apps }) 声明） */
 export interface AppManifestEntry {
   appId: string
   /** 入口工厂：返回 Cordis 插件（函数/对象/类） */
   entry: () => unknown
+  /** 应用状态版本（快照注水的版本裁决基准，ADR-0034） */
+  version?: number
+  /** 快照版本迁移纯函数（无副作用、沙箱外执行，ADR-0034）；缺省 = 漂移即丢弃 */
+  migrate?: (data: Record<string, unknown>, fromVersion: number) => Record<string, unknown>
 }
 
 export interface DepsConfig {
@@ -31,6 +41,11 @@ export class DepsService extends Service<DepsConfig> {
   constructor(ctx: Context, config: DepsConfig = {}) {
     super(ctx, 'deps')
     this.appConfig = config
+  }
+
+  /** 清单查询（lifecycle 快照版本裁决用；未声明返回 undefined） */
+  manifest(appId: string): AppManifestEntry | undefined {
+    return this.appConfig.apps?.find((a: AppManifestEntry) => a.appId === appId)
   }
 
   /**

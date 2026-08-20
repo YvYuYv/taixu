@@ -108,7 +108,7 @@ declare module 'cordis' {
     // 载荷不对称说明：router 按槽位（outlet）作用域重放；bus 按目标应用（instanceId 即目标）回放
     'router/replay'(payload: { instanceId: string; outlet: string }): void
     'bus/replay'(payload: { instanceId: string }): void
-    'app/evicted'(payload: { appId: string; instanceId: string }): void
+    'app/evicted'(payload: { appId: string; instanceId: string; cause: 'lru' | 'pressure' }): void
     'app/disposed'(payload: { appId: string; instanceId: string }): void
     // 路由
     // 路由。router/navigate 是 serial 守卫管线（ADR-0002）：监听器返回 GuardResult

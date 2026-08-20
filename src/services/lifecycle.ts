@@ -10,10 +10,12 @@
  * 本票范围（03 号）：挂载/销毁主链路。保活/挂起/驱逐（§五）在 08-10 号票。
  */
 import { Service, FiberState, type Context, type Fiber } from 'cordis'
+import { compressToUTF16, decompressFromUTF16 } from 'lz-string'
 import '../events'
 import type { Sandbox } from '../sandbox'
 import { suspendRegistry } from '../suspend'
 import type { SuspendReason, SuspendSource } from '../events'
+import type { Snapshot } from './deps'
 
 export type { SuspendReason, SuspendSource }
 
@@ -43,6 +45,8 @@ export interface AppInstance {
   suspendSources: Set<SuspendSource>
   /** LRU 键（§5.4）：resume/message 均刷新（驱逐在 10 号票） */
   lastAccessAt: number
+  /** 首次挂起时刻（§5.4 压力候选序：挂起时长排序，ADR-0031） */
+  suspendedAt: number | null
   /** 挂起时摘除的样式节点（head 内 data-cordis-app 匹配本应用，ADR-0033） */
   detachedStyles: Element[]
 }
@@ -65,10 +69,34 @@ export interface LifecycleConfig {
   recovery?: RecoveryConfig
   /** 槽位选择器映射（outlet 名 -> CSS selector；缺省 outlet 名即 selector） */
   outlets?: Record<string, string>
+  /** 保活池预算与驱逐（§5.4/§5.5，ADR-0019/0026/0052/0057） */
+  keepAlive?: KeepAliveConfig
+}
+
+/** 保活池预算（§5.4）：数量上限为主、内存水位辅助；快照池上限独立 */
+export interface KeepAliveConfig {
+  /** 最大同时保活实例数（默认 5；超限 LRU 驱逐） */
+  maxCount?: number
+  /** 内存水位阈值（默认 0.85；Chromium 限定，非 Chromium 优雅退化跳过） */
+  watermark?: number
+  /** 水位轮询间隔 ms（默认 30000；操作触发检查为主、轮询兜底，ADR-0057） */
+  pollMs?: number
+  /** mUASM 路径的堆上限字节（仅 measureUserAgentSpecificMemory 可用而无 legacy jsHeapSizeLimit 时作分母） */
+  memoryLimitBytes?: number
+  /** 快照池总量上限字节（默认 6MB；超限按 LRU 回收最旧快照，ADR-0052） */
+  snapshotPoolBytes?: number
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
+}
+
+/** idle 回调（§5.4：驱逐决策避免切换关键路径卡顿）；无 rIC 环境退化为 setTimeout(0) */
+function idleCallback(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(() => resolve())
+    else setTimeout(resolve, 0)
+  })
 }
 
 export class LifecycleService extends Service<LifecycleConfig> {
@@ -87,6 +115,18 @@ export class LifecycleService extends Service<LifecycleConfig> {
   constructor(ctx: Context, config: LifecycleConfig = {}) {
     super(ctx, 'lifecycle')
     this.cfg = config
+    // 水位轮询兜底（ADR-0057）：30s 低频；操作触发检查为主。非 Chromium（无 memory API）
+    // 不启用轮询（优雅退化）。ctx.effect 托管清理
+    if (this.hasMemoryApi()) {
+      const timer = setInterval(() => void this.enforceBudget(), config.keepAlive?.pollMs ?? 30000)
+      ctx.effect(() => () => clearInterval(timer))
+    }
+  }
+
+  /** Chromium memory API 可用性（水位驱逐的启用条件，ADR-0026） */
+  private hasMemoryApi(): boolean {
+    const perf = this.memoryPerf()
+    return Boolean(perf.memory) || typeof perf.measureUserAgentSpecificMemory === 'function'
   }
 
   /** outlet 级互斥入口：mount 与 destroy 共用（§2.2："含其 unmount"） */
@@ -142,6 +182,10 @@ export class LifecycleService extends Service<LifecycleConfig> {
       // 3. scopedFetch 注入（ADR-0005：沙箱创建后、plugin() 前）
       sandbox.injectSlot.fetch = this.scopedFetch(appId)
 
+      // 3.5 暖启动注水（§5.5）：plugin() **之前**预注水到 state 服务——
+      // 应用 apply 时 local 键空间已就位；版本漂移裁决在 hydrateLocalKeys 内（ADR-0034）
+      this.hydrateLocalKeys(appId)
+
       // 4. 插件挂载：inject 未满足时 fiber 停留 PENDING（Cordis reactive coeffect）。
       //    plugin() 的 apply 经 _reload 在微任务中执行；实例在 plugin() 返回后同步登记，
       //    故 apply 运行时 containerOf 已可解析（fiber 判等见其注释）
@@ -156,6 +200,7 @@ export class LifecycleService extends Service<LifecycleConfig> {
         sandbox,
         suspendSources: new Set(),
         lastAccessAt: Date.now(),
+        suspendedAt: null,
         detachedStyles: [],
       }
       this.instances.set(instanceId, instance)
@@ -186,6 +231,7 @@ export class LifecycleService extends Service<LifecycleConfig> {
       this.ctx.bus.register({ appId, instanceId, ctx: fiber.ctx, touch: () => (instance.lastAccessAt = Date.now()) })
 
       this.ctx.emit('app/ready', { appId, instanceId })
+      void this.enforceBudget() // 操作触发预算检查（挂载，ADR-0057）
       return instance
     } catch (error) {
       // 事务失败统一回收容器（loadApp/sandbox 失败路径不经过 fiber 级联清理）
@@ -330,7 +376,10 @@ export class LifecycleService extends Service<LifecycleConfig> {
     // head 内本应用样式节点一并摘除（不留幽灵样式，ADR-0033/0042）
     instance.detachedStyles = [...document.head.querySelectorAll<Element>(`style[data-cordis-app="${instance.appId}"], link[data-cordis-app="${instance.appId}"]`)]
     for (const node of instance.detachedStyles) node.remove()
+    instance.lastAccessAt = Date.now() // 触点更新（§5.4：挂起/恢复/通信）
+    if (instance.suspendedAt === null) instance.suspendedAt = Date.now() // 候选序键（压力驱逐）
     this.ctx.emit('app/suspend', { instanceId: instance.instanceId, reason })
+    void this.enforceBudget() // 操作触发预算检查（ADR-0057）
   }
 
   /** 恢复动作：注册表解挂 + 解冻 + DOM/样式还回（§5.1/§5.3） */
@@ -349,6 +398,176 @@ export class LifecycleService extends Service<LifecycleConfig> {
     this.ctx.emit('router/replay', { instanceId: instance.instanceId, outlet: instance.outlet })
     // 3. bus/replay——挂起队列按全序回放（ADR-0015/0030）
     this.ctx.emit('bus/replay', { instanceId: instance.instanceId })
+    instance.suspendedAt = null
+    void this.enforceBudget() // 操作触发预算检查（ADR-0057）
+  }
+
+  // ---- 驱逐与暖启动（§5.4/§5.5，ADR-0019/0026/0029/0031/0034/0044/0052/0057）----
+
+  /** 快照池账本（appId -> 压缩载荷 + 字节 + 最近写入时刻；LRU 回收依据） */
+  private snapshotPool = new Map<string, { bytes: number; at: number }>()
+  private get keepAlive(): KeepAliveConfig {
+    return this.cfg.keepAlive ?? {}
+  }
+
+  /** Chromium memory API 的类型视图（水位检查共用，避免重复 cast） */
+  private memoryPerf(): Performance & {
+    memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number }
+    measureUserAgentSpecificMemory?: () => Promise<{ bytes: number }>
+  } {
+    return performance as Performance & {
+      memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number }
+      measureUserAgentSpecificMemory?: () => Promise<{ bytes: number }>
+    }
+  }
+
+  /** 挂起池（保活候选） */
+  private suspendedInstances(): AppInstance[] {
+    return this.getInstances().filter((i) => i.suspendSources.size > 0)
+  }
+
+  /**
+   * 预算执行（§5.4）：数量上限为主（LRU 驱逐）+ 内存水位辅助（压力候选序驱逐）。
+   * 决策经 idle 回调（§5.4：避免切换关键路径卡顿）；操作触发为主 + 轮询兜底（ADR-0057）。
+   */
+  private async enforceBudget(): Promise<void> {
+    if (this.budgetRunning) return
+    this.budgetRunning = true
+    try {
+      await idleCallback()
+      const maxCount = this.keepAlive.maxCount ?? 5
+      // 数量上限（LRU：lastAccessAt 最旧先走）
+      while (this.suspendedInstances().length > maxCount) {
+        const victim = [...this.suspendedInstances()].sort((a, b) => a.lastAccessAt - b.lastAccessAt)[0]
+        if (!victim) break
+        await this.evict(victim, 'lru')
+      }
+      // 内存水位（ADR-0026：Chromium 限定）：压力下按候选序驱逐；**每轮预算检查至多驱逐一个**
+      // （压力常驻时由后续操作触发/轮询检查继续，逐个释放给 GC 留出时间）
+      if (await this.underPressure()) {
+        const victim = this.pickPressureCandidate()
+        if (victim) {
+          this.ctx.monitor.capture(new Error('内存压力驱逐'), { appId: victim.appId, phase: 'runtime' })
+          await this.evict(victim, 'pressure')
+        }
+      }
+    } finally {
+      this.budgetRunning = false
+    }
+  }
+
+  private budgetRunning = false
+
+  /** 压力候选序（ADR-0031 候选清单）：挂起时长降序，同长按快照体积降序 */
+  private pickPressureCandidate(): AppInstance | undefined {
+    const candidates = this.suspendedInstances()
+    return candidates.sort((a, b) => {
+      const da = a.suspendedAt ?? Date.now()
+      const db = b.suspendedAt ?? Date.now()
+      if (da !== db) return da - db // 挂起更久者优先
+      return (this.snapshotPool.get(b.appId)?.bytes ?? 0) - (this.snapshotPool.get(a.appId)?.bytes ?? 0)
+    })[0]
+  }
+
+  /**
+   * 内存压力检查（§5.4，ADR-0026）：`performance.measureUserAgentSpecificMemory` 优先
+   * （分母 = memoryLimitBytes 配置或 legacy jsHeapSizeLimit），降级 `performance.memory`
+   * 比率；两者皆无（非 Chromium）不启用水位（优雅退化为纯数量上限）。
+   */
+  private async underPressure(): Promise<boolean> {
+    const perf = this.memoryPerf()
+    const watermark = this.keepAlive.watermark ?? 0.85
+    const limit = this.keepAlive.memoryLimitBytes ?? perf.memory?.jsHeapSizeLimit
+    if (typeof perf.measureUserAgentSpecificMemory === 'function') {
+      if (!limit || limit <= 0) return false
+      const { bytes } = await perf.measureUserAgentSpecificMemory()
+      return bytes / limit > watermark
+    }
+    if (perf.memory && perf.memory.jsHeapSizeLimit > 0) {
+      return perf.memory.usedJSHeapSize / perf.memory.jsHeapSizeLimit > watermark
+    }
+    return false // 非 Chromium：不启用（降级跳过）
+  }
+
+  /** 驱逐 = 快照 + 销毁 + app/evicted（§5.4/§5.5：淘汰统一走 §3.2 destroy 真正释放） */
+  private async evict(instance: AppInstance, cause: 'lru' | 'pressure'): Promise<void> {
+    this.snapshotLocalKeys(instance.appId) // 销毁会回收 local 键空间：先快照（app/disposed 监听）
+    await this.destroy(instance.instanceId, 'evicted')
+    this.ctx.emit('app/evicted', { appId: instance.appId, instanceId: instance.instanceId, cause })
+  }
+
+  /**
+   * local: 键空间快照（§5.5，ADR-0029/0044/0052；cordis-alignment：>2MB 放弃）：
+   * lz-string 压缩落 sessionStorage `__tx_snapshot:{appId}`；单快照超 2MB 放弃
+   * （快照丢失仅降级冷启动）；池总量超限按 LRU 回收最旧。
+   */
+  snapshotLocalKeys(appId: string): Snapshot | null {
+    const data = this.ctx.state.dumpLocal(appId)
+    const snapshot: Snapshot = { version: this.ctx.deps.manifest(appId)?.version ?? 0, data }
+    const compressed = compressToUTF16(JSON.stringify(snapshot))
+    const bytes = compressed.length * 2 // UTF-16 近似字节
+    if (bytes > 2 * 1024 * 1024) {
+      // >2MB 放弃（cordis-alignment 驱逐快照基线）：同时清掉旧快照，避免残留过时状态
+      sessionStorage.removeItem(`__tx_snapshot:${appId}`)
+      this.snapshotPool.delete(appId)
+      return null
+    }
+    sessionStorage.setItem(`__tx_snapshot:${appId}`, compressed)
+    this.snapshotPool.set(appId, { bytes, at: Date.now() })
+    this.trimSnapshotPool()
+    return snapshot
+  }
+
+  /** 快照池 LRU 回收（ADR-0052）：总量超限丢最旧（哪怕对应应用还在保活池） */
+  private trimSnapshotPool(): void {
+    const limit = this.keepAlive.snapshotPoolBytes ?? 6 * 1024 * 1024
+    const total = () => [...this.snapshotPool.values()].reduce((sum, e) => sum + e.bytes, 0)
+    while (total() > limit && this.snapshotPool.size > 0) {
+      const oldest = [...this.snapshotPool.entries()].sort((a, b) => a[1].at - b[1].at)[0]!
+      this.snapshotPool.delete(oldest[0])
+      sessionStorage.removeItem(`__tx_snapshot:${oldest[0]}`)
+    }
+  }
+
+  /**
+   * 快照读取 + 版本裁决（ADR-0034）：命中直接注水；漂移经 manifest.migrate 纯函数迁移，
+   * 无 migrate 丢弃冷启动并 monitor 上报"快照版本漂移丢弃"；损坏快照（解析失败）
+   * 同样降级冷启动（§5.5"快照丢失仅降级冷启动"姿态）。快照一次性消费：用后即删
+   * （快照生命周期跟随驱逐，避免非驱逐销毁后的残留旧态注回下次冷启动）。
+   */
+  hydrateLocalKeys(appId: string): void {
+    const compressed = sessionStorage.getItem(`__tx_snapshot:${appId}`)
+    if (!compressed) return
+    const consume = () => {
+      sessionStorage.removeItem(`__tx_snapshot:${appId}`)
+      this.snapshotPool.delete(appId)
+    }
+    let parsed: Snapshot | null = null
+    try {
+      parsed = JSON.parse(decompressFromUTF16(compressed) ?? 'null') as Snapshot | null
+    } catch {
+      this.ctx.monitor.capture(new Error(`快照损坏丢弃: ${appId}`), { appId, phase: 'runtime' })
+      consume()
+      return
+    }
+    if (!parsed) return
+    const manifest = this.ctx.deps.manifest(appId)
+    const currentVersion = manifest?.version ?? 0
+    if (parsed.version !== currentVersion) {
+      if (manifest?.migrate) {
+        const data = manifest.migrate(parsed.data, parsed.version) // 纯函数、沙箱外执行
+        this.ctx.state.hydrateLocal(appId, data)
+        consume()
+        return
+      }
+      this.ctx.monitor.capture(new Error(`快照版本漂移丢弃: ${appId} ${parsed.version} -> ${currentVersion}`), {
+        appId, phase: 'runtime',
+      })
+      consume()
+      return
+    }
+    this.ctx.state.hydrateLocal(appId, parsed.data)
+    consume()
   }
 
   /**
