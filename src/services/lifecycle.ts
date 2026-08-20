@@ -342,7 +342,13 @@ export class LifecycleService extends Service<LifecycleConfig> {
     for (const node of instance.detachedStyles) document.head.appendChild(node) // 样式还回零闪烁
     instance.detachedStyles = []
     instance.lastAccessAt = Date.now() // LRU 键刷新（§5.4）
-    this.ctx.emit('app/resume', { instanceId: instance.instanceId }) // bus 收到后回放挂起队列（§5.5）
+    // 恢复三通道统一时序收口（09 号票；lifecycle 是唯一编排者，ADR-0054）：
+    // 1. app/resume——state 在此收口一次性 state/sync（ADR-0023）
+    this.ctx.emit('app/resume', { instanceId: instance.instanceId })
+    // 2. router/replay——该槽位重放一次 outlet/changed（ADR-0056）
+    this.ctx.emit('router/replay', { instanceId: instance.instanceId, outlet: instance.outlet })
+    // 3. bus/replay——挂起队列按全序回放（ADR-0015/0030）
+    this.ctx.emit('bus/replay', { instanceId: instance.instanceId })
   }
 
   /**

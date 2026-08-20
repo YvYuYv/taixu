@@ -66,6 +66,18 @@ function nextFrame(): Promise<void> {
   })
 }
 
+/**
+ * 回放 span link（ADR-0030）：有原 traceparent 则保持原 traceId、换新 spanId
+ * （不计队列滞留时长）；无/不可解析时**原样透传**——非 OTel 兼容降级为如实长 span
+ * （span 时长诚实包含队列滞留），不伪造新 trace 切断关联。
+ */
+function linkSpan(m: CordisMessage): CordisMessage {
+  if (m.traceparent === undefined) return m
+  const trace = parseTraceparent(m.traceparent)
+  if (!trace) return m // 不可解析：诚实长 span（§七-5 降级路径）
+  return { ...m, traceparent: formatTraceparent(trace.traceId, generateSpanId()) }
+}
+
 /** W3C Trace Context 格式化（版本 00；采样标志 01） */
 function formatTraceparent(traceId: string, spanId: string): string {
   return `00-${traceId}-${spanId}-01`
@@ -122,8 +134,9 @@ export class BusService extends Service<BusConfig> {
     super(ctx, 'bus')
     this.queueLimit = config.queueLimit ?? 1000
     this.replayBatchSize = config.replayBatch ?? 50
-    // 挂起队列联动（§5.5）：恢复触发回放、dispose 清队列（root 注册 + global 监听，不 inject lifecycle）
-    ctx.on('app/resume', (e) => {
+    // 挂起队列联动（§5.5，09 号票统一时序）：lifecycle 在 app/resume（state/sync）与
+    // router/replay 之后派发 bus/replay 触发回放；dispose 清队列（root + global，不 inject lifecycle）
+    ctx.on('bus/replay', (e) => {
       void this.replay(e.instanceId)
     }, { global: true })
     ctx.on('app/disposed', (e) => {
@@ -295,7 +308,13 @@ export class BusService extends Service<BusConfig> {
         if (!target) break // 回放中应用被销毁：队列随 app/disposed 清理
         for (const m of batch) {
           target.touch?.() // LRU 键刷新（§5.4）
-          target.ctx.events.emit(target.ctx, 'message/receive', { message: m, targetCtx: target.ctx })
+          // span link（ADR-0030，§七-5）：以原 traceparent 的 traceId 开新 span——
+          // traceId 关联保持（挂起前后链路可关联），span 时长只计真实处理时间
+          const linked = linkSpan(m)
+          target.ctx.events.emit(target.ctx, 'message/receive', {
+            message: linked,
+            targetCtx: target.ctx,
+          })
         }
         await nextFrame()
       }

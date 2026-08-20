@@ -96,6 +96,13 @@ export class RouterService extends Service<RouterConfig> {
     this.onResolve = config.onResolve
     this.initFromLocation()
     this.initPopState()
+    // 恢复重放（ADR-0056，route-adaptation §三）：lifecycle 按统一时序派发 router/replay，
+    // 本服务对该槽位重放一次 outlet/changed（载荷 = 当前匹配结果）——与正常导航同一事件，
+    // 不为恢复发明第二套路由同步机制
+    ctx.on('router/replay', (e) => {
+      const loc = this.current(e.outlet)
+      this.ctx.emit(outletEventKey(e.outlet), { outlet: e.outlet, matched: this.match(loc.path, e.outlet) })
+    }, { global: true })
   }
 
   private isWidget(outlet: string): boolean {

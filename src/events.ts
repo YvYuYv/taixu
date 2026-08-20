@@ -103,6 +103,11 @@ declare module 'cordis' {
     'app/error'(payload: { appId: string; instanceId: string; phase: 'load' | 'activate' | 'runtime'; error: Error; recoverable: boolean }): void
     'app/suspend'(payload: { instanceId: string; reason: SuspendReason }): void
     'app/resume'(payload: { instanceId: string }): void
+    // 恢复三通道收口（09 号票）：lifecycle 按统一时序依次派发——
+    // app/resume（state/sync 在此收口，ADR-0023）-> router/replay（ADR-0056）-> bus/replay（ADR-0015）
+    // 载荷不对称说明：router 按槽位（outlet）作用域重放；bus 按目标应用（instanceId 即目标）回放
+    'router/replay'(payload: { instanceId: string; outlet: string }): void
+    'bus/replay'(payload: { instanceId: string }): void
     'app/evicted'(payload: { appId: string; instanceId: string }): void
     'app/disposed'(payload: { appId: string; instanceId: string }): void
     // 路由
