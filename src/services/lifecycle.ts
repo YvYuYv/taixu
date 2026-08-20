@@ -12,15 +12,23 @@
 import { Service, FiberState, type Context, type Fiber } from 'cordis'
 import '../events'
 import type { Sandbox } from '../sandbox'
+import { suspendRegistry } from '../suspend'
+import type { SuspendReason, SuspendSource } from '../events'
 
-/** 对外状态名（§2.3 小写形式；suspended 在 08 号票加入） */
+export type { SuspendReason, SuspendSource }
+
+/** 对外状态名（§2.3 小写形式） */
 export type AppExternalState =
   | 'pending'
   | 'loading'
   | 'active'
+  | 'suspended'
   | 'failed'
   | 'disposed'
   | 'unloading'
+
+/** 来源优先级（数值高 = 优先级高；恢复分级覆盖的裁决依据） */
+const SOURCE_PRIORITY: Record<SuspendSource, number> = { route: 3, system: 2, command: 1 }
 
 /** 应用实例（lifecycle §2.1）：instanceId 为键，支撑同 appId 多实例 */
 export interface AppInstance {
@@ -31,6 +39,12 @@ export interface AppInstance {
   ctx: Context
   container: HTMLElement
   sandbox: Sandbox | null
+  /** 挂起仲裁账本（§5.1.1）：非空 = 挂起中（并集语义）；LRU 键 */
+  suspendSources: Set<SuspendSource>
+  /** LRU 键（§5.4）：resume/message 均刷新（驱逐在 10 号票） */
+  lastAccessAt: number
+  /** 挂起时摘除的样式节点（head 内 data-cordis-app 匹配本应用，ADR-0033） */
+  detachedStyles: Element[]
 }
 
 export interface MountOptions {
@@ -140,6 +154,9 @@ export class LifecycleService extends Service<LifecycleConfig> {
         ctx: fiber.ctx,
         container,
         sandbox,
+        suspendSources: new Set(),
+        lastAccessAt: Date.now(),
+        detachedStyles: [],
       }
       this.instances.set(instanceId, instance)
 
@@ -164,8 +181,9 @@ export class LifecycleService extends Service<LifecycleConfig> {
         throw error
       }
 
-      // bus 实例登记（lifecycle -> bus 单向，基线 §2.3：send 定向投递的目标解析数据源）
-      this.ctx.bus.register({ appId, instanceId, ctx: fiber.ctx })
+      // bus 实例登记（lifecycle -> bus 单向，基线 §2.3：send 定向投递的目标解析数据源；
+      // touch = LRU 键刷新回调，§5.4 resume/message 均刷新）
+      this.ctx.bus.register({ appId, instanceId, ctx: fiber.ctx, touch: () => (instance.lastAccessAt = Date.now()) })
 
       this.ctx.emit('app/ready', { appId, instanceId })
       return instance
@@ -253,6 +271,102 @@ export class LifecycleService extends Service<LifecycleConfig> {
     container.remove()
   }
 
+  // ---- 挂起仲裁（§5.1/§5.1.1，ADR-0018/0020/0031/0035）----
+
+  /**
+   * 挂起/恢复操作鉴权（deny-by-default，ADR-0035）：受信层 = root fiber（宿主/系统）；
+   * 应用只能操作自己 appId 的实例。两方法共用同一裁决，无字符串重复。
+   */
+  private assertOperable(caller: Context, instance: AppInstance, action: 'suspend' | 'resume'): void {
+    const callerAppId = caller.fiber.name
+    if (callerAppId === 'root' || callerAppId === instance.appId) return
+    throw new Error(`lifecycle: ${action} denied for ${callerAppId} (not owner of ${instance.appId})`)
+  }
+
+  /**
+   * 挂起意图的唯一入口（服务方法可鉴权；`app/intent:*` 事件不存在，ADR-0035--emit 是
+   * fire-and-forget，无法阻止恶意应用挂起他人）。挂起取并集（任一来源即挂起）；
+   * 重复挂起幂等（账本已含来源则不重复动作）。
+   */
+  async requestSuspend(
+    caller: Context,
+    instanceId: string,
+    reason: SuspendReason,
+    source: SuspendSource,
+  ): Promise<void> {
+    const instance = this.instances.get(instanceId)
+    if (!instance) throw new Error(`lifecycle: unknown instance "${instanceId}"`)
+    this.assertOperable(caller, instance, 'suspend')
+    if (instance.suspendSources.has(source)) return // 幂等：同来源重复挂起
+    const first = instance.suspendSources.size === 0
+    instance.suspendSources.add(source) // 并集（ADR-0018）
+    if (!first) return // 已挂起：账本更新即止
+    this.suspendInstance(instance, reason)
+  }
+
+  /**
+   * 恢复分级解除（ADR-0031）：高优先级来源的恢复可解除全部低优先级挂起；
+   * 低优先级恢复解不了高优先级挂起（用户主动切到的页签不能是死的）。
+   * 账本清空才执行恢复动作。
+   */
+  async requestResume(caller: Context, instanceId: string, source: SuspendSource): Promise<void> {
+    const instance = this.instances.get(instanceId)
+    if (!instance) throw new Error(`lifecycle: unknown instance "${instanceId}"`)
+    this.assertOperable(caller, instance, 'resume')
+    const priority = SOURCE_PRIORITY[source]
+    for (const held of [...instance.suspendSources]) {
+      if (SOURCE_PRIORITY[held] <= priority) instance.suspendSources.delete(held) // 解除全部 ≤ 自身优先级
+    }
+    if (instance.suspendSources.size > 0) return // 更高优先级挂起仍在：保持挂起
+    this.resumeInstance(instance)
+  }
+
+  /** 挂起动作（fiber 仍 ACTIVE、DOM 摘离、效应冻结，§5.1） */
+  private suspendInstance(instance: AppInstance, reason: SuspendReason): void {
+    suspendRegistry.suspend(instance.appId) // 注册表（沙箱包装/bus 投递的共享查询点）
+    instance.sandbox?.freeze() // 定时器保留剩余时长、监听门控、WS close(1000)（§5.2）
+    // DOM 摘离到文档片段缓存（§5.3 dom 模式默认）；恢复原位还回
+    instance.container.remove()
+    // head 内本应用样式节点一并摘除（不留幽灵样式，ADR-0033/0042）
+    instance.detachedStyles = [...document.head.querySelectorAll<Element>(`style[data-cordis-app="${instance.appId}"], link[data-cordis-app="${instance.appId}"]`)]
+    for (const node of instance.detachedStyles) node.remove()
+    this.ctx.emit('app/suspend', { instanceId: instance.instanceId, reason })
+  }
+
+  /** 恢复动作：注册表解挂 + 解冻 + DOM/样式还回（§5.1/§5.3） */
+  private resumeInstance(instance: AppInstance): void {
+    suspendRegistry.resume(instance.appId)
+    instance.sandbox?.unfreeze() // 定时器以剩余时长续期
+    const host = this.resolveOutletHost(instance.outlet)
+    if (!host.contains(instance.container)) host.appendChild(instance.container) // 原位还回
+    for (const node of instance.detachedStyles) document.head.appendChild(node) // 样式还回零闪烁
+    instance.detachedStyles = []
+    instance.lastAccessAt = Date.now() // LRU 键刷新（§5.4）
+    this.ctx.emit('app/resume', { instanceId: instance.instanceId }) // bus 收到后回放挂起队列（§5.5）
+  }
+
+  /**
+   * 槽位切换（§5.1.2 默认保活，ADR-0020）：原应用默认挂起（keepAlive 未配置也走挂起，
+   * 回程零冷启动）。切回已挂起的应用 = 恢复（路由来源，优先级最高），不重新挂载。
+   */
+  async switch(outlet: string, appId: string, options: MountOptions = {}): Promise<AppInstance> {
+    const current = this.getInstances().find((i) => i.outlet === outlet && i.suspendSources.size === 0)
+    const suspended = this.getInstances().find((i) => i.outlet === outlet && i.appId === appId && i.suspendSources.size > 0)
+    if (suspended) {
+      // 回程零冷启动：恢复既有实例（路由恢复解除全部低优先级挂起，ADR-0031）
+      await this.requestResume(this.ctx, suspended.instanceId, 'route')
+      if (current && current.instanceId !== suspended.instanceId) {
+        await this.requestSuspend(this.ctx, current.instanceId, 'keepalive', 'route')
+      }
+      return suspended
+    }
+    const next = await this.mount(appId, outlet, options) // 新事务先行（§2.2 槽位串行）
+    if (current && current.instanceId !== next.instanceId) {
+      await this.requestSuspend(this.ctx, current.instanceId, 'keepalive', 'route') // 路由来源（优先级最高）
+    }
+    return next
+  }
+
   /** scopedFetch 最小实现：权限裁决接线在 11 号票；本票保证注入时序（ADR-0005） */
   private scopedFetch(appId: string): typeof fetch {
     return async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -265,17 +379,19 @@ export class LifecycleService extends Service<LifecycleConfig> {
     }
   }
 
-  /** destroy 级联（§3.2）：fiber dispose -> 沙箱销毁（effect 双保险兜底）-> 容器移除 */
+  /** destroy 级联（§3.2）：fiber dispose -> 沙箱销毁（effect 双保险兜底）-> 容器移除；挂起实例同样可销毁（§5.4 驱逐走本路径） */
   async destroy(instanceId: string, _reason: string): Promise<void> {
     const instance = this.instances.get(instanceId)
     if (!instance) return
     return this.withOutletLock(instance.outlet, async () => {
       if (!this.instances.has(instanceId)) return // 锁内复查（等待期间可能已被 destroy）
+      suspendRegistry.resume(instance.appId) // 注册表解挂（沙箱 destroy 与监听器残留引用的诚实清理）
+      instance.suspendSources.clear()
       try {
         await instance.fiber.dispose()
       } finally {
         await instance.sandbox?.destroy().catch(() => {})
-        this.removeOutletContainer(instance.container)
+        this.removeOutletContainer(instance.container) // 已摘离的容器 remove 幂等
         this.instances.delete(instanceId)
         this.ctx.bus.unregister(instanceId)
         this.ctx.emit('app/disposed', { appId: instance.appId, instanceId })
@@ -283,10 +399,11 @@ export class LifecycleService extends Service<LifecycleConfig> {
     })
   }
 
-  /** 应用状态查询（§2.3）：monitor/devtools 的唯一同步查询 API，从 fiber.state 派生 */
+  /** 应用状态查询（§2.3）：monitor/devtools 的唯一同步查询 API，从 fiber.state 派生（挂起账本优先，§5.1） */
   getAppState(instanceId: string): AppExternalState {
     const instance = this.instances.get(instanceId)
     if (!instance) return 'disposed'
+    if (instance.suspendSources.size > 0) return 'suspended' // fiber 仍 ACTIVE（挂起非销毁）
     switch (instance.fiber.state) {
       case FiberState.PENDING:
         return 'pending'

@@ -17,6 +17,12 @@ export interface MatchedApp {
   outlet: string
 }
 
+/** 挂起来源（lifecycle §5.1.1 分级：路由 > 系统信号 > 手动命令，ADR-0018/0031） */
+export type SuspendSource = 'route' | 'system' | 'command'
+
+/** 挂起原因（app/suspend 载荷枚举，基线 §2.4） */
+export type SuspendReason = 'keepalive' | 'navigation' | 'system'
+
 export interface CordisMessage {
   id: string
   type: string
@@ -29,6 +35,8 @@ export interface CordisMessage {
   correlationId?: string
   /** 生存期 ms；过期消息投递前丢弃（含 retained，§3.1） */
   ttl?: number
+  /** 同键合并元数据（状态快照类消息；挂起队列替换同键旧值，§5.5） */
+  metadata?: { coalesceKey?: string }
   /** W3C Trace Context（ADR-0022；CSPRNG trace-id，bus 构建消息时自动注入） */
   traceparent?: string
 }
@@ -93,7 +101,7 @@ declare module 'cordis' {
     'app/loaded'(payload: { appId: string; instanceId: string }): void
     'app/ready'(payload: { appId: string; instanceId: string }): void
     'app/error'(payload: { appId: string; instanceId: string; phase: 'load' | 'activate' | 'runtime'; error: Error; recoverable: boolean }): void
-    'app/suspend'(payload: { instanceId: string; reason: 'keepalive' | 'navigation' | 'system' }): void
+    'app/suspend'(payload: { instanceId: string; reason: SuspendReason }): void
     'app/resume'(payload: { instanceId: string }): void
     'app/evicted'(payload: { appId: string; instanceId: string }): void
     'app/disposed'(payload: { appId: string; instanceId: string }): void

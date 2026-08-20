@@ -16,6 +16,7 @@ import { DocumentProxy } from './document-proxy'
 import { InjectedNodesTracker } from './inject-tracker'
 import { StorageNamespace } from './storage'
 import { wrapCustomElements } from './custom-elements'
+import { suspendRegistry } from './suspend'
 
 /** 沙箱配置：路由重定向与销毁回调由 lifecycle 注入（lifecycle 落地在 03 号票） */
 export interface SandboxOptions {
@@ -40,6 +41,15 @@ export interface Sandbox {
   injectedNodes(): Element[]
   /** 本应用对 fakeWindow 的全部写入键（destroy 时上报 monitor：污染残留诊断，§4.2） */
   modifiedKeys(): string[]
+  /**
+   * SuspendScope 冻结（lifecycle §5.2，ADR-0013/0027/0032）：定时器保留剩余时长、
+   * 事件监听/observers/rAF 调用门控（挂起期不触发、恢复继续）、WebSocket close(1000) 记录描述符
+   */
+  freeze(): void
+  /** 解冻续期（恢复时由 lifecycle 调用；WS 重连在 09 号票恢复通道） */
+  unfreeze(): void
+  /** WS 断连描述符（freeze 时记录；恢复重建的依据，ADR-0017：订阅状态由应用重建） */
+  closedSockets(): Array<{ url: string; protocols?: string | string[] }>
   /** 幂等销毁（js-sandbox §4.2） */
   destroy(): Promise<void>
 }
@@ -144,10 +154,113 @@ export async function createSandbox(
     }
   }
 
+  // ---- SuspendScope（lifecycle §5.2，ADR-0013/0027/0032/0048）----
+  /** 定时器账本：wrapped id -> 记录（freeze 保留剩余时长、unfreeze 续期） */
+  interface TimerRecord {
+    kind: 'timeout' | 'interval' | 'raf'
+    rawId: ReturnType<typeof setTimeout> | ReturnType<typeof setInterval> | number
+    delay: number
+    startedAt: number
+    fire: () => void
+    frozen: boolean
+  }
+  const timers = new Map<number, TimerRecord>()
+  let timerSeq = 0
+  const rawSetTimeout: typeof setTimeout = globalThis.setTimeout.bind(globalThis)
+  const rawSetInterval: typeof setInterval = globalThis.setInterval.bind(globalThis)
+  const rawClearTimeout: typeof clearTimeout = globalThis.clearTimeout.bind(globalThis)
+  const rawClearInterval: typeof clearInterval = globalThis.clearInterval.bind(globalThis)
+
+  const armTimer = (rec: TimerRecord, delay: number): void => {
+    rec.delay = delay
+    rec.startedAt = Date.now()
+    rec.frozen = false
+    if (rec.kind === 'interval') rec.rawId = rawSetInterval(rec.fire, delay)
+    else rec.rawId = rawSetTimeout(rec.fire, delay)
+  }
+
+  /** 定时器包装（五类注册之一，§5.2）：应用拿到包装版，freeze 保留剩余时长、unfreeze 续期 */
+  const wrapTimer = (kind: TimerRecord['kind']) => {
+    const wrapped = (cb: () => void, ms = 0): number => {
+      const id = ++timerSeq
+      const rec: TimerRecord = { kind, rawId: 0, delay: ms, startedAt: 0, fire: cb, frozen: false }
+      armTimer(rec, ms)
+      timers.set(id, rec)
+      return id
+    }
+    hardenFunction(wrapped)
+    return wrapped
+  }
+
+  /** 事件监听门控：挂起期不触发回调（监听保留，非清理，§5.1）；WeakMap 保证 remove 同引用 */
+  const listenerWraps = new WeakMap<EventListenerOrEventListenerObject, EventListenerOrEventListenerObject>()
+  const gatedListener = (listener: EventListenerOrEventListenerObject): EventListenerOrEventListenerObject => {
+    let wrapped = listenerWraps.get(listener)
+    if (wrapped) return wrapped
+    wrapped = function (this: unknown, ev: Event) {
+      if (suspendRegistry.isSuspended(appId)) return // 冻结：丢弃（DOM 已摘离，事件本就稀少）
+      if (typeof listener === 'function') return Reflect.apply(listener, this, [ev])
+      return listener.handleEvent(ev) // 对象形态（{ handleEvent }）同样门控
+    } as EventListenerOrEventListenerObject
+    listenerWraps.set(listener, wrapped)
+    return wrapped
+  }
+
+  /** 观测类构造器包装：回调门控（挂起期不触发） */
+  const gatedObserver = <T extends abstract new (...args: never[]) => object>(raw: T): T => {
+    const Wrapped = class extends (raw as unknown as new (cb: (...a: unknown[]) => void) => object) {
+      constructor(cb: (...a: unknown[]) => void) {
+        super((...a: unknown[]) => {
+          if (!suspendRegistry.isSuspended(appId)) cb(...a)
+        })
+      }
+    } as unknown as T
+    hardenFunction(Wrapped as unknown as Function)
+    return Wrapped
+  }
+
+  /** WS 断连描述符（freeze 时 close(1000) 并记录；重建在 09 号票，ADR-0017） */
+  const sockets = new Set<{ url: string; protocols?: string | string[]; close: (code: number) => void; readyState: () => number }>()
+  const closedDescriptors: Array<{ url: string; protocols?: string | string[] }> = []
+
+  let frozen = false
+  const scope = {
+    freeze(): void {
+      if (frozen) return
+      frozen = true
+      for (const rec of timers.values()) {
+        // 保留剩余时长（§5.2：freeze() 保留、unfreeze() 续期）
+        const remaining = Math.max(0, rec.delay - (Date.now() - rec.startedAt))
+        if (rec.kind === 'interval') rawClearInterval(rec.rawId as ReturnType<typeof setInterval>)
+        else rawClearTimeout(rec.rawId as ReturnType<typeof setTimeout>)
+        rec.delay = remaining
+        rec.frozen = true
+      }
+      for (const socket of sockets) {
+        // 挂起即 close(1000) 并记录连接描述符（订阅状态由应用重建，ADR-0017）
+        if (socket.readyState() <= 1) {
+          socket.close(1000)
+          closedDescriptors.push({ url: socket.url, protocols: socket.protocols })
+        }
+      }
+    },
+    unfreeze(): void {
+      if (!frozen) return
+      frozen = false
+      for (const rec of timers.values()) {
+        if (!rec.frozen) continue
+        armTimer(rec, rec.delay || 0) // 续期：以冻结时剩余时长重排
+      }
+    },
+  }
+
   const sandbox: Sandbox = {
     injectSlot: {},
     injectedNodes: () => tracker.nodesList(),
     modifiedKeys: () => [...modified],
+    freeze: scope.freeze,
+    unfreeze: scope.unfreeze,
+    closedSockets: () => [...closedDescriptors],
     proxy: {} as Record<PropertyKey, unknown>,
     async destroy() {
       if (disposed) return
@@ -231,14 +344,59 @@ export async function createSandbox(
         )
       }
       if (key === 'setTimeout' || key === 'setInterval' || key === 'requestAnimationFrame') {
-        // 记账转发（SuspendScope 冻结接线在 08 号票，ADR-0032）
+        // SuspendScope 可冻结定时器（§5.2，ADR-0027/0032）：挂起保留剩余时长、恢复续期；
+        // 应用拿到的是包装版（含库内部经 window.x 的调用）
+        return wrapTimer(key === 'setInterval' ? 'interval' : key === 'setTimeout' ? 'timeout' : 'raf')
+      }
+      if (key === 'clearTimeout' || key === 'clearInterval') {
+        const isInterval = key === 'clearInterval'
+        const wrapped = (id?: number): void => {
+          if (id == null) return
+          const rec = timers.get(id)
+          if (!rec) return
+          timers.delete(id)
+          if (rec.frozen) return // 已冻结（挂起）：账本删除即可
+          if (isInterval || rec.kind === 'interval') rawClearInterval(rec.rawId as ReturnType<typeof setInterval>)
+          else rawClearTimeout(rec.rawId as ReturnType<typeof setTimeout>)
+        }
+        hardenFunction(wrapped as unknown as Function)
+        return wrapped
+      }
+      if (key === 'addEventListener' || key === 'removeEventListener') {
+        // SuspendScope 事件监听门控（§5.2 五类注册之二）：挂起期不触发、监听保留
         const raw = Reflect.get(globalThis, key, globalThis) as (...a: unknown[]) => unknown
-        const wrapped = (...args: unknown[]) => raw(...args)
+        const isAdd = key === 'addEventListener'
+        const wrapped = function (this: unknown, ...args: unknown[]) {
+          const l = args[1] as EventListenerOrEventListenerObject | null
+          if (l && (typeof l === 'function' || typeof l.handleEvent === 'function')) {
+            args[1] = isAdd ? gatedListener(l) : (listenerWraps.get(l) ?? l) // 同引用解绑
+          }
+          return Reflect.apply(raw, this ?? globalThis, args)
+        }
+        hardenFunction(wrapped as unknown as Function)
+        return wrapped
+      }
+      if (key === 'MutationObserver' || key === 'IntersectionObserver' || key === 'ResizeObserver') {
+        // SuspendScope observers 门控（§5.2 五类注册之三）；宿主无此能力则如实缺失
+        const raw = Reflect.get(globalThis, key, globalThis) as
+          | (new (cb: (...a: unknown[]) => void) => object)
+          | undefined
+        if (typeof raw !== 'function') return undefined
+        return gatedObserver(raw)
+      }
+      if (key === 'requestIdleCallback') {
+        const raw = Reflect.get(globalThis, key, globalThis) as ((cb: () => void) => number) | undefined
+        if (typeof raw !== 'function') return undefined
+        const wrapped = (cb: () => void): number => {
+          if (suspendRegistry.isSuspended(appId)) return -1 // 挂起：丢弃（§5.2 五类注册之四）
+          return raw(cb)
+        }
         hardenFunction(wrapped as unknown as Function)
         return wrapped
       }
       if (key === 'XMLHttpRequest' || key === 'WebSocket' || key === 'EventSource') {
-        // 向量 #8 过渡实现：记账包装（§3.6 规定唯一链路是 bus.network 注入，07 号票后回收）
+        // 向量 #8 过渡实现：记账包装（§3.6 规定唯一链路是 bus.network 注入，07 号票后回收）。
+        // WebSocket additionally 进 SuspendScope 断连名单（§5.2 五类注册之五：挂起 close(1000) 记录描述符）
         const raw = Reflect.get(globalThis, key, globalThis) as
           | (new (...a: unknown[]) => object)
           | undefined
@@ -247,6 +405,19 @@ export async function createSandbox(
           constructor(...args: unknown[]) {
             report(`sandbox-network-${String(key)}`, { args: args.map(String).slice(0, 2) })
             super(...(args as never[]))
+            if (key === 'WebSocket') {
+              const sock = this as unknown as {
+                url: string
+                readyState: number
+                close: (code?: number) => void
+              }
+              sockets.add({
+                url: sock.url ?? String(args[0] ?? ''),
+                protocols: args[1] as string | string[] | undefined,
+                close: (code) => sock.close(code),
+                readyState: () => sock.readyState,
+              })
+            }
           }
         }
         hardenFunction(Wrapped as unknown as Function)

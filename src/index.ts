@@ -8,7 +8,7 @@ import { LifecycleService, type RecoveryConfig } from './services/lifecycle'
 import { StyleService } from './services/style'
 import { RouterService, type RouteRule, type RouterConfig } from './services/router'
 import { StateService } from './services/state'
-import { BusService } from './services/bus'
+import { BusService, type BusConfig } from './services/bus'
 import { defineCordisApp } from './vue3-adapter'
 
 export { MonitorService } from './services/monitor'
@@ -31,7 +31,7 @@ export type { RouteRule, RouterConfig, GuardResult } from './services/router'
 export { StateService } from './services/state'
 export type { WatchOptions as StateWatchOptions, GetOptions as StateGetOptions, SetOptions as StateSetOptions } from './services/state'
 export { BusService, parseTraceparent } from './services/bus'
-export type { Reply, BusInstance, SendMessageInput, RequestOptions } from './services/bus'
+export type { Reply, BusInstance, BusConfig, SendMessageInput, RequestOptions } from './services/bus'
 export { defineCordisApp } from './vue3-adapter'
 export type { CordisAppOptions } from './vue3-adapter'
 export * from './events'
@@ -50,6 +50,8 @@ export interface CreateCordisOptions {
   routes?: RouteRule[]
   /** 挂载意图回调（lifecycle -> router 单向接线，基线 §2.3；测试/宿主注入） */
   onResolve?: RouterConfig['onResolve']
+  /** bus 配置（挂起队列上限/回放批大小，§5.5；测试注小值） */
+  bus?: BusConfig
 }
 
 /**
@@ -83,7 +85,7 @@ export function createCordis(options: CreateCordisOptions = {}): Context {
   ctx.plugin(StyleService)
   ctx.plugin(RouterService, { routes: options.routes, onResolve: options.onResolve })
   ctx.plugin(StateService)
-  ctx.plugin(BusService)
+  ctx.plugin(BusService, options.bus)
   ctx.plugin(LifecycleService, {
     recovery: options.recovery,
     outlets: options.outlets,

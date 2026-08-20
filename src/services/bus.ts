@@ -16,14 +16,24 @@
 import { Service, Context, type Context as Ctx } from 'cordis'
 import '../events'
 import type { CordisMessage, Reply } from '../events'
+import { suspendRegistry } from '../suspend'
 
 export type { Reply }
+export type { SuspendSource, SuspendReason } from '../events'
+
+/** bus 配置：队列上限与回放批大小（测试注小值；生产默认 1000 / 每帧 50，§5.5） */
+export interface BusConfig {
+  queueLimit?: number
+  replayBatch?: number
+}
 
 /** 应用实例登记（lifecycle 挂载成功后注入；销毁时注销） */
 export interface BusInstance {
   appId: string
   instanceId: string
   ctx: Context
+  /** LRU 键刷新回调（§5.4：resume/message 均刷新；lifecycle 注入，驱逐在 10 号票） */
+  touch?: () => void
 }
 
 /** 仅 global 监听者可见的哨兵 thisArg（message/send 通知族：monitor/DevTools 旁听，应用不可窃听） */
@@ -46,6 +56,14 @@ function generateTraceId(): string {
 /** CSPRNG span-id（8 字节 hex；禁止全零） */
 function generateSpanId(): string {
   return randomHex(8)
+}
+
+/** 每帧分批回放（ADR-0015：50/帧避免长任务）；无 rAF 环境（jsdom）退化为 setTimeout(0) */
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve())
+    else setTimeout(resolve, 0)
+  })
 }
 
 /** W3C Trace Context 格式化（版本 00；采样标志 01） */
@@ -79,6 +97,8 @@ export interface SendMessageInput {
   target?: string
   /** 生存期 ms；过期消息投递前丢弃（§3.1） */
   ttl?: number
+  /** 同键合并元数据（挂起队列替换同键旧值，§5.5） */
+  metadata?: { coalesceKey?: string }
   /** 请求-应答关联（request 内部注入；应用不应手工指定） */
   correlationId?: string
 }
@@ -90,17 +110,35 @@ export interface RequestOptions {
   signal?: AbortSignal
 }
 
-export class BusService extends Service<Record<never, never>> {
+export class BusService extends Service<BusConfig> {
   static provide = 'bus'
   // 基线 §2.3：bus inject security（发送裁决）+ monitor；不 inject lifecycle
   static inject = ['security', 'monitor']
 
-  constructor(ctx: Ctx, _config: Record<never, never> = {}) {
+  private queueLimit: number
+  private replayBatchSize: number
+
+  constructor(ctx: Ctx, config: BusConfig = {}) {
     super(ctx, 'bus')
+    this.queueLimit = config.queueLimit ?? 1000
+    this.replayBatchSize = config.replayBatch ?? 50
+    // 挂起队列联动（§5.5）：恢复触发回放、dispose 清队列（root 注册 + global 监听，不 inject lifecycle）
+    ctx.on('app/resume', (e) => {
+      void this.replay(e.instanceId)
+    }, { global: true })
+    ctx.on('app/disposed', (e) => {
+      this.queues.delete(e.instanceId)
+      this.replaying.delete(e.instanceId)
+    }, { global: true })
   }
 
   /** 已注册实例（appId -> 多实例；同 appId 取最新） */
   private instances = new Map<string, BusInstance[]>()
+
+  // ---- 挂起队列（§5.5，ADR-0008/0015/0021）----
+  private queues = new Map<string, { items: CordisMessage[]; coalesced: Set<string>; dropped: number }>()
+  /** 回放中标记：期间新消息入队尾保持全序（ADR-0015） */
+  private replaying = new Set<string>()
 
   /** lifecycle -> bus 单向登记（挂载成功后调用；§3.1 目标解析数据源） */
   register(instance: BusInstance): void {
@@ -150,6 +188,7 @@ export class BusService extends Service<Record<never, never>> {
       createdAt: Date.now(),
       correlationId: message.correlationId,
       ttl: message.ttl,
+      metadata: message.metadata, // 同键合并元数据（挂起队列 §5.5）
       traceparent: formatTraceparent(generateTraceId(), generateSpanId()), // 自动注入（ADR-0022）
     }
     this.ctx.events.emit(GLOBAL_ONLY, 'message/send', { message: full }) // 通知族：仅 global 旁听（monitor/DevTools）
@@ -170,7 +209,16 @@ export class BusService extends Service<Record<never, never>> {
     return true
   }
 
-  /** 定向投递：仅目标 ctx 子树（scoped filter）与 global 监听者（载荷不广播） */
+  /** instanceId 查实例（登记表以 appId 为键；回放/投递路径统一走此助手） */
+  private findByInstanceId(instanceId: string): BusInstance | undefined {
+    for (const list of this.instances.values()) {
+      const hit = list.find((i) => i.instanceId === instanceId)
+      if (hit) return hit
+    }
+    return undefined
+  }
+
+  /** 定向投递：仅目标 ctx 子树（scoped filter）与 global 监听者（载荷不广播）；挂起/回放中入队（§5.5） */
   private dispatch(message: CordisMessage): boolean {
     // TTL（§3.1 dispatch 第一步）：过期消息投递前丢弃
     if (message.ttl !== undefined && Date.now() - message.createdAt > message.ttl) return false
@@ -180,8 +228,81 @@ export class BusService extends Service<Record<never, never>> {
       // 投递失败显式错误（挂起目标入队在 08 号票验收）
       throw new Error(`bus: unreachable target "${message.target}" (not mounted)`)
     }
+    if (suspendRegistry.isSuspended(target.appId) || this.replaying.has(target.instanceId)) {
+      this.enqueue(target.instanceId, message) // 挂起队列（ADR-0008）：冻结态不处理消息
+      return true
+    }
+    target.touch?.() // LRU 键刷新（§5.4：message 刷新）
     target.ctx.events.emit(target.ctx, 'message/receive', { message, targetCtx: target.ctx })
     return true
+  }
+
+  /** 入队（§5.5）：上限 FIFO 丢最旧 + 同键合并（旧值移除、最新值入队尾） */
+  private enqueue(instanceId: string, message: CordisMessage): void {
+    const q = this.queues.get(instanceId) ?? { items: [], coalesced: new Set<string>(), dropped: 0 }
+    if (q.items.length >= this.queueLimit) {
+      q.items.shift() // FIFO 丢最旧
+      q.dropped++
+    }
+    const key = message.metadata?.coalesceKey
+    if (key) {
+      // 同键合并（§5.5）：移除旧值后 push（入队序 = 时间序）；findLastIndex 需 ES2023，手写等价
+      let prev = -1
+      q.items.forEach((m, idx) => {
+        if (m.metadata?.coalesceKey === key) prev = idx
+      })
+      if (prev >= 0) {
+        q.items.splice(prev, 1)
+        q.coalesced.add(key)
+      }
+    }
+    q.items.push(message)
+    this.queues.set(instanceId, q)
+  }
+
+  /** 回放（§5.5）：溢出先上报（bus/overflow：契约事件 global + 应用消息双路），每帧 batch 条分批投递 */
+  private async replay(instanceId: string): Promise<void> {
+    if (this.replaying.has(instanceId)) return
+    const q = this.queues.get(instanceId)
+    if (!q) return
+    this.replaying.add(instanceId) // 回放期间新消息入队尾保持全序（ADR-0015）
+    try {
+      if (q.dropped || q.coalesced.size) {
+        // 溢出显式上报（ADR-0021）：合并键可列举，普通丢弃只给计数
+        const coalescedKeys = [...q.coalesced]
+        const droppedCount = q.dropped
+        const target = this.findByInstanceId(instanceId)
+        this.ctx.emit('bus/overflow', { instanceId, coalescedKeys, droppedCount })
+        if (target) {
+          target.ctx.events.emit(target.ctx, 'message/receive', {
+            message: {
+              id: crypto.randomUUID(),
+              type: 'bus/overflow',
+              source: 'system',
+              target: target.appId,
+              payload: { coalescedKeys, droppedCount },
+              createdAt: Date.now(),
+            },
+            targetCtx: target.ctx,
+          })
+        }
+        q.dropped = 0
+        q.coalesced.clear()
+      }
+      while (q.items.length) {
+        const batch = q.items.splice(0, this.replayBatchSize) // 50/帧（默认）避免长任务
+        const target = this.findByInstanceId(instanceId)
+        if (!target) break // 回放中应用被销毁：队列随 app/disposed 清理
+        for (const m of batch) {
+          target.touch?.() // LRU 键刷新（§5.4）
+          target.ctx.events.emit(target.ctx, 'message/receive', { message: m, targetCtx: target.ctx })
+        }
+        await nextFrame()
+      }
+    } finally {
+      this.replaying.delete(instanceId)
+      if (q.items.length === 0) this.queues.delete(instanceId)
+    }
   }
 
   /**
@@ -193,10 +314,14 @@ export class BusService extends Service<Record<never, never>> {
     return this.send(ctx, { ...message, target: undefined })
   }
 
-  /** 广播投递（send 已完成裁决与 message/send 通知；此处仅逐实例定向 emit） */
+  /** 广播投递（send 已完成裁决与 message/send 通知；挂起实例入队--广播不绕过队列 §5.5） */
   private deliverBroadcast(full: CordisMessage): void {
     for (const list of this.instances.values()) {
       const instance = list[list.length - 1] as BusInstance
+      if (suspendRegistry.isSuspended(instance.appId) || this.replaying.has(instance.instanceId)) {
+        this.enqueue(instance.instanceId, full) // 挂起队列（ADR-0008）
+        continue
+      }
       instance.ctx.events.emit(instance.ctx, 'message/receive', { message: full, targetCtx: instance.ctx })
     }
   }
