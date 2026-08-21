@@ -246,3 +246,45 @@ describe('挂起感知（ADR-0023；全链在 08/09 验收）', () => {
     expect(hits.length).toBeGreaterThanOrEqual(1) // root 观察者照常收（不属挂起应用）
   })
 })
+
+describe('setIfMatch 乐观并发 + batch 真原子（§4.4/4.5，A9）', () => {
+  it('CAS：版本匹配提交；不匹配抛 VERSION_CONFLICT 且值不变；不绕过权限', async () => {
+    const host = createCordis({ permissions: GRANTS })
+    await settle()
+    const v1 = host.state.set('shared:cart', { items: 1 }, { appId: 'app-cart' })
+    const v2 = host.state.setIfMatch('shared:cart', v1, { items: 2 }, { appId: 'app-cart' })
+    expect(v2).toBe(v1 + 1) // 命中：版本+值原子推进
+    expect(() => host.state.setIfMatch('shared:cart', v1, { items: 3 }, { appId: 'app-cart' })).toThrow(/VERSION_CONFLICT/)
+    expect(host.state.get('shared:cart', { appId: 'app-cart' })).toEqual({ items: 2 }) // 冲突不动真值
+    expect(() => host.state.setIfMatch('shared:cart', v2, {}, { appId: 'app-other' })).toThrow() // 无写权限整批拒绝
+  })
+
+  it('batch：副本执行异常零通知；成功逐键恰好一次通知', async () => {
+    const hits: string[] = []
+    const host = createCordis({ permissions: GRANTS })
+    await settle()
+    host.state.set('shared:cart', { items: [1] }, { appId: 'app-cart' })
+    host.state.set('global:user', { name: 'n' })
+    host.on('state/changed', (e) => hits.push(e.key), { global: true })
+    hits.length = 0
+
+    // 异常路径：mutator 抛错 -> 真状态与订阅者零感知
+    expect(() => host.state.batch(['shared:cart', 'global:user'], (draft) => {
+      ;(draft['shared:cart'] as { items: number[] }).items.push(2)
+      throw new Error('mutator boom')
+    })).toThrow(/mutator boom/) // 系统身份批写（宿主编排）
+    expect(hits).toEqual([]) // 零通知
+    expect(host.state.get('shared:cart')).toEqual({ items: [1] }) // 真状态未动
+
+    // 成功路径：两键各恰好一次通知
+    const out = host.state.batch(['shared:cart', 'global:user'], (draft) => {
+      ;(draft['shared:cart'] as { items: number[] }).items.push(3)
+      ;(draft['global:user'] as { name: string }).name = 'm'
+      return 'done'
+    })
+    expect(out).toBe('done')
+    expect(hits).toEqual(['shared:cart', 'global:user']) // 每键一次
+    expect(host.state.get('shared:cart')).toEqual({ items: [1, 3] })
+    expect(host.state.get('global:user')).toEqual({ name: 'm' })
+  })
+})

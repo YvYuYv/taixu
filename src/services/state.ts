@@ -214,6 +214,52 @@ export class StateService extends Service<Record<never, never>> {
     throw new Error(`state: invalid deep path "${path}"`)
   }
 
+  /**
+   * 乐观并发 CAS（§4.5）：版本匹配走唯一提交管线（版本+值原子推进）；
+   * 不匹配抛 VERSION_CONFLICT（P0 默认 reject 策略——四策略 ConflictResolver 属 P1，
+   * 接入点即此分支）。权限与 set 同一裁决（CAS 不绕过）。
+   */
+  setIfMatch(key: string, expected: number, value: unknown, options: SetOptions = {}): number {
+    this.assertWritable(key, options.appId)
+    if (key.startsWith('local:')) {
+      assertJsonSerializable(key, value)
+      this.assertNotSensitive(key, options.appId)
+    }
+    const current = this.store.get(key)
+    if (current?.version !== expected) {
+      throw new Error(`state: VERSION_CONFLICT on "${key}" (expected ${expected}, current ${current?.version ?? 0})`)
+    }
+    return this.commit(key, value, { source: options.appId ?? 'system', path: key })
+  }
+
+  /**
+   * 真原子批写（§4.4）：只克隆涉及根键 -> mutator 在副本上执行（异常 = 零通知零污染，
+   * 真状态与订阅者完全无感）-> 成功后逐键走 commit（每键恰好一次通知）。
+   */
+  batch<T>(keys: string[], mutator: (draft: Record<string, unknown>) => T, options: SetOptions = {}): T {
+    for (const key of keys) this.assertWritable(key, options.appId) // 前置统一校验（任一失败整批不动）
+    const originals = new Map<string, unknown>()
+    const drafts: Record<string, unknown> = {}
+    for (const key of keys) {
+      const current = this.store.get(key)?.value
+      originals.set(key, current)
+      drafts[key] = current === undefined ? undefined : structuredClone(current)
+    }
+    let result: T
+    try {
+      result = mutator(drafts)
+    } catch (error) {
+      throw error // 副本丢弃：真状态与订阅者零感知（异常原样上抛）
+    }
+    for (const key of keys) {
+      const next = drafts[key]
+      if (!Object.is(next, originals.get(key))) {
+        this.commit(key, next, { source: options.appId ?? 'system', path: key })
+      }
+    }
+    return result
+  }
+
   /** watch（§4.3，ADR-0001）：ctx.on 托管 + 键过滤 + 首跑当前值；dispose 自动退订 */
   watch(ctx: Context, key: string, fn: (value: unknown) => void, options: WatchOptions = {}): void {
     // 归因：显式 appId > 调用方 fiber 名（应用插件名）；root ctx（fiber 名 'root'）= 系统观察者不受应用挂起影响
