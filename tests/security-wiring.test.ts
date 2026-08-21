@@ -158,3 +158,48 @@ describe('isolate 白名单（ADR-0010）', () => {
     expect(violations[0]!.detail).toMatchObject({ tag: 'state' })
   })
 })
+
+describe('审计补面（终检覆盖率）', () => {
+  it('限流窗口过后同键再次上报可穿透（账本窗口语义 + 回收前提）', async () => {
+    const events: string[] = []
+    const host = createCordis({
+      security: { violationThrottleMs: 30 },
+      apps: [defineApp('p2', () => ({ name: 'p2', apply() {} }))],
+    })
+    await settle()
+    host.on('security/violation', (e) => events.push(e.rule), { global: true })
+    host.security.reportViolation('p2', 'net:fetch', { url: 'https://a' })
+    host.security.reportViolation('p2', 'net:fetch', { url: 'https://a' }) // 窗口内去重
+    expect(events).toHaveLength(1)
+    await new Promise((r) => setTimeout(r, 50)) // 窗口过期
+    host.security.reportViolation('p2', 'net:fetch', { url: 'https://a' })
+    expect(events).toHaveLength(2) // 窗口外穿透
+  })
+
+  it('SRI 签名查询：integrityManifest 命中返回、未命中 undefined（§8.1 seam）', async () => {
+    const host = createCordis({
+      security: { integrityManifest: { 'https://cdn/x.js': 'sha384-abc' } },
+      apps: [defineApp('s2', () => ({ name: 's2', apply() {} }))],
+    })
+    await settle()
+    expect(host.security.lookupSri('https://cdn/x.js')).toBe('sha384-abc')
+    expect(host.security.lookupSri('https://cdn/other.js')).toBeUndefined()
+  })
+
+  it('allowInsecure 配置：明文 http 经粗授权放行（§3.2 策略开关）', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}'))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const host = createCordis({
+        security: { allowInsecure: true },
+        permissions: [{ appId: 'h-app', allow: ['net:fetch'] }],
+        apps: [defineApp('h-app', () => ({ name: 'h-app', apply() {} }))],
+      })
+      await settle()
+      const i = await host.lifecycle.mount('h-app', 'main')
+      await expect(i.sandbox!.injectSlot.fetch!('http://api.insecure/x')).resolves.toBeInstanceOf(Response)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})

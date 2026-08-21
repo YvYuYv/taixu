@@ -124,7 +124,7 @@ interface Events {
   'app/error': { appId: string; instanceId: string; phase: 'load' | 'activate' | 'runtime'; error: Error; recoverable: boolean }
   'app/suspend': { instanceId: string; reason: 'keepalive' | 'navigation' | 'system' }   // 保活挂起（非 dispose）
   'app/resume': { instanceId: string }
-  'app/evicted': { appId: string; instanceId: string; cause: 'lru' | 'pressure' }  // LRU/水位驱逐，已 dispose（ADR-0019/0026；cause 判别字段，10 号票）
+  'app/evicted': { appId: string; instanceId: string; cause: 'lru' | 'pressure' | 'ttl' }  // LRU/水位驱逐，已 dispose（ADR-0019/0026；cause 判别字段，10 号票）
   'app/disposed': { appId: string; instanceId: string }
   // 路由
   'router/navigate': { from: RouteLocation; to: RouteLocation; outlet: string; signal: AbortSignal }  // serial，可被拦截

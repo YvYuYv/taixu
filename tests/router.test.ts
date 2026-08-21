@@ -301,3 +301,14 @@ describe('与 lifecycle 解耦（基线 §2.3）', () => {
     expect(mounted).toEqual([{ appId: 'a', outlet: 'main' }]) // lifecycle 侧回调收到挂载意图
   })
 })
+
+describe('槽位注册补面（§3.3）', () => {
+  it('同槽位不同 basePath 重复注册显式报错（不静默覆盖）', async () => {
+    const host = createCordis({ apps: [defineApp('ro-a', () => ({ name: 'ro-a', apply() {} }))] })
+    await settle()
+    host.router.registerOutlet(host, 'zone', { owner: 'ro-a', basePath: '/z1' })
+    expect(() => host.router.registerOutlet(host, 'zone', { owner: 'ro-a', basePath: '/z2' })).toThrow(/already registered/)
+    // 同 basePath 重复注册幂等（不报错）
+    expect(() => host.router.registerOutlet(host, 'zone', { owner: 'ro-a', basePath: '/z1' })).not.toThrow()
+  })
+})

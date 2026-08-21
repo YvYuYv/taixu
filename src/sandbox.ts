@@ -219,9 +219,51 @@ export async function createSandbox(
     return Wrapped
   }
 
-  /** WS 断连描述符（freeze 时 close(1000) 并记录；重建在 09 号票，ADR-0017） */
+  /** WS 断连描述符（freeze 时 close(1000) 并记录；恢复重建，ADR-0017） */
   const sockets = new Set<{ url: string; protocols?: string | string[]; close: (code: number) => void; readyState: () => number }>()
   const closedDescriptors: Array<{ url: string; protocols?: string | string[] }> = []
+  /** 断连描述符队列在重连时的消费位（reconnectFrom 记账） */
+  let reconnectCursor = 0
+
+  /** WebSocket 包装构造器（get-trap 与恢复重建共用）：记账 + SuspendScope 断连名单登记 */
+  const wsConstructor = (): new (...args: unknown[]) => object => {
+    const raw = Reflect.get(globalThis, 'WebSocket', globalThis) as
+      | (new (...a: unknown[]) => object)
+      | undefined
+    if (typeof raw !== 'function') throw new Error('WebSocket unavailable')
+    const Wrapped = class extends raw {
+      constructor(...args: unknown[]) {
+        report('sandbox-network-WebSocket', { args: args.map(String).slice(0, 2) })
+        super(...(args as never[]))
+        const sock = this as unknown as { url: string; readyState: number; close: (code?: number) => void }
+        sockets.add({
+          url: sock.url ?? String(args[0] ?? ''),
+          protocols: args[1] as string | string[] | undefined,
+          close: (code) => sock.close(code),
+          readyState: () => sock.readyState,
+        })
+      }
+    }
+    hardenFunction(Wrapped as unknown as Function)
+    return Wrapped
+  }
+
+  /** 恢复时按描述符重建连接（ADR-0017：框架重建连接，订阅状态由应用重建） */
+  const reconnectSockets = (): void => {
+    const Ctor = wsConstructor()
+    while (reconnectCursor < closedDescriptors.length) {
+      const d = closedDescriptors[reconnectCursor]!
+      reconnectCursor++
+      try {
+        const proto = d.protocols === undefined ? [] : [d.protocols]
+        void new Ctor(d.url, ...proto) // 重建即重新进入 sockets 断连名单（可再次冻结）
+      } catch {
+        // 重建失败（宿主无能力/URL 失效）：描述符保留，应用可经 closedSockets 自行感知
+        reconnectCursor--
+        break
+      }
+    }
+  }
 
   let frozen = false
   const scope = {
@@ -251,6 +293,7 @@ export async function createSandbox(
         if (!rec.frozen) continue
         armTimer(rec, rec.delay || 0) // 续期：以冻结时剩余时长重排
       }
+      reconnectSockets() // WS 自动重建（ADR-0017：连接框架重建、订阅应用重建）
     },
   }
 
@@ -396,28 +439,14 @@ export async function createSandbox(
       }
       if (key === 'XMLHttpRequest' || key === 'WebSocket' || key === 'EventSource') {
         // 向量 #8 过渡实现：记账包装（§3.6 规定唯一链路是 bus.network 注入，07 号票后回收）。
-        // WebSocket additionally 进 SuspendScope 断连名单（§5.2 五类注册之五：挂起 close(1000) 记录描述符）
-        const raw = Reflect.get(globalThis, key, globalThis) as
-          | (new (...a: unknown[]) => object)
-          | undefined
-        if (typeof raw !== 'function') return undefined // 宿主无此能力则如实缺失
+        // WebSocket additionally 进 SuspendScope 断连名单（§5.2 五类注册之五：挂起 close(1000) 记录描述符、恢复重建）
+        if (typeof Reflect.get(globalThis, key, globalThis) !== 'function') return undefined // 宿主无此能力则如实缺失
+        if (key === 'WebSocket') return wsConstructor()
+        const raw = Reflect.get(globalThis, key, globalThis) as new (...a: unknown[]) => object
         const Wrapped = class extends raw {
           constructor(...args: unknown[]) {
             report(`sandbox-network-${String(key)}`, { args: args.map(String).slice(0, 2) })
             super(...(args as never[]))
-            if (key === 'WebSocket') {
-              const sock = this as unknown as {
-                url: string
-                readyState: number
-                close: (code?: number) => void
-              }
-              sockets.add({
-                url: sock.url ?? String(args[0] ?? ''),
-                protocols: args[1] as string | string[] | undefined,
-                close: (code) => sock.close(code),
-                readyState: () => sock.readyState,
-              })
-            }
           }
         }
         hardenFunction(Wrapped as unknown as Function)

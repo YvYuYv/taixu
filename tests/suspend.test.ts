@@ -263,3 +263,21 @@ describe('挂起队列（§5.5，ADR-0008/0015/0021）', () => {
     expect(got).toEqual(['keep', 'v2']) // 同键移除旧值、最新值入队尾（§5.5：时间序）
   })
 })
+
+describe('WS 重连（§5.2-3，ADR-0017）', () => {
+  it('挂起 close(1000) 记描述符；恢复框架自动重建连接（订阅由应用重建）', async () => {
+    const host = createCordis({ apps: [defineApp('w-app', () => ({ name: 'w-app', apply() {} }))] })
+    await settle()
+    const instance = await host.lifecycle.mount('w-app', 'main')
+    const WS = instance.sandbox!.proxy.WebSocket as new (url: string) => object
+    void new WS('ws://localhost:1/channel') // 应用建连（进断连名单）
+
+    await host.lifecycle.requestSuspend(host, instance.instanceId, 'system', 'command')
+    expect(instance.sandbox!.closedSockets()).toEqual([{ url: 'ws://localhost:1/channel', protocols: undefined }])
+
+    await host.lifecycle.requestResume(host, instance.instanceId, 'command') // 恢复：框架重建连接
+    await host.lifecycle.requestSuspend(host, instance.instanceId, 'system', 'command') // 再次冻结：重建的连接又入名单
+    expect(instance.sandbox!.closedSockets()).toHaveLength(2) // 描述符含重建连接（可再次冻结 = 真重建）
+    await host.lifecycle.requestResume(host, instance.instanceId, 'command')
+  })
+})

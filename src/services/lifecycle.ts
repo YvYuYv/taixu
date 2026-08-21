@@ -77,6 +77,8 @@ export interface LifecycleConfig {
 export interface KeepAliveConfig {
   /** 最大同时保活实例数（默认 5；超限 LRU 驱逐） */
   maxCount?: number
+  /** 单实例最长保活 ms（超时驱逐；后台标签页 document.hidden 期间暂停计时，§5.4 尾条） */
+  ttlMs?: number
   /** 内存水位阈值（默认 0.85；Chromium 限定，非 Chromium 优雅退化跳过） */
   watermark?: number
   /** 水位轮询间隔 ms（默认 30000；操作触发检查为主、轮询兜底，ADR-0057） */
@@ -121,6 +123,27 @@ export class LifecycleService extends Service<LifecycleConfig> {
       const timer = setInterval(() => void this.enforceBudget(), config.keepAlive?.pollMs ?? 30000)
       ctx.effect(() => () => clearInterval(timer))
     }
+    // 后台标签页 TTL 计时暂停（§5.4 尾条）：document.hidden 期间累计隐藏时长，
+    // TTL 裁决时从挂起时长中扣除（浏览器节流 setTimeout 不可靠，改记账补算）
+    const onVisibility = () => {
+      if (document.hidden) this.hiddenAt = Date.now()
+      else if (this.hiddenAt !== null) {
+        this.hiddenTotal += Date.now() - this.hiddenAt
+        this.hiddenAt = null
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    ctx.effect(() => () => document.removeEventListener('visibilitychange', onVisibility))
+  }
+
+  /** 隐藏记账（TTL 计时暂停用） */
+  private hiddenAt: number | null = null
+  private hiddenTotal = 0
+
+  /** TTL 已挂起时长（扣除后台隐藏时长；未声明 ttlMs 时不参与裁决） */
+  private ttlElapsed(instance: AppInstance): number {
+    const hiddenNow = this.hiddenAt !== null ? Date.now() - this.hiddenAt : 0
+    return Date.now() - (instance.suspendedAt ?? Date.now()) - this.hiddenTotal - hiddenNow
   }
 
   /** Chromium memory API 可用性（水位驱逐的启用条件，ADR-0026） */
@@ -437,6 +460,16 @@ export class LifecycleService extends Service<LifecycleConfig> {
     try {
       await idleCallback()
       const maxCount = this.keepAlive.maxCount ?? 5
+      // TTL 驱逐（§5.4 尾条）：单实例最长保活，超时按挂起时长驱逐（后台隐藏时间不计）
+      const ttlMs = this.keepAlive.ttlMs
+      if (ttlMs !== undefined) {
+        for (const instance of [...this.suspendedInstances()]) {
+          if (this.ttlElapsed(instance) > ttlMs) {
+            this.ctx.monitor.capture(new Error('TTL 保活超时驱逐'), { appId: instance.appId, phase: 'runtime' })
+            await this.evict(instance, 'ttl')
+          }
+        }
+      }
       // 数量上限（LRU：lastAccessAt 最旧先走）
       while (this.suspendedInstances().length > maxCount) {
         const victim = [...this.suspendedInstances()].sort((a, b) => a.lastAccessAt - b.lastAccessAt)[0]
@@ -491,7 +524,7 @@ export class LifecycleService extends Service<LifecycleConfig> {
   }
 
   /** 驱逐 = 快照 + 销毁 + app/evicted（§5.4/§5.5：淘汰统一走 §3.2 destroy 真正释放） */
-  private async evict(instance: AppInstance, cause: 'lru' | 'pressure'): Promise<void> {
+  private async evict(instance: AppInstance, cause: 'lru' | 'pressure' | 'ttl'): Promise<void> {
     this.snapshotLocalKeys(instance.appId) // 销毁会回收 local 键空间：先快照（app/disposed 监听）
     await this.destroy(instance.instanceId, 'evicted')
     this.ctx.emit('app/evicted', { appId: instance.appId, instanceId: instance.instanceId, cause })

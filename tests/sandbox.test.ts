@@ -4,6 +4,7 @@
  * 语义源：js-sandbox.md §3.1 逃逸向量表 + §3.2 双窗口 trap 语义 + §3.5/3.7。
  */
 import { describe, it, expect, beforeEach } from 'vitest'
+import type { Context } from 'cordis'
 import { createCordis } from '../src'
 import { createSandbox, type Sandbox, type SandboxOptions } from '../src/sandbox'
 
@@ -421,3 +422,25 @@ interface CustomElementRegistryLike {
   get(tag: string): unknown
 }
 export type { Sandbox, SandboxOptions }
+
+describe('网络面记账补面（§3.6 过渡实现）', () => {
+  it('WebSocket/EventSource 构造记账上报（sandbox-network-* violation）', () => {
+    const seen: string[] = []
+    const ctx = { emit: (name: string, p: { rule: string }) => {
+      if (name === 'security/violation') seen.push(p.rule)
+    } } as unknown as Context
+    return (async () => {
+      const sb = await createSandbox(ctx, 'net-app')
+      if (typeof globalThis.WebSocket === 'function') {
+        const WS = sb.proxy.WebSocket as new (u: string) => object
+        void new WS('ws://localhost:1/x')
+        expect(seen).toContain('sandbox-network-WebSocket')
+      }
+      if (typeof globalThis.EventSource === 'function') {
+        const ES = sb.proxy.EventSource as new (u: string) => object
+        void new ES('http://localhost:1/sse')
+        expect(seen).toContain('sandbox-network-EventSource')
+      }
+    })()
+  })
+})

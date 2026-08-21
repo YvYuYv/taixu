@@ -28,3 +28,4 @@
 - 双轴审查（Standards + Spec）发现并已修复：coalesce 应"移除旧值 + 最新入队尾"（我最初实现为旧位替换，与 §5.5 时间序语义冲突）；`switch` 切回已挂起应用曾冷挂载新实例（违反"回程零冷启动"）；`handleEvent` 对象形态监听器曾绕过门控；`reason` 自由字符串经 cast 伪装成枚举（已建 `SuspendReason` 类型）；`coalesceKey` 顶层字段与文档 `message.metadata.coalesceKey` 不一致（已对齐）。
 - 遗留到后续票：WS 重连（09 号票恢复通道）；LRU 驱逐执行（10 号票，本票已备 `lastAccessAt` 键与 touch 刷新）；`keepAlive: false` 显式销毁（10 号票）。
 - 测试面说明：定时器/监听门控经 `instance.sandbox.proxy`（= 应用执行环境的 globalThis 替身，即应用视角）断言；`fiberStateName` 取代魔数断言；11 个主缝测试 + 全量 111 绿灯。
+- 终检补完（P1）：WS 恢复重建已落地（unfreeze 按描述符经同一包装构造器重连，ADR-0017；订阅仍由应用重建），tests/suspend.test.ts 补验收。

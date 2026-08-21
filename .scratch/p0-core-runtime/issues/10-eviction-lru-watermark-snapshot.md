@@ -29,3 +29,4 @@
 - 双轴审查发现并已修复：`hydrateLocalKeys` 曾无守卫 `JSON.parse`（损坏快照会炸挂载事务）→ catch + 降级冷启动 + 上报；快照用后不删（非驱逐销毁后残留旧态会注回下次冷启动）→ 一次性消费；单快照曾无 >2MB 放弃守卫（cordis-alignment 基线）→ 补上并清旧；`app/evicted` 增补 `cause` 判别字段（消除 evict 死参数）；`underPressure` mUASM 分支曾硬依赖 legacy `jsHeapSizeLimit`（新 API-only 环境成死路）→ `memoryLimitBytes` 配置分母；perf cast 重复提取 `memoryPerf()`。
 - 文档建议（未改动，票面外）：lifecycle-management.md §5.4 `KeepAliveConfig` 接口块缺 `watermark/pollMs/snapshotPoolBytes/memoryLimitBytes`；§5.4"按 LRU 顺序驱逐（水位）"与 §5.1.1/票面的候选序（挂起时长）措辞需统一。
 - 遗留（票面外，后续票/跟进）：`ttlMs` 单实例最长保活 + `document.hidden` 暂停计时（§5.4 尾条）；快照池跨会话账本（本会话 Map 不感知上一会话残留键，trim 只见本会话）；HMR 复用快照（ADR-0037，快照/注水原语已就绪）。
+- 终检补完（P1）：`ttlMs` 单实例最长保活 + `document.hidden` 计时暂停（visibilitychange 记账补算）已落地，`app/evicted.cause` 增 `ttl` 判别（基线 §2.4 同步），tests/eviction.test.ts 补验收。

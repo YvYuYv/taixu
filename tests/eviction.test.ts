@@ -243,3 +243,53 @@ describe('水位驱逐（§5.4，ADR-0026/0057）', () => {
     expect(evicted).toEqual(['a']) // 挂起时长优先（候选序 ≠ LRU 键）
   })
 })
+
+describe('TTL 驱逐与后台计时暂停（§5.4 尾条）', () => {
+  it('单实例超时保活被驱逐（cause=ttl）', async () => {
+    const evicted: Array<{ appId: string; cause: string }> = []
+    const host = createCordis({
+      keepAlive: { maxCount: 10, ttlMs: 40 },
+      apps: [localApp('a'), localApp('b')],
+    })
+    await settle()
+    host.on('app/evicted', (e) => evicted.push({ appId: e.appId, cause: e.cause }), { global: true })
+    const ia = await host.lifecycle.mount('a', 'main')
+    await host.lifecycle.mount('b', 'o1')
+    await host.lifecycle.requestSuspend(host, ia.instanceId, 'keepalive', 'route')
+    await sleep(90) // 超过 ttlMs=40
+    await host.lifecycle.requestSuspend(host, host.lifecycle.getInstances().find((i) => i.appId === 'b')!.instanceId, 'keepalive', 'route') // 触发预算检查
+    await settle()
+    await sleep(20)
+    expect(evicted).toEqual([{ appId: 'a', cause: 'ttl' }]) // TTL 驱逐（b 未超时保留）
+  })
+
+  it('document.hidden 期间 TTL 计时暂停（后台标签页不误杀）', async () => {
+    const evicted: string[] = []
+    const host = createCordis({
+      keepAlive: { maxCount: 10, ttlMs: 60 },
+      apps: [localApp('a'), localApp('b')],
+    })
+    await settle()
+    host.on('app/evicted', (e) => evicted.push(e.appId), { global: true })
+    const ia = await host.lifecycle.mount('a', 'main')
+    await host.lifecycle.mount('b', 'o1')
+    await host.lifecycle.requestSuspend(host, ia.instanceId, 'keepalive', 'route')
+
+    // 进入后台：隐藏时长不计入 TTL
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await sleep(100) // 全程隐藏 > ttlMs
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await host.lifecycle.requestSuspend(host, host.lifecycle.getInstances().find((i) => i.appId === 'b')!.instanceId, 'keepalive', 'route') // 触发检查
+    await settle()
+    await sleep(20)
+    expect(evicted).toEqual([]) // 隐藏期不计——未超时
+
+    await sleep(80) // 前台持续 > ttlMs
+    await host.lifecycle.mount('a', 'o2').catch(() => {}) // 任意操作触发检查（a 若被逐则重挂）
+    await settle()
+    await sleep(20)
+    expect(evicted).toEqual(['a']) // 前台计时到点驱逐
+  })
+})
