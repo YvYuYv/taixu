@@ -592,15 +592,23 @@ export class LifecycleService extends Service<LifecycleConfig> {
     return next
   }
 
-  /** scopedFetch 最小实现：权限裁决接线在 11 号票；本票保证注入时序（ADR-0005） */
+  /**
+   * scopedFetch（ADR-0005 唯一 fetch 链路；11 号票全链路接线）：
+   * security.sanitizeURL 一体裁决（协议门 + origin 授权，粗授权经 adjudicate
+   * 超时 fail-closed，ADR-0024/0051）；拒绝路径 violation 上报
+   * （网络类按 (appId, rule) 限流去重，§8）。
+   */
   private scopedFetch(appId: string): typeof fetch {
     return async (input: RequestInfo | URL, init?: RequestInit) => {
-      const verdict = this.ctx.security.check(appId, 'net:fetch')
-      if (!verdict.allowed) {
-        this.ctx.security.reportViolation(appId, 'net:fetch', { url: String(input) })
-        throw new Error(`scopedFetch: net:fetch denied for ${appId}`)
+      const url = String(input instanceof Request ? input.url : input)
+      const sanitized = await this.ctx.security.sanitizeURL(appId, url)
+      if (sanitized === null) {
+        this.ctx.security.reportViolation(appId, 'net:fetch', { url })
+        throw new Error(`scopedFetch: net:fetch denied for ${appId} (${url})`)
       }
-      return globalThis.fetch(input, init)
+      // Request 对象原样透传（method/body/headers 不丢）；字符串/URL 以规范化后的 href 请求
+      if (input instanceof Request) return globalThis.fetch(input, init)
+      return globalThis.fetch(sanitized, init)
     }
   }
 

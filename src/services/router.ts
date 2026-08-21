@@ -148,7 +148,7 @@ export class RouterService extends Service<RouterConfig> {
           this.outlets.set(MAIN_CHANNEL, { path: window.location.pathname, query: stripReserved(window.location.search) })
         }
         const from = this.lastCommitted
-        const result = await this.navigate(this.current(MAIN_CHANNEL), { outlet: MAIN_CHANNEL, history: true })
+        const result = await this.navigate(this.current(MAIN_CHANNEL), { caller: this.rootCtx(), outlet: MAIN_CHANNEL, history: true })
         if (result.status === 'guarded' || result.status === 'superseded') {
           this.outlets = matrixBackup // 矩阵回滚
           // 守卫拒绝历史导航：replace 恢复原 URL（不产生新历史记录）
@@ -215,16 +215,25 @@ export class RouterService extends Service<RouterConfig> {
   /** 写入口（导航，§4.1）：隔离视图内也经本全局控制器合并（ADR-0006 写侧不隔离） */
   async navigate(
     to: Partial<RouteLocation>,
-    options: { outlet?: string; replace?: boolean; history?: boolean; depth?: number } = {},
-  ): Promise<{ status: 'ok' | 'superseded' | 'guarded' | 'error' }> {
+    options: { caller: Context; outlet?: string; replace?: boolean; history?: boolean; depth?: number },
+  ): Promise<{ status: 'ok' | 'superseded' | 'guarded' | 'denied' | 'error' }> {
     const outlet = options.outlet ?? MAIN_CHANNEL
+    // 0. 守卫前置（11 号票，security §四.6 导航资源）：调用者显式归因（caller 必填——
+    //    无归因即拒绝，fail-closed，不做"缺省放行"）；root/宿主不受限；
+    //    拒绝发生在守卫管线之前——未授权者连守卫都不可见
+    const callerAppId = options.caller.fiber.name
+    if (callerAppId !== 'root' && !this.ctx.security.check(callerAppId, 'route:navigate').allowed) {
+      this.ctx.security.reportViolation(callerAppId, 'route:navigate', { outlet, to })
+      return { status: 'denied' }
+    }
     const id = ++this.seq
     // 每导航 AbortController（§4.1）：superseded 时 abort，守卫可观测取消
     const controller = new AbortController()
     const stale = () => id !== this.seq
     if (stale()) controller.abort()
     const from = this.current(outlet)
-    const target: RouteLocation = { path: to.path ?? from.path, query: to.query ?? {} }
+    // 敏感参数过滤（route-adaptation §3.2）：token/_t/sign 等黑名单键剥离，杜绝跨应用泄漏
+    const target: RouteLocation = { path: to.path ?? from.path, query: this.ctx.security.sanitizeQuery(to.query ?? {}) }
 
     // 1. 守卫管线（serial，ADR-0002）：守卫经 ctx.on('router/navigate', ..., { global: true }) 注册
     const verdict = (await this.ctx.serial('router/navigate', {
@@ -298,7 +307,7 @@ export class RouterService extends Service<RouterConfig> {
     to: string,
     outlet: string,
     options: { replace?: boolean; history?: boolean; depth?: number },
-  ): Promise<{ status: 'ok' | 'superseded' | 'guarded' | 'error' }> {
+  ): Promise<{ status: 'ok' | 'superseded' | 'guarded' | 'denied' | 'error' }> {
     const depth = (options.depth ?? 0) + 1
     if (depth >= REDIRECT_LOOP_CAP) {
       this.ctx.monitor.capture(new Error(`router: redirect loop (>= ${REDIRECT_LOOP_CAP}) at "${to}"`), {
@@ -307,7 +316,14 @@ export class RouterService extends Service<RouterConfig> {
       this.ctx.emit('monitor/alert', { alert: { level: 'error', message: 'ROUTER_REDIRECT_LOOP' } })
       return { status: 'error' }
     }
-    return this.navigate({ path: to }, { outlet, replace: options.replace, depth })
+    return this.navigate({ path: to }, { caller: this.rootCtx(), outlet, replace: options.replace, depth })
+  }
+
+  /** root ctx（宿主）：内部导航（popstate 恢复/重定向递归）的系统归因——沿 fiber 父链上溯（root 自环即止） */
+  private rootCtx(): Context {
+    let fiber = this.ctx.fiber
+    while (fiber.parent?.fiber && fiber.parent.fiber !== fiber) fiber = fiber.parent.fiber
+    return fiber.ctx
   }
 }
 

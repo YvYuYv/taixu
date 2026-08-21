@@ -23,8 +23,8 @@ describe('URL 矩阵（§3.1）', () => {
   it('非主槽位写 query 通道：__tx_ 前缀、主区域不动', async () => {
     const host = createCordis({ apps: [defineApp('a', () => createProbeApp('a', () => {}))], routes: [{ basePath: '/a', appId: 'a' }] })
     await settle()
-    await host.router.navigate({ path: '/a' }, { outlet: 'main' })
-    await host.router.navigate({ path: '/list' }, { outlet: 'sidebar' })
+    await host.router.navigate({ path: '/a' }, { caller: host, outlet: 'main' })
+    await host.router.navigate({ path: '/list' }, { caller: host, outlet: 'sidebar' })
 
     const url = new URL(window.location.href)
     expect(url.pathname).toBe('/a') // 主区域 = pathname
@@ -36,9 +36,9 @@ describe('URL 矩阵（§3.1）', () => {
   it('参数合并不互抹：sidebar 导航不清 main', async () => {
     const host = createCordis({ apps: [defineApp('a', () => createProbeApp('a', () => {}))], routes: [{ basePath: '/a', appId: 'a' }] })
     await settle()
-    await host.router.navigate({ path: '/a', query: { tab: 'x' } }, { outlet: 'main' })
-    await host.router.navigate({ path: '/list' }, { outlet: 'sidebar' })
-    await host.router.navigate({ path: '/detail' }, { outlet: 'sidebar' })
+    await host.router.navigate({ path: '/a', query: { tab: 'x' } }, { caller: host, outlet: 'main' })
+    await host.router.navigate({ path: '/list' }, { caller: host, outlet: 'sidebar' })
+    await host.router.navigate({ path: '/detail' }, { caller: host, outlet: 'sidebar' })
 
     const url = new URL(window.location.href)
     expect(url.pathname).toBe('/a')
@@ -56,8 +56,8 @@ describe('URL 矩阵（§3.1）', () => {
       ],
     })
     await settle()
-    await host.router.navigate({ path: '/a' }, { outlet: 'main' })
-    await host.router.navigate({ path: '/w1' }, { outlet: 'widget' })
+    await host.router.navigate({ path: '/a' }, { caller: host, outlet: 'main' })
+    await host.router.navigate({ path: '/w1' }, { caller: host, outlet: 'widget' })
 
     const snapshot = host.router.snapshot()
     expect(snapshot.main?.appId).toBe('a')
@@ -67,9 +67,9 @@ describe('URL 矩阵（§3.1）', () => {
   it('通道仲裁（§3.1-2/3）：浮窗 widget 走 hash 通道（URL-encoded 槽位=路径映射），query 槽位不混入', async () => {
     const host = createCordis({ apps: [defineApp('a', () => createProbeApp('a', () => {}))] })
     await settle()
-    await host.router.navigate({ path: '/a' }, { outlet: 'main' })
-    await host.router.navigate({ path: '/sidebar' }, { outlet: 'sidebar' })
-    await host.router.navigate({ path: '/home' }, { outlet: 'widget' })
+    await host.router.navigate({ path: '/a' }, { caller: host, outlet: 'main' })
+    await host.router.navigate({ path: '/sidebar' }, { caller: host, outlet: 'sidebar' })
+    await host.router.navigate({ path: '/home' }, { caller: host, outlet: 'widget' })
 
     const url = new URL(window.location.href)
     expect(url.searchParams.get('__tx_sidebar')).toBe('/sidebar') // query 通道槽位照旧
@@ -84,7 +84,7 @@ describe('URL 矩阵（§3.1）', () => {
     await settle()
     host.router.registerOutlet(host, 'panel', { owner: 'a', basePath: '/panel' })
 
-    await host.router.navigate({ path: '/panel/x' }, { outlet: 'panel' })
+    await host.router.navigate({ path: '/panel/x' }, { caller: host, outlet: 'panel' })
     expect(host.router.snapshot().panel?.appId).toBe('a') // 注册的 basePath 命中，归因 owner
 
     // 同槽位不同 basePath 重复注册显式报错，不静默覆盖
@@ -104,7 +104,7 @@ describe('守卫枚举（§4.3 ADR-0002）', () => {
       { global: true },
     )
 
-    const result = await host.router.navigate({ path: '/a' }, { outlet: 'main' })
+    const result = await host.router.navigate({ path: '/a' }, { caller: host, outlet: 'main' })
     expect(result.status).toBe('guarded')
     expect(window.location.pathname).toBe('/')
     expect(aborted).toContain('guard')
@@ -124,7 +124,7 @@ describe('守卫枚举（§4.3 ADR-0002）', () => {
       { global: true },
     )
 
-    const result = await host.router.navigate({ path: '/a' }, { outlet: 'main' })
+    const result = await host.router.navigate({ path: '/a' }, { caller: host, outlet: 'main' })
     expect(result.status).toBe('ok') // redirect 后的新导航成功
     expect(host.router.current('main').path).toBe('/login')
   })
@@ -140,7 +140,7 @@ describe('守卫枚举（§4.3 ADR-0002）', () => {
       { global: true },
     )
 
-    const result = await host.router.navigate({ path: '/a' }, { outlet: 'main' })
+    const result = await host.router.navigate({ path: '/a' }, { caller: host, outlet: 'main' })
     expect(result.status).toBe('error')
     expect(alerts.some((m) => m.includes('ROUTER_REDIRECT_LOOP'))).toBe(true)
   })
@@ -162,7 +162,7 @@ describe('守卫枚举（§4.3 ADR-0002）', () => {
       return { type: 'abort' } as const
     }, { global: true })
 
-    const result = await host.router.navigate({ path: '/a' }, { outlet: 'main' })
+    const result = await host.router.navigate({ path: '/a' }, { caller: host, outlet: 'main' })
     expect(result.status).toBe('ok')
     expect(order).toEqual(['g1', 'g2']) // proceed 截断 g3
   })
@@ -181,9 +181,9 @@ describe('导航序号防竞态（§4.1）', () => {
       return undefined
     }, { global: true })
 
-    const slow = host.router.navigate({ path: '/slow' }, { outlet: 'main' })
+    const slow = host.router.navigate({ path: '/slow' }, { caller: host, outlet: 'main' })
     await settle()
-    const fast = host.router.navigate({ path: '/fast' }, { outlet: 'main' })
+    const fast = host.router.navigate({ path: '/fast' }, { caller: host, outlet: 'main' })
     await settle()
     releaseFirst()
     const [slowResult, fastResult] = await Promise.all([slow, fast])
@@ -198,8 +198,8 @@ describe('popstate 全链路（§4.2）', () => {
   it('后退走完整守卫管线：守卫拒绝时 replace 恢复原 URL', async () => {
     const host = createCordis({ apps: [defineApp('a', () => createProbeApp('a', () => {}))], routes: [{ basePath: '/a', appId: 'a' }] })
     await settle()
-    await host.router.navigate({ path: '/a' }, { outlet: 'main' })
-    await host.router.navigate({ path: '/a/x' }, { outlet: 'main' })
+    await host.router.navigate({ path: '/a' }, { caller: host, outlet: 'main' })
+    await host.router.navigate({ path: '/a/x' }, { caller: host, outlet: 'main' })
     const before = window.location.pathname
     expect(before).toBe('/a/x')
 
@@ -218,8 +218,8 @@ describe('popstate 全链路（§4.2）', () => {
   it('前进/后退放行时正常切换', async () => {
     const host = createCordis({ apps: [defineApp('a', () => createProbeApp('a', () => {}))], routes: [{ basePath: '/a', appId: 'a' }] })
     await settle()
-    await host.router.navigate({ path: '/a' }, { outlet: 'main' })
-    await host.router.navigate({ path: '/a/y' }, { outlet: 'main' })
+    await host.router.navigate({ path: '/a' }, { caller: host, outlet: 'main' })
+    await host.router.navigate({ path: '/a/y' }, { caller: host, outlet: 'main' })
     window.history.back()
     await settle()
     await settle()
@@ -245,8 +245,8 @@ describe('双层事件（§3.3 ADR-0036/0047）', () => {
     host.on('outlet/changed:sidebar' as 'outlet/changed:main', (e: { outlet: string; matched: { appId: string; outlet: string } | null }) => sidebarEvents.push(e.matched?.appId ?? 'null'))
     host.on('router/changed', (e) => globalChanges.push(e.outlets as Record<string, unknown>), { global: true })
 
-    await host.router.navigate({ path: '/a' }, { outlet: 'main' })
-    await host.router.navigate({ path: '/list' }, { outlet: 'sidebar' })
+    await host.router.navigate({ path: '/a' }, { caller: host, outlet: 'main' })
+    await host.router.navigate({ path: '/list' }, { caller: host, outlet: 'sidebar' })
 
     expect(mainEvents).toEqual(['a']) // 视图隔离：sidebar 导航不打扰 main 订阅者
     expect(sidebarEvents).toEqual(['a'])
@@ -260,10 +260,10 @@ describe('双层事件（§3.3 ADR-0036/0047）', () => {
     const off = host.router.watch(host, 'main', (loc) => seen.push(loc.path))
     expect(seen).toEqual(['/']) // 首跑同步
 
-    await host.router.navigate({ path: '/a' }, { outlet: 'main' })
+    await host.router.navigate({ path: '/a' }, { caller: host, outlet: 'main' })
     expect(seen).toEqual(['/', '/a'])
     off()
-    await host.router.navigate({ path: '/a/z' }, { outlet: 'main' })
+    await host.router.navigate({ path: '/a/z' }, { caller: host, outlet: 'main' })
     expect(seen).toEqual(['/', '/a']) // 退订后不再收
   })
 })
@@ -272,15 +272,15 @@ describe('视图隔离与写侧合并（ADR-0006/0010）', () => {
   it("isolate('router-view', outlet) 只读视图：读本槽位、写经全局合并", async () => {
     const host = createCordis({ apps: [defineApp('a', () => createProbeApp('a', () => {}))], routes: [{ basePath: '/a', appId: 'a' }] })
     await settle()
-    await host.router.navigate({ path: '/a' }, { outlet: 'main' })
-    await host.router.navigate({ path: '/list' }, { outlet: 'sidebar' })
+    await host.router.navigate({ path: '/a' }, { caller: host, outlet: 'main' })
+    await host.router.navigate({ path: '/list' }, { caller: host, outlet: 'sidebar' })
 
     const view = host.isolate('router-view')
     // 读侧：隔离视图读本槽位（不是 main 的 /a）；写侧经全局合并（ADR-0006 写侧不隔离，
     // RouterService 是 root 单例 -- isolate 的意义在事件过滤：本视图只订本槽位族）
     expect(view.router.current('sidebar').path).toBe('/list')
     // 写侧：隔离视图内 navigate 也走全局合并，不抹其他槽位
-    await view.router.navigate({ path: '/list/2' }, { outlet: 'sidebar' })
+    await view.router.navigate({ path: '/list/2' }, { caller: host, outlet: 'sidebar' })
     expect(host.router.current('main').path).toBe('/a')
     expect(host.router.current('sidebar').path).toBe('/list/2')
   })
@@ -297,7 +297,7 @@ describe('与 lifecycle 解耦（基线 §2.3）', () => {
     })
     await settle()
 
-    await host.router.navigate({ path: '/a' }, { outlet: 'main' })
+    await host.router.navigate({ path: '/a' }, { caller: host, outlet: 'main' })
     expect(mounted).toEqual([{ appId: 'a', outlet: 'main' }]) // lifecycle 侧回调收到挂载意图
   })
 })

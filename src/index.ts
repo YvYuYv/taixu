@@ -1,7 +1,7 @@
 import { Context } from 'cordis'
 import './events'
 import { MonitorService } from './services/monitor'
-import { SecurityService, type PermissionRule } from './services/security'
+import { SecurityService, isIsolateAllowed, type PermissionRule } from './services/security'
 import { SandboxService } from './services/sandbox'
 import { DepsService, type AppManifestEntry } from './services/deps'
 import { LifecycleService, type RecoveryConfig, type KeepAliveConfig } from './services/lifecycle'
@@ -70,6 +70,28 @@ export function defineApp(
 }
 
 /**
+ * isolate 白名单守卫（ADR-0010/0003）：以 own property 包装 root ctx.isolate，
+ * 非白名单标签抛错拦截（deny-by-default）并留 security/violation 审计痕。
+ */
+function installIsolateGuard(ctx: Context): void {
+  const holder = ctx as Context & { isolate: (name: string, symbol?: symbol) => unknown }
+  const raw = holder.isolate.bind(ctx)
+  const wrapped = (name: string, symbol?: symbol) => {
+    if (!isIsolateAllowed(name)) {
+      ctx.emit('security/violation', { appId: 'root', rule: 'isolate-non-whitelisted', detail: { tag: name } })
+      throw new Error(`isolate: tag "${name}" not whitelisted (router-view/monitor only, ADR-0010)`)
+    }
+    return raw(name, symbol)
+  }
+  try {
+    Object.defineProperty(ctx, 'isolate', { value: wrapped, writable: true, configurable: true })
+  } catch {
+    // ctx 不可包装：守卫降级失败属框架环境异常，交由上层可见（不静默）
+    throw new Error('createCordis: failed to install isolate guard')
+  }
+}
+
+/**
  * 框架入口：一次调用拉起核心运行时。
  *
  * 01 号票：基础层 = monitor + security（零业务依赖、最先可用，ADR-0054）。
@@ -86,6 +108,9 @@ export function defineApp(
 export function createCordis(options: CreateCordisOptions = {}): Context {
   const ctx = new Context()
   ctx.plugin(MonitorService)
+  // isolate 白名单守卫（ADR-0010"仅允许两处"）：装在框架入口的 root ctx 上——
+  // 非白名单标签（router-view/monitor 之外）拦截抛错 + violation 上报（fail-closed）
+  installIsolateGuard(ctx)
   ctx.plugin(SecurityService, { rules: options.permissions ?? [] })
   ctx.plugin(SandboxService)
   ctx.plugin(DepsService, { apps: options.apps })

@@ -67,7 +67,7 @@ describe('router 通道：恢复重放一次 outlet/changed（ADR-0056）', () =
       }))],
     })
     await settle()
-    await host.router.navigate({ path: '/r' }, { outlet: 'main' })
+    await host.router.navigate({ path: '/r' }, { caller: host, outlet: 'main' })
     await settle()
     const instance = await host.lifecycle.mount('r-app', 'main')
     await settle()
@@ -100,7 +100,7 @@ describe('恢复时序：state/sync -> outlet 重放 -> 消息回放（三通道
       }))],
     })
     await settle()
-    await host.router.navigate({ path: '/o' }, { outlet: 'main' })
+    await host.router.navigate({ path: '/o' }, { caller: host, outlet: 'main' })
     const instance = await host.lifecycle.mount('ord-app', 'main')
     await settle()
     log.length = 0
