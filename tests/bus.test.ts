@@ -331,3 +331,57 @@ describe('TTL 与 message/send 通知族（§3.1）', () => {
     expect((got[0] as { type: string }).type).toBe('evt:ping')
   })
 })
+
+describe('publishLatest 响应式 retained（§5.3，B-通信）', () => {
+  it('晚到应用 onLatest 同步取当前值（不错过初始消息）；变更即时通知；TTL 过期不回调', async () => {
+    const got: Array<unknown> = []
+    const host = createCordis({
+      permissions: [
+        { appId: 'pub', allow: ['state:write:shared:_latest:env:config_ready', 'message:env:config_ready'] },
+        { appId: 'late', allow: ['state:read:shared:_latest:env:config_ready'] },
+        { appId: 'late2', allow: ['state:read:shared:_latest:env:expired'] },
+      ],
+      apps: [
+        defineApp('pub', () => ({ name: 'pub', inject: ['bus'], apply() {} })),
+        defineApp('late2', () => ({
+          name: 'late2',
+          inject: ['bus', 'state'],
+          apply(ctx: Context) {
+            ctx.bus.onLatest(ctx, 'env:expired', (p) => expiredGot.push(p))
+          },
+        })),
+        defineApp('late', () => ({
+          name: 'late',
+          inject: ['bus', 'state'],
+          apply(ctx: Context) {
+            ctx.bus.onLatest(ctx, 'env:config_ready', (p) => got.push(p))
+          },
+        })),
+      ],
+    })
+    await settle()
+
+    // 发布者先行登记最新值（晚到者尚未挂载）
+    const pubCtx = (await host.lifecycle.mount('pub', 'main')).ctx
+    await settle()
+    expect(host.bus.publishLatest(pubCtx, 'env:config_ready', { theme: 'dark' })).toBe(true)
+    expect(host.state.get('shared:_latest:env:config_ready')).toMatchObject({ payload: { theme: 'dark' } })
+
+    // 晚到应用挂载：onLatest 首跑同步拿到当前值（不依赖回放、无乱序）
+    await host.lifecycle.mount('late', 'o1')
+    await settle()
+    expect(got).toEqual([{ theme: 'dark' }])
+
+    // 再发布：watch 即时通知
+    host.bus.publishLatest(pubCtx, 'env:config_ready', { theme: 'light' })
+    await settle()
+    expect(got).toEqual([{ theme: 'dark' }, { theme: 'light' }])
+
+    // TTL 过期条目不回调：晚到应用 onLatest 对过期值静默（首跑即过滤）
+    host.state.set('shared:_latest:env:expired', { payload: 'stale', at: Date.now() - 10_000, ttl: 1000 })
+    const expiredGot: unknown[] = []
+    await host.lifecycle.mount('late2', 'o2') // 挂载即 onLatest 首跑（对过期值）
+    await settle()
+    expect(expiredGot).toEqual([]) // 过期最新值：onLatest 静默（TTL 消费侧裁决）
+  })
+})

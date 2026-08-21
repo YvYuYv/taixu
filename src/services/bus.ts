@@ -329,6 +329,35 @@ export class BusService extends Service<BusConfig> {
    * 基线 §2.5"对每个 ACTIVE 应用 ctx emit（global: true）"的语义 = 目标子树 + global 旁听可见，
    * 与本实现的 scoped emit 等价（载荷不广播是票面硬性要求）。
    */
+  /**
+   * 最新值登记（§5.3 响应式 retained，修复"后加载应用错过初始消息"）：
+   * 写入 state 服务的 shared 键（晚到应用经 watch/onLatest 同步取当前值——不是 MQTT 式
+   * retained 回放，无乱序/僵尸回调问题）；同时 send 即时通知已加载应用。
+   * 发布者需 `state:write:shared:_latest:{type}` 写权限（deny-by-default）。
+   */
+  publishLatest(ctx: Context, type: string, payload: unknown, options: { ttl?: number } = {}): boolean {
+    const appId = ctx.fiber.name !== 'root' ? ctx.fiber.name : 'system'
+    const key = `shared:_latest:${type}`
+    this.ctx.state.set(key, { payload, at: Date.now(), ttl: options.ttl ?? Infinity }, {
+      appId: appId === 'system' ? undefined : appId,
+    })
+    return this.send(ctx, { type, payload }) // 广播即时通知（载荷不进 retained 语义——最新值在 state）
+  }
+
+  /**
+   * 订阅"最新值"（§5.3）：watch 首跑同步拿到当前值（无乱序），变更即时通知；
+   * TTL 过期条目不回调（消费侧裁决——"最新值"建模为状态而非消息，TTL 语义交给状态层）。
+   * 订阅者需 `state:read:shared:_latest:{type}` 读权限（fail-closed）。
+   */
+  onLatest(ctx: Context, type: string, handler: (payload: unknown, meta: { at: number; ttl: number }) => void): void {
+    ctx.state.watch(ctx, `shared:_latest:${type}`, (entry) => {
+      const e = entry as { payload: unknown; at: number; ttl: number } | undefined
+      if (!e || typeof e.at !== 'number') return
+      if (e.ttl !== Infinity && Date.now() - e.at > e.ttl) return // 过期：不回调（状态仍可拉，由应用自行裁决）
+      handler(e.payload, { at: e.at, ttl: e.ttl })
+    })
+  }
+
   broadcast(ctx: Context, message: SendMessageInput): boolean {
     return this.send(ctx, { ...message, target: undefined })
   }
