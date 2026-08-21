@@ -458,3 +458,15 @@ Cordis 微前端框架基于 **Cordis IoC 架构**，通过 **Context 隔离** �
 - **可维护性强**：统一事件契约（基线 §2.4）+ 分层架构 + 每模块文档附"与旧版差异"索引
 
 Cordis 代表了微前端框架的下一代发展方向，为大型复杂前端应用提供了更优雅、更高效的解决方案。
+
+---
+
+## P0 核心运行时 · 验证与裁决声明（12 号票收口）
+
+- **验证链**：`npm run verify` = typecheck + 全量测试（137 例）。其中 `tests/contract.test.ts` 是事件契约机器验证 + 静态扫描 lint（`npm run lint:contract` 单独可跑）：
+  - 基线 §2.4 全部事件在集成场景中断言形状（载荷单对象、必填字段类型机器可读契约表）
+  - 结果契约：守卫族只允许枚举三值 + `undefined`（违规形状按中止 + monitor 上报，ADR-0002）；请求-应答族只允许包络/null/undefined（false 运行时拒绝，ADR-0014）
+  - 静态扫描：零 `ctx.bail`（ADR-0016）、`app/intent:*` 不存在（ADR-0035）、已删除旧契约事件名零引用、禁 `ctx.service.x` 自造访问
+  - 核心层守卫：八核心服务运行时替换（散落 `ctx.set`）被拒并上报（ADR-0011）
+- **演示终验**：`npm run dev`（demo/）串起挂载 → 请求-应答 → 切换保活 → 消息回放 → 驱逐暖启动 → 守卫拦截 → fail-closed 全链路。
+- **文档冲突裁决**：任何模块文档与 **cordis-alignment.md** 冲突时，以 cordis-alignment.md 为准（AGENTS.md 约定；CI 注释同此声明）。

@@ -52,6 +52,16 @@ function outletEventKey(outlet: string): 'outlet/changed:main' {
   return `outlet/changed:${outlet}` as 'outlet/changed:main'
 }
 
+/** 守卫结果形状校验（结果契约 ADR-0002/0012）：只允许枚举三值（proceed/redirect/abort）+ undefined */
+function isValidGuardResult(v: unknown): v is GuardResult {
+  if (v === undefined) return true
+  if (typeof v !== 'object' || v === null) return false
+  const t = (v as { type?: unknown }).type
+  if (t === 'proceed' || t === 'abort') return true
+  if (t === 'redirect') return typeof (v as { to?: unknown }).to === 'string'
+  return false
+}
+
 /** 路径段边界前缀匹配（§3.3）：`/app1/mod` 不命中 `/app1/module-a` */
 function segmentPrefixMatch(basePath: string, path: string): boolean {
   if (path === basePath || path === basePath + '/') return true
@@ -242,6 +252,17 @@ export class RouterService extends Service<RouterConfig> {
       outlet,
       signal: controller.signal,
     })) as GuardResult
+    // 结果契约校验（12 号票，ADR-0002）：守卫返回值只允许枚举三值 + undefined；
+    // 违规形状按中止处理并 monitor 上报（不做真值裁决）
+    if (verdict !== undefined && !isValidGuardResult(verdict)) {
+      this.ctx.monitor.capture(new Error(`guard-contract-violation on router/navigate (outlet=${outlet})`), {
+        appId: this.registrations.get(outlet)?.owner, // 槽位 owner 归因（无注册则为 undefined）
+        phase: 'runtime',
+      })
+      this.ctx.emit('router/aborted', { outlet, reason: 'guard' })
+      controller.abort()
+      return { status: 'guarded' }
+    }
     if (stale()) {
       controller.abort()
       return { status: 'superseded' }

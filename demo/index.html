@@ -3,14 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>太虚 · P0 宿主演示（01 号票：基础层）</title>
+    <title>太虚 · P0 宿主演示（12 号票：全链路终验）</title>
   </head>
   <body>
-    <h1>太虚 P0 宿主演示</h1>
-    <p>探针应用回报的 ctx 契约：</p>
-    <ul id="probe-report"></ul>
-    <p>宿主旁听的事件（global）：</p>
-    <ul id="host-events"></ul>
+    <h1>太虚 P0 宿主演示（全链路终验）</h1>
+    <p>链路：挂载 → 请求-应答 → 切换保活（默认挂起）→ 消息回放 → 驱逐暖启动 → 守卫拦截 → fail-closed</p>
+    <ul id="flow"></ul>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

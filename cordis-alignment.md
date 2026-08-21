@@ -124,7 +124,7 @@ interface Events {
   'app/error': { appId: string; instanceId: string; phase: 'load' | 'activate' | 'runtime'; error: Error; recoverable: boolean }
   'app/suspend': { instanceId: string; reason: 'keepalive' | 'navigation' | 'system' }   // 保活挂起（非 dispose）
   'app/resume': { instanceId: string }
-  'app/evicted': { appId: string; instanceId: string }       // LRU 驱逐，已 dispose（ADR-0019）
+  'app/evicted': { appId: string; instanceId: string; cause: 'lru' | 'pressure' }  // LRU/水位驱逐，已 dispose（ADR-0019/0026；cause 判别字段，10 号票）
   'app/disposed': { appId: string; instanceId: string }
   // 路由
   'router/navigate': { from: RouteLocation; to: RouteLocation; outlet: string; signal: AbortSignal }  // serial，可被拦截
@@ -136,6 +136,9 @@ interface Events {
   'message/send': { message: CordisMessage }                 // 载荷自动携带 traceparent（ADR-0022）
   'message/receive': { message: CordisMessage; targetCtx: Context }
   'bus/overflow': { instanceId: string; coalescedKeys: string[]; droppedCount: number }  // 挂起队列溢出（ADR-0021）
+  'message/response': { message: CordisMessage }            // 请求-应答回包（type 前缀 response:，§3.3 correlationId 关联）
+  'router/replay': { instanceId: string; outlet: string }   // 恢复时序编排（09 号票：state/sync -> outlet 重放 -> 消息回放，ADR-0056）
+  'bus/replay': { instanceId: string }                      // 同上（第三步：挂起队列回放触发，ADR-0015）
   // 状态
   'state/changed': { key: string; value: unknown; old: unknown; path: string; source: string; version: number }
   'state/sync': { instanceId: string; keys: Record<string, { value: unknown; version: number }> }  // 挂起恢复时一次性同步（ADR-0023）

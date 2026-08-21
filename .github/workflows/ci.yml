@@ -1,0 +1,20 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      # 验证链 = typecheck + 全量测试（含事件契约机器验证与静态扫描 lint，
+      # 见 tests/contract.test.ts）。文档冲突裁决规则：任何模块文档与
+      # cordis-alignment.md 冲突时，以 cordis-alignment.md 为准（AGENTS.md 约定）。
+      - run: npm run verify

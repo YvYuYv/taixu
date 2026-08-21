@@ -170,6 +170,7 @@ export class LifecycleService extends Service<LifecycleConfig> {
       // 1. 资源加载（deps；signal 全程透传）
       const plugin = (await this.ctx.deps.loadApp(appId, { signal })) as Record<string, unknown>
       if (signal.aborted) throw new DOMException('aborted', 'AbortError')
+      this.ctx.emit('app/loaded', { appId, instanceId }) // 资源就绪（基线 §2.4）
 
       // 2. sandbox 创建（first-party；teardown 双保险注册在 fiber effect 上，§四所有权表）
       const sandbox = await this.ctx.sandbox.create(appId, { container })

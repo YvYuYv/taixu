@@ -70,25 +70,59 @@ export function defineApp(
 }
 
 /**
- * isolate 白名单守卫（ADR-0010/0003）：以 own property 包装 root ctx.isolate，
- * 非白名单标签抛错拦截（deny-by-default）并留 security/violation 审计痕。
+ * root ctx 方法守卫共用包装（isolate 白名单 / 核心服务替换，ADR-0010/0011）：
+ * 以 own property 遮蔽原型方法；原始方法以**调用点 this** 执行（子 ctx 经原型链
+ * 取得同一包装时不被钉死在 root 作用域）。
+ */
+function wrapRootMethod<M extends string>(
+  ctx: Context,
+  method: M,
+  makeWrapper: (invoke: (this: Context, ...args: never[]) => unknown) => (this: Context, ...args: never[]) => unknown,
+  guardName: string,
+): void {
+  const holder = ctx as unknown as Record<M, (this: Context, ...args: never[]) => unknown>
+  const raw = holder[method]
+  const wrapped = makeWrapper(function (this: Context, ...args: never[]) {
+    return raw.apply(this, args)
+  })
+  try {
+    Object.defineProperty(ctx, method, { value: wrapped, writable: true, configurable: true })
+  } catch {
+    // ctx 不可包装：守卫安装失败属框架环境异常，交由上层可见（不静默）
+    throw new Error(`createCordis: failed to install ${guardName}`)
+  }
+}
+
+/**
+ * isolate 白名单守卫（ADR-0010/0003）：非白名单标签抛错拦截（deny-by-default）
+ * 并留 security/violation 审计痕。
  */
 function installIsolateGuard(ctx: Context): void {
-  const holder = ctx as Context & { isolate: (name: string, symbol?: symbol) => unknown }
-  const raw = holder.isolate.bind(ctx)
-  const wrapped = (name: string, symbol?: symbol) => {
-    if (!isIsolateAllowed(name)) {
+  wrapRootMethod(ctx, 'isolate', (invoke) => function (this: Context, name: never, symbol?: never) {
+    if (!isIsolateAllowed(name as unknown as string)) {
       ctx.emit('security/violation', { appId: 'root', rule: 'isolate-non-whitelisted', detail: { tag: name } })
-      throw new Error(`isolate: tag "${name}" not whitelisted (router-view/monitor only, ADR-0010)`)
+      throw new Error(`isolate: tag "${String(name)}" not whitelisted (router-view/monitor only, ADR-0010)`)
     }
-    return raw(name, symbol)
-  }
-  try {
-    Object.defineProperty(ctx, 'isolate', { value: wrapped, writable: true, configurable: true })
-  } catch {
-    // ctx 不可包装：守卫降级失败属框架环境异常，交由上层可见（不静默）
-    throw new Error('createCordis: failed to install isolate guard')
-  }
+    return invoke.call(this, name, symbol as never)
+  }, 'isolate guard')
+}
+
+/**
+ * 核心层替换守卫（ADR-0011）：基线 §2.2 八个核心服务（lifecycle/router/bus/state/
+ * sandbox/monitor/security/deps）运行时不可替换——替换即框架级重启事件，必须经框架入口
+ * （重新 createCordis）。散落的 `ctx.set(key, ...)` 对保护键抛错拒绝 + violation 上报；
+ * 第三方插件服务不在保护列（按 ADR-0007 整应用重挂载语义处理）。
+ */
+const CORE_SERVICES = new Set(['lifecycle', 'router', 'bus', 'state', 'sandbox', 'monitor', 'security', 'deps'])
+
+function installCoreGuard(ctx: Context): void {
+  wrapRootMethod(ctx, 'set', (invoke) => function (this: Context, key: never, value: never) {
+    if (typeof key === 'string' && CORE_SERVICES.has(key)) {
+      ctx.emit('security/violation', { appId: 'root', rule: 'core-service-replacement', detail: { key } })
+      throw new Error(`ctx.set: core service "${key}" is not replaceable at runtime (framework restart required, ADR-0011)`)
+    }
+    return invoke.call(this, key, value)
+  }, 'core service guard')
 }
 
 /**
@@ -111,6 +145,9 @@ export function createCordis(options: CreateCordisOptions = {}): Context {
   // isolate 白名单守卫（ADR-0010"仅允许两处"）：装在框架入口的 root ctx 上——
   // 非白名单标签（router-view/monitor 之外）拦截抛错 + violation 上报（fail-closed）
   installIsolateGuard(ctx)
+  // 核心层守卫（ADR-0011）：八核心服务运行时替换 = 框架级重启事件，必须经框架入口；
+  // 散落的 ctx.set 替换被拒绝并上报
+  installCoreGuard(ctx)
   ctx.plugin(SecurityService, { rules: options.permissions ?? [] })
   ctx.plugin(SandboxService)
   ctx.plugin(DepsService, { apps: options.apps })
