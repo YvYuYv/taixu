@@ -165,6 +165,19 @@ export class StateService extends Service<Record<never, never>> {
     return out
   }
 
+  /**
+   * 按键集合快照（lifecycle §5.3 state 模式 / ADR-0023 恢复兜底）：返回 `{value, version}`；
+   * 未存储键 version=0、value undefined（如实缺失，不伪装）。系统身份（宿主/编排层用）。
+   */
+  snapshot(keys: string[]): Record<string, { value: unknown; version: number }> {
+    const out: Record<string, { value: unknown; version: number }> = {}
+    for (const key of keys) {
+      const entry = this.store.get(key)
+      out[key] = { value: entry?.value, version: entry?.version ?? 0 }
+    }
+    return out
+  }
+
   /** local: 键空间注水（lifecycle §5.5 pre-plugin() 阶段；系统身份走唯一写管线） */
   hydrateLocal(appId: string, data: Record<string, unknown>): void {
     const prefix = `local:${appId}:`

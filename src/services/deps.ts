@@ -20,8 +20,11 @@ export interface AppManifestEntry {
   entry: () => unknown
   /** 应用状态版本（快照注水的版本裁决基准，ADR-0034） */
   version?: number
-  /** 保活声明（ADR-0020）：缺省/true = 切换默认挂起；false = 切换直接 dispose */
-  keepAlive?: boolean
+  /**
+   * 保活声明（ADR-0020 / lifecycle §5.3 三模式）：缺省/true = dom 模式（容器摘离缓存）；
+   * 'state' = 销毁 DOM 仅留状态快照；'memory' = 销毁 DOM 与状态仅留模块缓存；false = 直接 dispose
+   */
+  keepAlive?: boolean | 'dom' | 'state' | 'memory'
   /** 快照版本迁移纯函数（无副作用、沙箱外执行，ADR-0034）；缺省 = 漂移即丢弃 */
   migrate?: (data: Record<string, unknown>, fromVersion: number) => Record<string, unknown>
 }

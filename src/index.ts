@@ -66,7 +66,7 @@ export interface CreateCordisOptions {
 export function defineApp(
   appId: string,
   entry: () => unknown,
-  options: { version?: number; migrate?: AppManifestEntry['migrate']; keepAlive?: boolean } = {},
+  options: { version?: number; migrate?: AppManifestEntry['migrate']; keepAlive?: AppManifestEntry['keepAlive'] } = {},
 ): AppManifestEntry {
   return { appId, entry, ...options }
 }

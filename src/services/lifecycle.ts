@@ -636,13 +636,20 @@ export class LifecycleService extends Service<LifecycleConfig> {
     return next
   }
 
-  /** 原应用让位（§5.1.2）：默认挂起（路由来源优先级最高）；keepAlive:false 声明则直接销毁 */
+  /**
+   * 原应用让位（§5.1.2/§5.3 三模式）：`dom`（缺省）挂起——容器摘离缓存、fiber 仍 ACTIVE；
+   * `state` 销毁 DOM 仅留状态快照（驱逐快照机制复用，重挂载注水暖启动）；
+   * `memory`/`false` 销毁 DOM 与状态（memory 仅留 deps 模块缓存——P0 直载即宿主工厂，天然保留）。
+   */
   private async retireCurrent(current: AppInstance): Promise<void> {
-    const keepAlive = this.ctx.deps.manifest(current.appId)?.keepAlive ?? true
-    if (keepAlive) {
+    const mode = this.ctx.deps.manifest(current.appId)?.keepAlive ?? 'dom'
+    if (mode === 'dom' || mode === true) {
       await this.requestSuspend(this.ctx, current.instanceId, 'keepalive', 'route')
+    } else if (mode === 'state') {
+      this.snapshotLocalKeys(current.appId) // 状态快照入池（§5.3 state 模式）
+      await this.destroy(current.instanceId, 'keepalive-state')
     } else {
-      await this.destroy(current.instanceId, 'keepalive-disabled') // 显式声明：切换即 dispose（ADR-0020）
+      await this.destroy(current.instanceId, 'keepalive-disabled') // memory/false（ADR-0020）
     }
   }
 
