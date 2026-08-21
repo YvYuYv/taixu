@@ -106,6 +106,7 @@ export class RouterService extends Service<RouterConfig> {
     this.onResolve = config.onResolve
     this.initFromLocation()
     this.initPopState()
+    this.resolveDeepLinks()
     // 恢复重放（ADR-0056，route-adaptation §三）：lifecycle 按统一时序派发 router/replay，
     // 本服务对该槽位重放一次 outlet/changed（载荷 = 当前匹配结果）——与正常导航同一事件，
     // 不为恢复发明第二套路由同步机制
@@ -117,6 +118,18 @@ export class RouterService extends Service<RouterConfig> {
 
   private isWidget(outlet: string): boolean {
     return this.widgetOutlets.has(outlet) || outlet.startsWith('widget')
+  }
+
+  /**
+   * 深链启动挂载（§3 读侧之外的挂载侧，A7）：冷启动时按 URL 矩阵对每个已匹配槽位
+   * 派发一次挂载意图（与导航第 3 步同一 onResolve 回调——无第二套启动挂载机制）。
+   */
+  private resolveDeepLinks(): void {
+    if (!this.onResolve) return
+    for (const [outlet, state] of this.outlets) {
+      const matched = this.match(state.path, outlet)
+      if (matched) this.onResolve({ appId: matched.appId, outlet, path: state.path })
+    }
   }
 
   /** 启动时从 URL 恢复全量矩阵（深链直达的读侧；挂载侧由宿主/lifecycle 驱动） */

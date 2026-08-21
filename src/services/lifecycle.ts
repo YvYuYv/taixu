@@ -134,6 +134,15 @@ export class LifecycleService extends Service<LifecycleConfig> {
     }
     document.addEventListener('visibilitychange', onVisibility)
     ctx.effect(() => () => document.removeEventListener('visibilitychange', onVisibility))
+    // 快照池跨会话账本重建（ADR-0052）：扫描上一会话残留的 __tx_snapshot:* 键入账
+    //（at = 0 视为最旧——预算紧张时优先回收，本会话快照存活率更高）
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i)
+      if (key && key.startsWith('__tx_snapshot:')) {
+        const payload = sessionStorage.getItem(key) ?? ''
+        this.snapshotPool.set(key.slice('__tx_snapshot:'.length), { bytes: payload.length * 2, at: 0 })
+      }
+    }
   }
 
   /** 隐藏记账（TTL 计时暂停用） */
@@ -606,7 +615,8 @@ export class LifecycleService extends Service<LifecycleConfig> {
 
   /**
    * 槽位切换（§5.1.2 默认保活，ADR-0020）：原应用默认挂起（keepAlive 未配置也走挂起，
-   * 回程零冷启动）。切回已挂起的应用 = 恢复（路由来源，优先级最高），不重新挂载。
+   * 回程零冷启动）；**应用声明 `keepAlive: false` 时切换直接 dispose**（§5.1.2）。
+   * 切回已挂起的应用 = 恢复（路由来源，优先级最高），不重新挂载。
    */
   async switch(outlet: string, appId: string, options: MountOptions = {}): Promise<AppInstance> {
     const current = this.getInstances().find((i) => i.outlet === outlet && i.suspendSources.size === 0)
@@ -615,15 +625,25 @@ export class LifecycleService extends Service<LifecycleConfig> {
       // 回程零冷启动：恢复既有实例（路由恢复解除全部低优先级挂起，ADR-0031）
       await this.requestResume(this.ctx, suspended.instanceId, 'route')
       if (current && current.instanceId !== suspended.instanceId) {
-        await this.requestSuspend(this.ctx, current.instanceId, 'keepalive', 'route')
+        await this.retireCurrent(current)
       }
       return suspended
     }
     const next = await this.mount(appId, outlet, options) // 新事务先行（§2.2 槽位串行）
     if (current && current.instanceId !== next.instanceId) {
-      await this.requestSuspend(this.ctx, current.instanceId, 'keepalive', 'route') // 路由来源（优先级最高）
+      await this.retireCurrent(current)
     }
     return next
+  }
+
+  /** 原应用让位（§5.1.2）：默认挂起（路由来源优先级最高）；keepAlive:false 声明则直接销毁 */
+  private async retireCurrent(current: AppInstance): Promise<void> {
+    const keepAlive = this.ctx.deps.manifest(current.appId)?.keepAlive ?? true
+    if (keepAlive) {
+      await this.requestSuspend(this.ctx, current.instanceId, 'keepalive', 'route')
+    } else {
+      await this.destroy(current.instanceId, 'keepalive-disabled') // 显式声明：切换即 dispose（ADR-0020）
+    }
   }
 
   /**
