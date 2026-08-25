@@ -78,7 +78,42 @@ function assertJsonSerializable(key: string, value: unknown): void {
   scan(value)
 }
 
-export class StateService extends Service<Record<never, never>> {
+/** 持久化配置（§7.1）：防抖批量、敏感排除、schema 版本化迁移 */
+export interface PersistConfig {
+  /** 持久化键模式列表（与 sensitiveKeys 求差集；缺省 ['shared:*']） */
+  keys?: string[]
+  /** 防抖 ms（默认 500；测试注小值） */
+  debounceMs?: number
+  /** schema 版本（默认 1；与存储键名 cordis-state:v{N} 绑定） */
+  schemaVersion?: number
+  /** 逐级迁移链：旧 schema -> 新（失败丢弃并上报） */
+  migrate?: (data: Record<string, unknown>, fromSchema: number) => Record<string, unknown>
+}
+
+/** 跨 tab 通道抽象（§7.2）：缺省 BroadcastChannel -> storage 事件 -> 禁用；测试可注入内存总线 */
+export interface CrossTabChannel {
+  post(message: unknown): void
+  subscribe(listener: (message: unknown) => void): () => void
+}
+
+export interface StateConfig {
+  persist?: PersistConfig
+  /** 跨 tab 同步（缺省启用：BroadcastChannel 不可用时降级 storage 事件，再不可用禁用） */
+  crossTab?: { channel?: CrossTabChannel; enabled?: boolean }
+  /** 敏感键追加模式（永不持久化/跨 tab；默认 token/password/passwd/secret/credential/pii 子串） */
+  sensitiveKeys?: string[]
+}
+
+/** 跨 tab 同步消息（§7.2：版本仲裁 + 回声过滤的字段基础） */
+interface StateSyncMessage {
+  key: string
+  value: unknown
+  version: number
+  source: string
+  schema: number
+}
+
+export class StateService extends Service<StateConfig> {
   static provide = 'state'
   // 基线 §2.3：state inject security（写入/读取裁决）+ monitor；不 inject lifecycle
   static inject = ['security', 'monitor']
@@ -91,7 +126,7 @@ export class StateService extends Service<Record<never, never>> {
   /** 挂起中的应用 appId 集合（instanceId 前缀解析；ADR-0023） */
   private suspendedApps = new Set<string>()
 
-  constructor(ctx: Context, _config: Record<never, never> = {}) {
+  constructor(ctx: Context, config: StateConfig = {}) {
     super(ctx, 'state')
     // 挂起感知（§4.3）：root 注册 + global 监听，不 inject lifecycle（基线 §2.3）
     ctx.on('app/suspend', (e) => {
@@ -113,6 +148,137 @@ export class StateService extends Service<Record<never, never>> {
         }
       }
     }, { global: true })
+    this.cfg = config
+    this.tabId = crypto.randomUUID()
+    this.restorePersisted() // 静默恢复（§7.1：不触发 state/changed，订阅者经 watch 首跑取值）
+    this.initCrossTab()
+    // 清理托管（§7.2 修复：destroy 不只关 channel——防抖定时器一并回收）
+    ctx.effect(() => () => {
+      clearTimeout(this.flushTimer)
+      this.offChannel?.()
+    })
+  }
+
+  private cfg: StateConfig
+  private tabId: string
+  /** 持久化防抖定时器 */
+  private flushTimer: ReturnType<typeof setTimeout> | undefined
+  private channel: CrossTabChannel | null = null
+  private offChannel: (() => void) | null = null
+
+  /** 敏感键判定（§六：默认子串黑名单 + 配置追加模式；永不持久化/跨 tab） */
+  private isSensitiveKey(key: string): boolean {
+    if (SENSITIVE_KEY_PATTERN.test(key)) return true
+    for (const pattern of this.cfg.sensitiveKeys ?? []) {
+      if (pattern.endsWith('*') ? key.startsWith(pattern.slice(0, -1)) : pattern === key) return true
+    }
+    return false
+  }
+
+  /** 持久化键判定（§7.1）：命中配置模式且非敏感 */
+  private shouldPersist(key: string): boolean {
+    if (!this.cfg.persist) return false
+    if (this.isSensitiveKey(key)) return false
+    const patterns = this.cfg.persist.keys ?? ['shared:*']
+    return patterns.some((p) => (p.endsWith('*') ? key.startsWith(p.slice(0, -1)) : p === key))
+  }
+
+  /** commit 后置钩子（§4.1：持久化/跨 tab 挂钩；远端应用走 applyRemote 不回流） */
+  private onCommitHook(key: string, value: unknown, version: number, source: string): void {
+    if (this.shouldPersist(key)) {
+      clearTimeout(this.flushTimer)
+      this.flushTimer = setTimeout(() => this.flushPersisted(), this.cfg.persist?.debounceMs ?? 500)
+    }
+    if (this.channel && source !== `tab:${this.tabId}`) {
+      this.channel.post({ key, value, version, source: this.tabId, schema: this.cfg.persist?.schemaVersion ?? 1 } satisfies StateSyncMessage)
+    }
+  }
+
+  /** 防抖批量落盘（§7.1：schema 版本化 + savedAt；sensitive 已在键判定排除） */
+  private flushPersisted(): void {
+    const schema = this.cfg.persist?.schemaVersion ?? 1
+    const data: Record<string, unknown> = {}
+    const versions: Record<string, number> = {}
+    for (const [key, entry] of this.store) {
+      if (this.shouldPersist(key)) {
+        data[key] = entry.value
+        versions[key] = entry.version
+      }
+    }
+    localStorage.setItem(`cordis-state:v${schema}`, JSON.stringify({ schema, savedAt: Date.now(), data, versions }))
+  }
+
+  /** 静默恢复（§7.1）：迁移链升级（失败丢弃 + monitor 上报）；不触发 state/changed */
+  private restorePersisted(): void {
+    if (!this.cfg.persist) return
+    const schema = this.cfg.persist.schemaVersion ?? 1
+    const raw = localStorage.getItem(`cordis-state:v${schema}`)
+    if (!raw) return
+    let parsed: { schema: number; data: Record<string, unknown>; versions?: Record<string, number> }
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      this.ctx.monitor.capture(new Error('state: 持久化数据损坏丢弃'), { phase: 'runtime' })
+      return
+    }
+    let data = parsed.data
+    if (parsed.schema !== schema) {
+      if (!this.cfg.persist.migrate) {
+        this.ctx.monitor.capture(new Error(`state: 持久化 schema 漂移丢弃 ${parsed.schema} -> ${schema}`), { phase: 'runtime' })
+        return
+      }
+      try {
+        data = this.cfg.persist.migrate(parsed.data, parsed.schema)
+      } catch (error) {
+        this.ctx.monitor.capture(error instanceof Error ? error : new Error(String(error)), { phase: 'runtime' })
+        return
+      }
+    }
+    for (const [key, value] of Object.entries(data)) {
+      const version = parsed.versions?.[key] ?? 1
+      this.store.set(key, { value, version, updatedAt: Date.now(), updatedBy: 'restore' })
+    }
+  }
+
+  /** 跨 tab 初始化（§7.2）：BroadcastChannel -> storage 事件 -> 禁用；消息版本仲裁 + 回声过滤 */
+  private initCrossTab(): void {
+    if (this.cfg.crossTab?.enabled === false) return
+    if (this.cfg.crossTab?.channel) {
+      this.channel = this.cfg.crossTab.channel
+    } else if (typeof BroadcastChannel === 'function') {
+      const bc = new BroadcastChannel('cordis-state')
+      this.channel = {
+        post: (msg) => bc.postMessage(msg),
+        subscribe: (fn) => {
+          bc.addEventListener('message', (e) => fn((e as MessageEvent).data))
+          return () => bc.close()
+        },
+      }
+    } else {
+      // 降级：storage 事件（真实浏览器跨文档触发；同文档/无 BC 环境不启用——诚实禁用）
+      return
+    }
+    this.offChannel = this.channel.subscribe((msg) => this.onRemoteMessage(msg as StateSyncMessage))
+  }
+
+  /** 远端消息（§7.2）：回声过滤 -> 敏感跳过 -> 版本仲裁 -> applyRemote（通知本地订阅者） */
+  private onRemoteMessage(msg: StateSyncMessage): void {
+    if (msg?.source === this.tabId) return // 回声过滤
+    if (!msg || typeof msg.key !== 'string') return
+    if (this.isSensitiveKey(msg.key)) return // 敏感键不同步
+    const current = this.store.get(msg.key)
+    if (current && current.version >= msg.version) return // 版本仲裁：旧消息丢弃
+    this.applyRemote(msg.key, msg.value, msg.version, msg.source)
+  }
+
+  /** 远端应用（§7.2）：绕过本地权限（源端已校验），但必须通知本地订阅者（修复 setSilent 失明） */
+  private applyRemote(key: string, value: unknown, version: number, source: string): void {
+    const old = this.store.get(key)
+    this.store.set(key, { value, version, updatedAt: Date.now(), updatedBy: `tab:${source}` })
+    this.proxyCache.delete(key)
+    this.ctx.emit('state/changed', {
+      key, value, old: old?.value, path: key, source: `tab:${source}`, version,
+    })
   }
 
   /** 读（§4.1：读也校验——旧版只校验写）；无 appId = 系统/root 访问；子路径经根存储下钻 */
@@ -303,6 +469,7 @@ export class StateService extends Service<Record<never, never>> {
       source: meta.source,
       version,
     })
+    this.onCommitHook(key, value, version, meta.source) // 持久化/跨 tab 钩子（§七）
     return version
   }
 

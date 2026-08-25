@@ -7,7 +7,7 @@ import { DepsService, type AppManifestEntry } from './services/deps'
 import { LifecycleService, type RecoveryConfig, type KeepAliveConfig } from './services/lifecycle'
 import { StyleService } from './services/style'
 import { RouterService, type RouteRule, type RouterConfig } from './services/router'
-import { StateService } from './services/state'
+import { StateService, type StateConfig } from './services/state'
 import { BusService, type BusConfig } from './services/bus'
 import { defineCordisApp } from './vue3-adapter'
 
@@ -30,6 +30,7 @@ export type { StyleAsset } from './services/style'
 export { RouterService } from './services/router'
 export type { RouteRule, RouterConfig, GuardResult } from './services/router'
 export { StateService } from './services/state'
+export type { StateConfig, PersistConfig, CrossTabChannel } from './services/state'
 export type { WatchOptions as StateWatchOptions, GetOptions as StateGetOptions, SetOptions as StateSetOptions } from './services/state'
 export { BusService, parseTraceparent } from './services/bus'
 export type { Reply, BusInstance, BusConfig, DeadLetterRecord, SendMessageInput, RequestOptions } from './services/bus'
@@ -57,6 +58,8 @@ export interface CreateCordisOptions {
   bus?: BusConfig
   /** monitor 配置（告警规则/冷却/错误率阈值，§七；测试注小窗口） */
   monitor?: MonitorConfig
+  /** state 配置（持久化/跨 tab/敏感键，§七） */
+  state?: StateConfig
   /** 保活池预算（LRU 上限/水位/快照池，§5.4/§5.5；测试注小阈值触发） */
   keepAlive?: KeepAliveConfig
 }
@@ -158,7 +161,7 @@ export function createCordis(options: CreateCordisOptions = {}): Context {
   ctx.plugin(DepsService, { apps: options.apps })
   ctx.plugin(StyleService)
   ctx.plugin(RouterService, { routes: options.routes, onResolve: options.onResolve })
-  ctx.plugin(StateService)
+  ctx.plugin(StateService, options.state)
   ctx.plugin(BusService, options.bus)
   ctx.plugin(LifecycleService, {
     recovery: options.recovery,
