@@ -14,6 +14,7 @@ import { compressToUTF16, decompressFromUTF16 } from 'lz-string'
 import '../events'
 import type { Sandbox } from '../sandbox'
 import { suspendRegistry } from '../suspend'
+import { AppDisabledError } from '../errors'
 import type { SuspendReason, SuspendSource } from '../events'
 import type { Snapshot } from './deps'
 
@@ -145,6 +146,11 @@ export class LifecycleService extends Service<LifecycleConfig> {
     }
     document.addEventListener('visibilitychange', onVisibility)
     ctx.effect(() => () => document.removeEventListener('visibilitychange', onVisibility))
+    // KillSwitch 急停执行点（security §十）：禁用指令 -> 该应用全部实例销毁
+    //（含挂起实例；事件旁听，security 不反向注入）
+    ctx.on('security/killswitch', (e) => {
+      if (e.action === 'disable') void this.destroyByAppId(e.appId, `killswitch: ${e.reason}`)
+    }, { global: true })
     // 快照池跨会话账本重建（ADR-0052）：扫描上一会话残留的 __tx_snapshot:* 键入账
     //（at = 0 视为最旧——预算紧张时优先回收，本会话快照存活率更高）
     for (let i = 0; i < sessionStorage.length; i++) {
@@ -330,7 +336,9 @@ export class LifecycleService extends Service<LifecycleConfig> {
     attempt: number,
     options: MountOptions,
   ): Promise<AppInstance> {
-    if (error.name === 'AbortError') throw error
+    // AbortError（用户取消）与 AppDisabledError（KillSwitch 禁用，§十）都不是故障：
+    // 不进恢复重试（禁用应用空转重试违背急停语义）
+    if (error.name === 'AbortError' || error instanceof AppDisabledError) throw error
     const policy = this.cfg.recovery ?? {}
     const maxRetries = policy.maxRetries ?? 2
 
@@ -698,6 +706,16 @@ export class LifecycleService extends Service<LifecycleConfig> {
       // Request 对象原样透传（method/body/headers 不丢）；字符串/URL 以规范化后的 href 请求
       if (input instanceof Request) return globalThis.fetch(input, init)
       return globalThis.fetch(sanitized, init)
+    }
+  }
+
+  /**
+   * 按应用销毁全部实例（security §十 KillSwitch 强制执行点）：security 经
+   * security/killswitch 事件旁听驱动（security 不 inject lifecycle——依赖方向 ADR-0054）。
+   */
+  async destroyByAppId(appId: string, reason: string): Promise<void> {
+    for (const inst of [...this.instances.values()].filter((i) => i.appId === appId)) {
+      await this.destroy(inst.instanceId, reason)
     }
   }
 

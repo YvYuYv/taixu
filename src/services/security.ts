@@ -33,6 +33,8 @@ export interface SecurityConfig {
   integrityManifest?: Record<string, string>
   /** HTML 净化配置（§3.3 真 sanitize）：不良标签/属性黑名单（真实传入 DOMPurify FORBID_*） */
   sanitize?: { dangerousTags?: string[]; dangerousAttributes?: string[] }
+  /** KillSwitch 指令验签（§十：签名通道，deny-by-default——未配置验签器时一切急停指令拒绝） */
+  verifyKillCommand?: (appId: string, action: 'disable' | 'enable', signature: string) => boolean
 }
 
 /** isolate 白名单（ADR-0010）：仅 router-view / monitor；其余标签属越权隔离（拦截） */
@@ -67,6 +69,7 @@ export class SecurityService extends Service {
     super(ctx, 'security')
     this.rules = config.rules ?? []
     this.cfg = config
+    this.restoreDisabled() // KillSwitch 会话恢复（§十：刷新仍生效）
   }
 
   /** 权限裁决：单点查询（基线 §2.4.1），本地可判定、不缓存（ADR-0039/0051）；deny 一票否决（§五，顺序无关） */
@@ -111,6 +114,68 @@ export class SecurityService extends Service {
 
   /** 连续裁决超时计数（成功裁决清零；升级语义随 violation detail 下发） */
   private consecutiveTimeouts = 0
+
+  // -- Kill Switch（§十：急停）--
+
+  /** 已禁用应用账本（sessionStorage 持久化：刷新仍生效，管理员显式恢复） */
+  private disabledApps = new Set<string>()
+  private static DISABLED_KEY = '__tx_disabled_apps'
+
+  /** 禁用查询（deps.loadApp 加载路径强制消费，§十） */
+  isAppDisabled(appId: string): boolean {
+    return this.disabledApps.has(appId)
+  }
+
+  /**
+   * 急停（§十）：签名指令通道（monitor 告警通道复用语义——不是任意应用可调的全局函数；
+   * 旧版 `window.__CORDIS_RUNTIME__.unmountApp` 全局句柄已废除）。强制执行点两处：
+   * deps.loadApp 前检查（AppDisabledError）+ 运行实例销毁（lifecycle 旁听
+   * security/killswitch 事件，security 不 inject lifecycle——依赖方向 ADR-0054）。
+   */
+  async disableApp(appId: string, reason: string, signature: string): Promise<boolean> {
+    // deny-by-default：验签器未配置/不通过 = 伪造指令（§十 签名通道）
+    if (this.cfg.verifyKillCommand?.(appId, 'disable', signature) !== true) {
+      this.reportViolation('host', 'killswitch-forged', { appId, reason })
+      return false
+    }
+    this.disabledApps.add(appId)
+    this.persistDisabled()
+    this.ctx.emit('security/killswitch', { appId, action: 'disable', reason })
+    return true
+  }
+
+  /** 管理员显式恢复（§十：禁用不会自动过期，只有 enable 指令解除；同样经签名通道） */
+  async enableApp(appId: string, signature: string): Promise<boolean> {
+    if (this.cfg.verifyKillCommand?.(appId, 'enable', signature) !== true) {
+      this.reportViolation('host', 'killswitch-forged', { appId, reason: 'enable' })
+      return false
+    }
+    this.disabledApps.delete(appId)
+    this.persistDisabled()
+    this.ctx.emit('security/killswitch', { appId, action: 'enable', reason: 'admin-restore' })
+    return true
+  }
+
+  /** 持久化（§十：sessionStorage——刷新仍生效；仅存 appId 清单，无敏感载荷） */
+  private persistDisabled(): void {
+    try {
+      sessionStorage.setItem(SecurityService.DISABLED_KEY, JSON.stringify([...this.disabledApps]))
+    } catch {
+      // 存储不可用（隐私模式等）：内存态仍生效，本会话内禁用有效（诚实降级）
+    }
+  }
+
+  /** 会话恢复（构造期）：残留禁用清单入账（at-line 加载路径强制即生效） */
+  private restoreDisabled(): void {
+    try {
+      const raw = sessionStorage.getItem(SecurityService.DISABLED_KEY)
+      if (!raw) return
+      for (const appId of JSON.parse(raw) as string[]) this.disabledApps.add(appId)
+    } catch {
+      // 损坏清单：丢弃（fail-open 仅影响"禁用记忆"这一半，§十 加载路径强制与
+      // 安全规则本身不受影响；无法从损坏数据推断禁用集合，保留即臆造）
+    }
+  }
 
   /**
    * URL 白名单（§3.2）：协议门（https-only，http 需 allowInsecure；data:/blob:/javascript:/file:

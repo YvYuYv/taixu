@@ -4,6 +4,7 @@
  * - 入口直载（单版本直载；importmap/共享仲裁矩阵不在本票，见 spec Out of Scope）
  * - AbortSignal 全程透传："结果作废 + 未开始的阶段不再开始"（lifecycle §2.2-3）
  */
+import { AppDisabledError } from '../errors'
 import { Service, type Context } from 'cordis'
 import '../events'
 
@@ -59,6 +60,9 @@ export class DepsService extends Service<DepsConfig> {
    */
   async loadApp(appId: string, options: { signal?: AbortSignal } = {}): Promise<unknown> {
     if (options.signal?.aborted) throw new DOMException('aborted', 'AbortError')
+    // KillSwitch 加载路径强制执行点（security §十）：禁用应用加载即拒
+    //（AppDisabledError 在 lifecycle recover 中按不可恢复处理，不空转重试）
+    if (this.ctx.security.isAppDisabled(appId)) throw new AppDisabledError(appId)
     const entry = this.appConfig.apps?.find((a: AppManifestEntry) => a.appId === appId)
     if (!entry) {
       throw new Error(`manifest: app "${appId}" is not declared in host config`)

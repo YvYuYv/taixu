@@ -307,6 +307,7 @@ class KillSwitch {
 
 - 旧版 `window.__CORDIS_RUNTIME__.unmountApp` 全局句柄（任何沙箱应用可调用杀掉其他应用）废除--`__CORDIS_*` 全局列入沙箱黑名单（js-sandbox §六）
 - 指令来源签名校验；`isAppDisabled` 在加载路径强制执行
+- 落地形式：验签器经 `security.verifyKillCommand` 配置注入（宿主持有验签密钥/远端验签实现；未配置 = 一切指令拒绝，deny-by-default）；禁用清单持久化键 `__tx_disabled_apps`（sessionStorage，仅 appId 清单无敏感载荷）；运行实例销毁经 `security/killswitch` 事件由 lifecycle 旁听执行（security 不 inject lifecycle，ADR-0054）；`enableApp` 同样经签名通道（管理员显式恢复）
 
 ## 十一、postMessage 与跨源安全
 

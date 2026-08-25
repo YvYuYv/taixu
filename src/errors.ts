@@ -5,3 +5,11 @@ export class SandboxDisposedError extends Error {
     this.name = 'SandboxDisposedError'
   }
 }
+
+/** KillSwitch 禁用应用错误（security §十：加载路径强制执行点；不进恢复重试） */
+export class AppDisabledError extends Error {
+  constructor(appId: string) {
+    super(`app "${appId}" is disabled by killswitch`)
+    this.name = 'AppDisabledError'
+  }
+}

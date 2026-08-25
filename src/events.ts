@@ -130,6 +130,8 @@ declare module 'cordis' {
     'monitor/alert'(payload: { alert: Alert }): void
     // 安全
     'security/violation'(payload: { appId: string; rule: string; detail: unknown }): void
+    /** KillSwitch 急停指令（security §十）：disable 时 lifecycle 销毁该应用全部实例 */
+    'security/killswitch'(payload: { appId: string; action: 'disable' | 'enable'; reason: string }): void
     // 槽位事件族（ADR-0047/0050，模板字面量键）：router 以每槽位具体键派发；
     // 载荷形状 `{ outlet, matched }`（基线 §2.4）；emit 侧以 'outlet/changed:main'
     // 形式落键（interface 不支持计算模板键，实现侧窄化见 router 服务）
