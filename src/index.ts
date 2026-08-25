@@ -40,6 +40,7 @@ export { TracingService, parseTraceparent as parseTraceparentForTracing, formatT
 export type { TracingConfig, SpanRecord, Span } from './services/tracing'
 export { defineCordisApp } from './vue3-adapter'
 export type { CordisAppOptions } from './vue3-adapter'
+export { useSharedState, defineSharedState } from './state-adapters'
 export * from './events'
 
 /** createCordis 配置：阈值均经配置注入（测试注小值触发，生产默认按各 ADR） */
