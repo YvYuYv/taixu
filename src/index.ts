@@ -8,7 +8,9 @@ import { LifecycleService, type RecoveryConfig, type KeepAliveConfig } from './s
 import { StyleService } from './services/style'
 import { RouterService, type RouteRule, type RouterConfig } from './services/router'
 import { StateService, type StateConfig } from './services/state'
+import type { TracingConfig } from './services/tracing'
 import { BusService, type BusConfig } from './services/bus'
+import { TracingService } from './services/tracing'
 import { defineCordisApp } from './vue3-adapter'
 
 export { MonitorService } from './services/monitor'
@@ -34,6 +36,8 @@ export type { StateConfig, PersistConfig, CrossTabChannel } from './services/sta
 export type { WatchOptions as StateWatchOptions, GetOptions as StateGetOptions, SetOptions as StateSetOptions } from './services/state'
 export { BusService, parseTraceparent } from './services/bus'
 export type { Reply, BusInstance, BusConfig, DeadLetterRecord, SendMessageInput, RequestOptions } from './services/bus'
+export { TracingService, parseTraceparent as parseTraceparentForTracing, formatTraceparent } from './services/tracing'
+export type { TracingConfig, SpanRecord, Span } from './services/tracing'
 export { defineCordisApp } from './vue3-adapter'
 export type { CordisAppOptions } from './vue3-adapter'
 export * from './events'
@@ -60,6 +64,8 @@ export interface CreateCordisOptions {
   monitor?: MonitorConfig
   /** state 配置（持久化/跨 tab/敏感键，§七） */
   state?: StateConfig
+  /** tracing 配置（span 缓冲容量，§八） */
+  tracing?: TracingConfig
   /** 保活池预算（LRU 上限/水位/快照池，§5.4/§5.5；测试注小阈值触发） */
   keepAlive?: KeepAliveConfig
 }
@@ -162,6 +168,7 @@ export function createCordis(options: CreateCordisOptions = {}): Context {
   ctx.plugin(StyleService)
   ctx.plugin(RouterService, { routes: options.routes, onResolve: options.onResolve })
   ctx.plugin(StateService, options.state)
+  ctx.plugin(TracingService, options.tracing)
   ctx.plugin(BusService, options.bus)
   ctx.plugin(LifecycleService, {
     recovery: options.recovery,
