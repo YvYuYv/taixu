@@ -136,7 +136,12 @@ export async function createSandbox(
   installHardenReport(report)
   const container = options.container ?? null
   const tracker = new InjectedNodesTracker(report)
-  const docProxy = new DocumentProxy(container, tracker, () => proxy, report)
+    const sanitizeHTML = (html: string): string => {
+    // 真 sanitize（security §3.3）：security 就绪走 DOMPurify；未就绪 fail-closed 全量转义（默认参数兜底）
+    const security = (ctx as unknown as { security?: { sanitizeHTML?: (h: string) => string } }).security
+    return security?.sanitizeHTML ? security.sanitizeHTML(html) : html.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] as string)
+  }
+  const docProxy = new DocumentProxy(container, tracker, () => proxy, report, sanitizeHTML)
   // 受控视图缓存：保证 document/head/body/localStorage 等访问的身份稳定（§3.5 单例原则）
   const stableViews = new Map<string, unknown>()
   const stable = (key: string, make: () => unknown): unknown => {

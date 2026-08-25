@@ -30,6 +30,8 @@ export class DocumentProxy {
     private tracker: InjectedNodesTracker,
     private getSandboxProxy: () => unknown,
     private report: ReportFn,
+    /** HTML 净化钩子（security §3.3 真 sanitize）：应用经沙箱 document 的 HTML 写点全过净化 */
+    private sanitizeHTML: (html: string) => string = (html) => html.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] as string),
   ) {}
 
   get proxy(): Document {
@@ -49,6 +51,26 @@ export class DocumentProxy {
             return () => {
               this.report('sandbox-document-write', {})
               throw new Error('document.write is disabled in sandbox')
+            }
+          case 'createElement':
+            return (...args: unknown[]) => {
+              const raw = Reflect.get(target, 'createElement', target) as (...a: unknown[]) => HTMLElement
+              const el = raw.apply(target, args)
+              const sanitize = this.sanitizeHTML
+              return new Proxy(el, {
+                get(t, prop) {
+                  const v = Reflect.get(t, prop, t)
+                  return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(t) : v
+                },
+                set(t, prop, value) {
+                  if (prop === 'innerHTML' || prop === 'outerHTML') {
+                    const desc = Object.getOwnPropertyDescriptor(Element.prototype, prop)!
+                    desc.set!.call(t, sanitize(String(value)))
+                    return true
+                  }
+                  return Reflect.set(t, prop, value)
+                },
+              })
             }
           default:
             break
@@ -75,6 +97,7 @@ export class DocumentProxy {
       const record = (nodes: unknown[]) => {
         for (const n of nodes) if (n instanceof Node) tracker.maybeRecord(n)
       }
+      const sanitize = this.sanitizeHTML
       const node: unknown = new Proxy(real, {
         get(target, prop, receiver) {
           if (typeof prop === 'string' && INJECT_METHODS.has(prop)) {
@@ -87,7 +110,7 @@ export class DocumentProxy {
           if (prop === 'insertAdjacentHTML') {
             const raw = Reflect.get(target, prop, target) as (pos: never, html: string) => unknown
             return (pos: string, html: string) => {
-              const result = raw.call(target, pos as never, html)
+              const result = raw.call(target, pos as never, sanitize(html))
               tracker.harvest(target as unknown as HTMLElement)
               return result
             }
@@ -98,7 +121,7 @@ export class DocumentProxy {
         set(target, prop, value, receiver) {
           if (prop === 'innerHTML' || prop === 'outerHTML') {
             const desc = Object.getOwnPropertyDescriptor(Element.prototype, prop)!
-            desc.set!.call(target, String(value))
+            desc.set!.call(target, sanitize(String(value)))
             tracker.harvest(target as unknown as HTMLElement)
             return true
           }

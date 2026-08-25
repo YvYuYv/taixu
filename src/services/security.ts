@@ -1,4 +1,5 @@
 import { Service, type Context } from 'cordis'
+import createDOMPurify from 'dompurify'
 import '../events'
 
 /** 权限规则：本地可判定（ADR-0051），deny-by-default */
@@ -30,6 +31,8 @@ export interface SecurityConfig {
   adjudicationTimeoutMs?: number
   /** SRI 签名清单（url -> integrity 哈希；§8.1 就位 seam，deps 加载接线在后续票） */
   integrityManifest?: Record<string, string>
+  /** HTML 净化配置（§3.3 真 sanitize）：不良标签/属性黑名单（真实传入 DOMPurify FORBID_*） */
+  sanitize?: { dangerousTags?: string[]; dangerousAttributes?: string[] }
 }
 
 /** isolate 白名单（ADR-0010）：仅 router-view / monitor；其余标签属越权隔离（拦截） */
@@ -128,6 +131,19 @@ export class SecurityService extends Service {
     if (this.check(appId, `net:fetch:${parsed.origin}`).allowed) return parsed.href
     const coarse = await this.adjudicate(appId, 'net:fetch') // 粗授权放行全部 https 源（受超时约束）
     return coarse.allowed ? parsed.href : null
+  }
+
+  /**
+   * HTML 净化（§3.3 真 sanitize）：DOMPurify 实例化净化（非实体转义——旧实现废除）；
+   * `dangerousTags/dangerousAttributes` 配置真实传入（FORBID_TAGS/FORBID_ATTR），
+   * 叠加默认危险面（script/style/iframe/frame/object/embed + on* 事件属性由 DOMPurify 内建拦截）。
+   */
+  sanitizeHTML(html: string): string {
+    const purifier = createDOMPurify(globalThis as unknown as Parameters<typeof createDOMPurify>[0])
+    return purifier.sanitize(html, {
+      FORBID_TAGS: [...(this.cfg.sanitize?.dangerousTags ?? [])],
+      FORBID_ATTR: [...(this.cfg.sanitize?.dangerousAttributes ?? [])],
+    }) as string
   }
 
   /** query 敏感参数过滤（route-adaptation §3.2）：黑名单键剥离（默认 token/_t/sign + 配置追加） */
