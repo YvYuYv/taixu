@@ -15,11 +15,118 @@ export interface StyleAsset {
   css: string
 }
 
+/**
+ * @font-face 描述（§3.3 提升注入文档级；family 经 `tx-{appId}-` 前缀重写防撞车）
+ */
+export interface FontFaceRule {
+  family: string
+  /** 原 CSS 声明体（src/weight/style 等，如 `src: url(x.woff2) format('woff2'); font-weight: 700;`） */
+  declarations: string
+}
+
+/** 字体 registry 条目（family+src 哈希去重，多应用引用计数复用） */
+interface FontEntry {
+  node: HTMLStyleElement
+  refs: Set<string>
+}
+
+/** family+declarations 内容哈希（去重键；FNV-1a——短字符串、无密码学诉求） */
+function fontHash(appId: string, family: string, declarations: string): string {
+  const s = `${family}|${declarations}`
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return `${appId}:${(h >>> 0).toString(36)}`
+}
+
 export class StyleService extends Service<Record<never, never>> {
   static provide = 'style'
 
+  /** 字体 registry（§3.3：family+src 哈希去重，重复注册复用同一 @font-face 节点） */
+  private fontRegistry = new Map<string, FontEntry>()
+  /** 应用 -> 已注册字体哈希（dispose 时引用计数递减回收） */
+  private appFonts = new Map<string, Set<string>>()
+
   constructor(ctx: Context, _config: Record<never, never> = {}) {
     super(ctx, 'style')
+    // 应用销毁：字体引用计数回收（零引用移除文档级节点）
+    ctx.on('app/disposed', (e) => this.releaseFonts(e.appId), { global: true })
+  }
+
+  /**
+   * @font-face 提升（§3.3）：注入**文档级** style 节点（Shadow DOM 内 @font-face 不生效），
+   * family 重写为 `tx-{appId}-{family}`（家族名撞车隔离）；同 family+src 哈希去重
+   * （复用节点，避免多应用重复下载/FOUT）。返回重写后的 family（应用侧使用）。
+   */
+  registerFontFace(ctx: Context, rule: FontFaceRule): string {
+    const appId = ctx.fiber.name
+    if (!appId) throw new Error('style.registerFontFace: cannot attribute to anonymous fiber')
+    const prefixed = `tx-${appId}-${rule.family}`
+    const key = fontHash(appId, rule.family, rule.declarations)
+    const existing = this.fontRegistry.get(key)
+    if (existing) {
+      existing.refs.add(appId) // 去重复用（同节点不再注入）
+    } else {
+      const node = document.createElement('style')
+      node.dataset.cordisApp = appId
+      node.dataset.txFont = rule.family
+      node.textContent = `@font-face { font-family: "${prefixed}"; ${rule.declarations} }`
+      document.head.appendChild(node)
+      this.fontRegistry.set(key, { node, refs: new Set([appId]) })
+    }
+    const keys = this.appFonts.get(appId) ?? new Set<string>()
+    keys.add(key)
+    this.appFonts.set(appId, keys)
+    return prefixed
+  }
+
+  /**
+   * CSS 文本内的 @font-face 提升改写（§3.3 构建期行为的运行时等价物）：
+   * 抽出全部 @font-face 块注册为文档级（family 前缀重写），返回改写后的 CSS
+   * （原 @font-face 块移除、其余规则原样）。
+   */
+  hoistFontFaces(ctx: Context, css: string): string {
+    let out = css
+    const blocks = css.match(/@font-face\s*\{[^}]*\}/g) ?? []
+    for (const block of blocks) {
+      const familyMatch = block.match(/font-family\s*:\s*["']?([^;"']+)["']?/)
+      if (!familyMatch) continue
+      const declarations = block
+        .replace(/@font-face\s*\{/, '')
+        .replace(/\}$/, '')
+        .replace(/font-family\s*:\s*["']?[^;"']+["']?\s*;?/, '')
+        .trim()
+      this.registerFontFace(ctx, { family: familyMatch[1] as string, declarations })
+      out = out.replace(block, '') // 移除原块（已提升）
+    }
+    return out
+  }
+
+  /** 字体 registry 查询（DevTools/诊断：当前文档级字体清单） */
+  fontRegistryEntries(): Array<{ appId: string; family: string; refs: number }> {
+    return [...this.fontRegistry.entries()].map(([key, e]) => ({
+      appId: key.split(':')[0] as string,
+      family: e.node.dataset.txFont ?? '',
+      refs: e.refs.size,
+    }))
+  }
+
+  /** 应用字体引用回收（app/disposed）：零引用移除文档级节点 */
+  private releaseFonts(appId: string): void {
+    const keys = this.appFonts.get(appId)
+    if (!keys) return
+    this.appFonts.delete(appId)
+    for (const key of keys) {
+      const entry = this.fontRegistry.get(key)
+      if (!entry) continue
+      entry.refs.delete(appId)
+      if (entry.refs.size === 0) {
+        entry.node.remove() // 无引用：移除（避免字体常驻）
+        this.fontRegistry.delete(key)
+      }
+    }
   }
 
   /**
