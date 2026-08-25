@@ -328,10 +328,12 @@ describe('沙箱工厂：Document 代理与存储命名空间', () => {
     head.appendChild(style)
     const style2 = document.createElement('style')
     head.append(style2)
-    head.innerHTML = '<style id="via-html"></style>'
+    // innerHTML 写点经 security.sanitizeHTML（§3.3）：style 元素被净除——
+    // 应用样式必须走 StyleService 显式通道（style-isolation 架构），innerHTML 注入不再记账
+    head.innerHTML = '<style id="via-html"></style><b>ok</b>'
 
     const tracked = sandbox.injectedNodes()
-    expect(tracked.length).toBe(3)
+    expect(tracked.length).toBe(2) // 仅 appendChild/append 两个显式节点
     expect(tracked.every((n) => n.tagName === 'STYLE')).toBe(true)
 
     await sandbox.destroy()

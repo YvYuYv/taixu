@@ -136,14 +136,14 @@ export class SecurityService extends Service {
   /**
    * HTML 净化（§3.3 真 sanitize）：DOMPurify 实例化净化（非实体转义——旧实现废除）；
    * `dangerousTags/dangerousAttributes` 配置真实传入（FORBID_TAGS/FORBID_ATTR），
-   * 叠加默认危险面（script/style/iframe/frame/object/embed + on* 事件属性由 DOMPurify 内建拦截）。
+   * 叠加默认危险面（script/style 等 + on* 事件属性由 DOMPurify 内建拦截）——应用样式走
+   * StyleService 显式通道（style-isolation），不经 innerHTML 注入。
    */
   sanitizeHTML(html: string): string {
     const purifier = createDOMPurify(globalThis as unknown as Parameters<typeof createDOMPurify>[0])
     return purifier.sanitize(html, {
       FORBID_TAGS: [...(this.cfg.sanitize?.dangerousTags ?? [])],
       FORBID_ATTR: [...(this.cfg.sanitize?.dangerousAttributes ?? [])],
-      ADD_TAGS: ['style'], // 应用样式注入是合法路径（style-isolation 显式通道 + 记账管理）
     }) as string
   }
 
