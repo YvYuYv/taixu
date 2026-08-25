@@ -1,6 +1,6 @@
 import { Context } from 'cordis'
 import './events'
-import { MonitorService } from './services/monitor'
+import { MonitorService, type MonitorConfig } from './services/monitor'
 import { SecurityService, isIsolateAllowed, type PermissionRule, type SecurityConfig } from './services/security'
 import { SandboxService } from './services/sandbox'
 import { DepsService, type AppManifestEntry } from './services/deps'
@@ -12,6 +12,7 @@ import { BusService, type BusConfig } from './services/bus'
 import { defineCordisApp } from './vue3-adapter'
 
 export { MonitorService } from './services/monitor'
+export type { MonitorConfig, AlertRule } from './services/monitor'
 export { SecurityService } from './services/security'
 export type { PermissionRule, PermissionVerdict, SecurityConfig } from './services/security'
 export { SandboxService } from './services/sandbox'
@@ -54,6 +55,8 @@ export interface CreateCordisOptions {
   onResolve?: RouterConfig['onResolve']
   /** bus 配置（挂起队列上限/回放批大小，§5.5；测试注小值） */
   bus?: BusConfig
+  /** monitor 配置（告警规则/冷却/错误率阈值，§七；测试注小窗口） */
+  monitor?: MonitorConfig
   /** 保活池预算（LRU 上限/水位/快照池，§5.4/§5.5；测试注小阈值触发） */
   keepAlive?: KeepAliveConfig
 }
@@ -143,7 +146,7 @@ function installCoreGuard(ctx: Context): void {
  */
 export function createCordis(options: CreateCordisOptions = {}): Context {
   const ctx = new Context()
-  ctx.plugin(MonitorService)
+  ctx.plugin(MonitorService, options.monitor)
   // isolate 白名单守卫（ADR-0010"仅允许两处"）：装在框架入口的 root ctx 上——
   // 非白名单标签（router-view/monitor 之外）拦截抛错 + violation 上报（fail-closed）
   installIsolateGuard(ctx)

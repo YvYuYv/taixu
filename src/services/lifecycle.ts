@@ -198,9 +198,11 @@ export class LifecycleService extends Service<LifecycleConfig> {
     const container = this.createOutletContainer(outlet)
     this.ctx.emit('app/loading', { appId, instanceId, signal })
 
+    let stage: 'load' | 'activate' = 'load' // 阶段跟踪：loadApp 之前 = load（资源期）；之后 = activate（激活期）
     try {
       // 1. 资源加载（deps；signal 全程透传）
       const plugin = (await this.ctx.deps.loadApp(appId, { signal })) as Record<string, unknown>
+      stage = 'activate'
       if (signal.aborted) throw new DOMException('aborted', 'AbortError')
       this.ctx.emit('app/loaded', { appId, instanceId }) // 资源就绪（基线 §2.4）
 
@@ -276,7 +278,7 @@ export class LifecycleService extends Service<LifecycleConfig> {
       this.ctx.emit('app/error', {
         appId,
         instanceId,
-        phase: attempt === 0 && !(error instanceof Error) ? 'load' : 'activate',
+        phase: stage, // 事务阶段如实归因（入口抛 Error 也是 load 期错误——旧启发式误判 activate）
         error: error instanceof Error ? error : new Error(String(error)),
         recoverable: true,
       })
