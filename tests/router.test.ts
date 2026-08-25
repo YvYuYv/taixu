@@ -312,3 +312,32 @@ describe('槽位注册补面（§3.3）', () => {
     expect(() => host.router.registerOutlet(host, 'zone', { owner: 'ro-a', basePath: '/z1' })).not.toThrow()
   })
 })
+
+describe('scroll restoration（§六表，B-路由）', () => {
+  it('history.state 记录槽位 scrollTop；popstate 恢复时回放', async () => {
+    const host = createCordis({ apps: [defineApp('sc', () => ({ name: 'sc', apply() {} }))], routes: [{ basePath: '/s1', appId: 'sc' }, { basePath: '/s2', appId: 'sc' }] })
+    await settle()
+    await host.router.navigate({ path: '/s1' }, { caller: host, outlet: 'main' })
+
+    // 挂载容器并滚动（lifecycle 容器 id 约定 tx-main）
+    const container = document.createElement('div')
+    container.id = 'tx-main'
+    document.body.appendChild(container)
+    container.scrollTop = 123
+
+    await host.router.navigate({ path: '/s2' }, { caller: host, outlet: 'main' }) // commit 采集滚动
+    const snap = window.history.state as { __tx_scroll?: Record<string, number> }
+    expect(snap.__tx_scroll?.main).toBe(123) // history.state 记录槽位 scrollTop
+
+    container.scrollTop = 0 // 用户滚走
+    window.history.back() // 离开 /s2（/s1 历史点无滚动记录）
+    await settle()
+    await settle()
+    expect(container.scrollTop).toBe(0)
+    window.history.forward() // 回到 /s2（popstate 恢复其记录的滚动）
+    await settle()
+    await settle()
+    expect(container.scrollTop).toBe(123) // 恢复历史点滚动位置
+    container.remove()
+  })
+})

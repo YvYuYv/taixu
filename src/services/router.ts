@@ -80,6 +80,8 @@ function stripReserved(search: string): Record<string, string> {
 /** history.state 槽位快照（§4.2）：commit 写入、popstate 恢复 */
 interface HistorySnapshot {
   __tx_outlets?: Record<string, string>
+  /** scroll restoration（§六表）：window + 各槽位容器 scrollTop，restore 时应用 */
+  __tx_scroll?: Record<string, number>
 }
 
 export class RouterService extends Service<RouterConfig> {
@@ -118,6 +120,32 @@ export class RouterService extends Service<RouterConfig> {
 
   private isWidget(outlet: string): boolean {
     return this.widgetOutlets.has(outlet) || outlet.startsWith('widget')
+  }
+
+  /** 槽位滚动容器查找（lifecycle 容器 id 约定 `tx-{outlet}`；缺失返回 null——读侧宽容） */
+  private scrollContainer(outlet: string): HTMLElement | null {
+    return document.getElementById(`tx-${outlet}`)
+  }
+
+  /** scroll restoration 采集（§六表）：window.scrollY + 各槽位容器 scrollTop */
+  private captureScroll(): Record<string, number> {
+    const out: Record<string, number> = { window: window.scrollY }
+    for (const outlet of this.outlets.keys()) {
+      const el = this.scrollContainer(outlet)
+      if (el && el.scrollTop > 0) out[outlet] = el.scrollTop
+    }
+    return out
+  }
+
+  /** scroll restoration 应用（popstate 恢复时）：history.state 快照回放 */
+  private applyScroll(snapshot: Record<string, number> | undefined): void {
+    if (!snapshot) return
+    if (typeof snapshot.window === 'number') window.scrollTo(0, snapshot.window)
+    for (const [outlet, top] of Object.entries(snapshot)) {
+      if (outlet === 'window') continue
+      const el = this.scrollContainer(outlet)
+      if (el) el.scrollTop = top
+    }
   }
 
   /**
@@ -176,6 +204,8 @@ export class RouterService extends Service<RouterConfig> {
           this.outlets = matrixBackup // 矩阵回滚
           // 守卫拒绝历史导航：replace 恢复原 URL（不产生新历史记录）
           window.history.replaceState(e.state ?? null, '', from)
+        } else {
+          this.applyScroll(snap?.__tx_scroll) // scroll restoration（§六表）：恢复历史点的滚动位置
         }
       }
       const onHash = (e: HashChangeEvent) => {
@@ -308,7 +338,7 @@ export class RouterService extends Service<RouterConfig> {
 
   /** URL 回写 + history.state 快照（§4.2）：全量槽位状态合并序列化 */
   private commit(outlet: string, options: { replace?: boolean; history?: boolean }): void {
-    const stateSnapshot: HistorySnapshot = { __tx_outlets: {} }
+    const stateSnapshot: HistorySnapshot = { __tx_outlets: {}, __tx_scroll: this.captureScroll() }
     const url = new URL(window.location.href)
     const main = this.outlets.get(MAIN_CHANNEL)
     if (main && !options.history) url.pathname = main.path
