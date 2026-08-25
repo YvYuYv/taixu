@@ -259,7 +259,7 @@ location / { try_files $uri $uri/ /index.html; }
 
 | 场景 | 方案 |
 |------|------|
-| 懒 outlet | `loadOnVisible: true`（IntersectionObserver 触发挂载；observer 挂 ctx.effect） |
+| 懒 outlet | `loadOnVisible: true`（IntersectionObserver 触发挂载；observer 挂 ctx.effect）。落地形式：`createCordis({ router: { lazyOutlets: ['side'] } })`——清单等价于逐槽位 `loadOnVisible: true`；宿主选择器与 lifecycle `outlets` 同一约定（缺省 `#{outlet}`）；pending 期间多次导航只派最新意图；IO 能力/宿主元素缺失降级立即派发（优化不阻塞挂载） |
 | 应用级错误边界 | 挂载失败 -> lifecycle ErrorOutlet（路由文档引用，UI 属 lifecycle §6.2） |
 | 保活期间路由状态 | suspend 时 router 记录槽位位置快照；resume 校验 URL 与快照不一致时以 URL 为准（用户可能后退） |
 | scroll restoration | history.state 记录 scrollTop；restore 时应用 |

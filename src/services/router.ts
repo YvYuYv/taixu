@@ -23,12 +23,32 @@ export interface RouteRule {
   appId: string
 }
 
+/** 挂载意图（onResolve 载荷，基线 §2.3） */
+export interface MountIntent {
+  appId: string
+  outlet: string
+  path: string
+}
+
 export interface RouterConfig {
   routes?: RouteRule[]
   /** hash 通道槽位清单（浮窗类 widget，§3.1-2）；缺省以 'widget' 为前缀判定 */
   widgetOutlets?: string[]
   /** lifecycle -> router 单向接线：挂载意图回调（基线 §2.3） */
-  onResolve?: (intent: { appId: string; outlet: string; path: string }) => void
+  onResolve?: (intent: MountIntent) => void
+  /** 懒槽位宿主选择器映射（与 lifecycle outlets 同一约定：槽位名 -> CSS selector；缺省 `#{outlet}`） */
+  outlets?: Record<string, string>
+  /** 懒 outlet 清单（§六表 loadOnVisible 的落地形式）：命中槽位的挂载意图延迟到宿主元素进入视口才派发 */
+  lazyOutlets?: string[]
+  /** IntersectionObserver 注入口（测试/宿主注入；缺省取 globalThis，能力缺失降级立即派发） */
+  ioFactory?: new (callback: (entries: { isIntersecting: boolean; target: Element }[], observer: IntersectionObserverLike) => void, options?: unknown) => IntersectionObserverLike
+}
+
+/** IntersectionObserver 结构最小面（jsdom 无此 API；测试假件实现同一形状） */
+export interface IntersectionObserverLike {
+  observe(el: Element): void
+  unobserve(el: Element): void
+  disconnect(): void
 }
 
 /** 保留字前缀（§3.1-1）：`__tx_` 全框架槽位参数统一前缀 */
@@ -100,12 +120,37 @@ export class RouterService extends Service<RouterConfig> {
   private routes: RouteRule[]
   private widgetOutlets: Set<string>
   private onResolve: RouterConfig['onResolve']
+  /** 懒 outlet（§六表 loadOnVisible）：pending 意图 / 已可见 / 元素->槽位观察账本 */
+  private lazyOutlets: Set<string>
+  private lazyVisible = new Set<string>()
+  private lazyPending = new Map<string, MountIntent>()
+  private lazyElToOutlet = new Map<Element, string>()
+  private outletSelectors: Record<string, string>
+  private io: IntersectionObserverLike | null
 
   constructor(ctx: Context, config: RouterConfig = {}) {
     super(ctx, 'router')
     this.routes = config.routes ?? []
     this.widgetOutlets = new Set(config.widgetOutlets ?? [])
     this.onResolve = config.onResolve
+    this.outletSelectors = config.outlets ?? {}
+    this.lazyOutlets = new Set(config.lazyOutlets ?? [])
+    type IOFactory = NonNullable<RouterConfig['ioFactory']>
+    const IO = (config.ioFactory ?? (globalThis as { IntersectionObserver?: IOFactory }).IntersectionObserver) ?? null
+    this.io = IO
+      ? new IO((entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue
+            const outlet = this.lazyElToOutlet.get(entry.target)
+            if (outlet === undefined) continue
+            // 命中即了结：unobserve + 派发 pending 意图（一次性触发）
+            this.lazyElToOutlet.delete(entry.target)
+            this.io?.unobserve(entry.target)
+            this.flushLazy(outlet)
+          }
+        })
+      : null
+    if (this.io) ctx.effect(() => () => this.io?.disconnect()) // observer 挂 ctx.effect（§六表）
     this.initFromLocation()
     this.initPopState()
     this.resolveDeepLinks()
@@ -120,6 +165,38 @@ export class RouterService extends Service<RouterConfig> {
 
   private isWidget(outlet: string): boolean {
     return this.widgetOutlets.has(outlet) || outlet.startsWith('widget')
+  }
+
+  /**
+   * 挂载意图统一派发口（导航第 3 步与深链启动同一入口）：懒槽位（§六表
+   * loadOnVisible）未可见时扣住意图——观察宿主元素，进入视口才派发最新意图；
+   * IO 能力缺失/宿主元素缺失降级为立即派发（懒加载是优化不是正确性闸门，不阻塞挂载）。
+   */
+  private dispatchIntent(intent: MountIntent): void {
+    if (this.lazyOutlets.has(intent.outlet) && !this.lazyVisible.has(intent.outlet)) {
+      this.lazyPending.set(intent.outlet, intent) // 多次导航只保留最新意图
+      if (this.io) {
+        // 宿主选择器约定与 lifecycle resolveOutletHost 同源（outlets 映射，缺省 `#{outlet}`）
+        const selector = this.outletSelectors[intent.outlet] ?? `#${intent.outlet}`
+        const el = document.querySelector(selector)
+        if (el && !this.lazyElToOutlet.has(el)) {
+          this.lazyElToOutlet.set(el, intent.outlet)
+          this.io.observe(el)
+        }
+        if (el) return // 已在观察：意图留 pending，视口命中时派发
+      }
+      this.flushLazy(intent.outlet) // 降级：无 IO / 无宿主元素 -> 立即派发
+      return
+    }
+    this.onResolve?.(intent)
+  }
+
+  /** 懒槽位放行：标记已可见 + 派发 pending 的最新意图（一次性；后续导航走直通） */
+  private flushLazy(outlet: string): void {
+    this.lazyVisible.add(outlet)
+    const intent = this.lazyPending.get(outlet)
+    this.lazyPending.delete(outlet)
+    if (intent) this.onResolve?.(intent)
   }
 
   /** 槽位滚动容器查找（lifecycle 容器 id 约定 `tx-{outlet}`；缺失返回 null——读侧宽容） */
@@ -156,7 +233,7 @@ export class RouterService extends Service<RouterConfig> {
     if (!this.onResolve) return
     for (const [outlet, state] of this.outlets) {
       const matched = this.match(state.path, outlet)
-      if (matched) this.onResolve({ appId: matched.appId, outlet, path: state.path })
+      if (matched) this.dispatchIntent({ appId: matched.appId, outlet, path: state.path })
     }
   }
 
@@ -328,7 +405,7 @@ export class RouterService extends Service<RouterConfig> {
 
     // 3. 挂载意图（基线 §2.3：事件解耦，router 不 inject lifecycle；历史导航同样触发）
     const matched = this.match(target.path, outlet)
-    if (matched) this.onResolve?.({ appId: matched.appId, outlet, path: target.path })
+    if (matched) this.dispatchIntent({ appId: matched.appId, outlet, path: target.path })
 
     // 4. 双层变更通知（ADR-0036/0047）：槽位族给隔离视图；全局矩阵 root-only
     this.ctx.emit(outletEventKey(outlet), { outlet, matched })

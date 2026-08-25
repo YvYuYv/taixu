@@ -30,7 +30,7 @@ export type { AppInstance, MountOptions, RecoveryConfig, LifecycleConfig, KeepAl
 export { StyleService } from './services/style'
 export type { StyleAsset } from './services/style'
 export { RouterService } from './services/router'
-export type { RouteRule, RouterConfig, GuardResult } from './services/router'
+export type { RouteRule, RouterConfig, GuardResult, MountIntent, IntersectionObserverLike } from './services/router'
 export { StateService } from './services/state'
 export type { StateConfig, PersistConfig, CrossTabChannel } from './services/state'
 export type { WatchOptions as StateWatchOptions, GetOptions as StateGetOptions, SetOptions as StateSetOptions } from './services/state'
@@ -58,6 +58,8 @@ export interface CreateCordisOptions {
   routes?: RouteRule[]
   /** 挂载意图回调（lifecycle -> router 单向接线，基线 §2.3；测试/宿主注入） */
   onResolve?: RouterConfig['onResolve']
+  /** router 扩展配置（懒 outlet 清单/IO 注入等；routes 与 onResolve 以顶层为准） */
+  router?: Omit<RouterConfig, 'routes' | 'onResolve'>
   /** bus 配置（挂起队列上限/回放批大小，§5.5；测试注小值） */
   bus?: BusConfig
   /** monitor 配置（告警规则/冷却/错误率阈值，§七；测试注小窗口） */
@@ -166,7 +168,13 @@ export function createCordis(options: CreateCordisOptions = {}): Context {
   ctx.plugin(SandboxService)
   ctx.plugin(DepsService, { apps: options.apps })
   ctx.plugin(StyleService)
-  ctx.plugin(RouterService, { routes: options.routes, onResolve: options.onResolve })
+  ctx.plugin(RouterService, {
+    ...options.router,
+    // 懒 outlet 宿主选择器：router 扩展未指定处回落顶层 outlets（同一约定，免重复声明）
+    outlets: options.router?.outlets ?? options.outlets,
+    routes: options.routes,
+    onResolve: options.onResolve,
+  })
   ctx.plugin(StateService, options.state)
   ctx.plugin(TracingService, options.tracing)
   ctx.plugin(BusService, options.bus)
