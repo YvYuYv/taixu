@@ -690,6 +690,8 @@ export class LifecycleService extends Service<LifecycleConfig> {
         this.removeOutletContainer(instance.container) // 已摘离的容器 remove 幂等
         this.instances.delete(instanceId)
         this.ctx.bus.unregister(instanceId)
+        // 泄漏嫌疑登记（monitoring §四）：容器应随 dispose 可回收——超 TTL 仍活且发生过 GC 则告警
+        this.ctx.monitor.trackDisposed({ instanceId, object: instance.container })
         this.ctx.emit('app/disposed', { appId: instance.appId, instanceId })
       }
     })

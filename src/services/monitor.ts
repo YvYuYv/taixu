@@ -15,6 +15,43 @@ export interface MonitorConfig {
   alertRules?: Record<string, AlertRule>
   /** 错误率告警（JS_ERROR_RATE）：窗口与阈值 */
   errorRate?: { windowMs?: number; max?: number }
+  /** 指标环形缓冲容量（默认 1024；溢出覆盖最旧——O(1)，修复 shift O(n)） */
+  metricsBuffer?: number
+  /** 泄漏探测（§四）：嫌疑 TTL 与轮询（默认 60s/5s）；hasGcActivity 注入 GC 活动证据源（测试/宿主） */
+  leak?: { ttlMs?: number; pollMs?: number; hasGcActivity?: () => boolean }
+}
+
+/** 指标快照条目：计数 + 分位数（p50/p75/p95，§三分位数而非均值） */
+export interface MetricSummary {
+  count: number
+  p50: number
+  p75: number
+  p95: number
+  max: number
+}
+
+/** 定长环形缓冲（游标覆盖，O(1)；修复旧版 shift O(n)） */
+class RingBuffer {
+  private buf: number[] = []
+  private cursor = 0
+  constructor(private cap: number) {}
+  push(v: number): void {
+    if (this.buf.length < this.cap) this.buf.push(v)
+    else {
+      this.buf[this.cursor] = v
+      this.cursor = (this.cursor + 1) % this.cap
+    }
+  }
+  values(): number[] {
+    return this.buf.length < this.cap ? [...this.buf] : [...this.buf.slice(this.cursor), ...this.buf.slice(0, this.cursor)]
+  }
+}
+
+/** 分位数（最近邻插值；空序列返回 0） */
+function quantile(sorted: number[], q: number): number {
+  if (sorted.length === 0) return 0
+  const idx = Math.min(sorted.length - 1, Math.floor(q * (sorted.length - 1)))
+  return sorted[idx] as number
 }
 
 /**
@@ -34,11 +71,29 @@ export class MonitorService extends Service<MonitorConfig> {
   private cooldowns = new Map<string, number>()
   /** 错误计数（JS_ERROR_RATE）：appId -> 窗口内时刻列表 */
   private errorTimes = new Map<string, number[]>()
+  /** 指标缓冲（name -> 环形缓冲） */
+  private series = new Map<string, RingBuffer>()
+  private bufferCap: number
+  /** 挂载计时（app_loading -> app_ready 时长，§三 加载指标）：instanceId -> 起始时刻 */
+  private loadingSince = new Map<string, number>()
+  /** 泄漏嫌疑（§四）：instanceId -> { ref, at }；FinalizationRegistry 回收确认即移除 */
+  private suspects = new Map<string, { ref: WeakRef<object>; at: number }>()
+  private leakReported = new Set<string>() // 告警去抖：同 instanceId 只报一次
+  private gcActivity: () => boolean
+  private lastHeap: number | undefined
 
   constructor(ctx: Context, config: MonitorConfig = {}) {
     super(ctx, 'monitor')
     this.rules = config.alertRules ?? {}
+    this.bufferCap = config.metricsBuffer ?? 1024
     this.errorRate = { windowMs: config.errorRate?.windowMs ?? 300_000, max: config.errorRate?.max ?? 20 }
+    // 泄漏探测特性检测（§四）：WeakRef/FinalizationRegistry 缺失则降级为纯记账（不抛错）
+    this.leakSupported = typeof WeakRef === 'function' && typeof FinalizationRegistry === 'function'
+    if (this.leakSupported) {
+      this.registry = new FinalizationRegistry((key: string) => {
+        this.suspects.delete(key) // 回收确认：被 GC -> 移出嫌疑（修复 deref 误报）
+      })
+    }
     // 旁听 security/violation（事件旁听不构成服务依赖，ADR-0054）
     ctx.on('security/violation', (violation) => {
       this.capture(new Error(`security violation: ${violation.rule}`), {
@@ -50,9 +105,94 @@ export class MonitorService extends Service<MonitorConfig> {
     ctx.on('app/error', (e) => {
       if (e.phase === 'load') this.trigger({ type: 'APP_LOAD_FAILED', appId: e.appId, detail: { message: e.error.message } })
     }, { global: true })
+    // 指标采集（§三）：state 变更计数；应用加载时长（app/loading -> app/ready 事件差，含重试）
+    ctx.on('state/changed', (e) => this.count('state_change', 1, { key: e.key }), { global: true })
+    ctx.on('app/loading', (e) => this.loadingSince.set(e.instanceId, Date.now()), { global: true })
+    ctx.on('app/ready', (e) => {
+      const startedAt = this.loadingSince.get(e.instanceId)
+      if (startedAt !== undefined) {
+        this.loadingSince.delete(e.instanceId)
+        this.count('app_load_ms', Date.now() - startedAt, { appId: e.appId })
+      }
+    }, { global: true })
+    // 泄漏探测轮询（§四）：嫌疑存活超 TTL 且期间发生过 GC 才告警（deref 非空不能证明泄漏）
+    this.gcActivity = config.leak?.hasGcActivity ?? (() => this.observeHeapDecline())
+    const ttlMs = config.leak?.ttlMs ?? 60_000
+    const pollMs = config.leak?.pollMs ?? 5_000
+    const poll = setInterval(() => this.sweepSuspects(ttlMs), pollMs)
+    ctx.effect(() => () => clearInterval(poll))
   }
 
   private errorRate: { windowMs: number; max: number }
+  private leakSupported: boolean
+  private registry?: FinalizationRegistry<string>
+
+  /**
+   * 指标计数（§三）：值进环形缓冲（分位数而非均值）；连续型指标（`fps` 前缀）
+   * 在 `document.hidden` 时暂停（修复后台误报 LOW_FPS）。
+   */
+  count(name: string, value: number, _tags?: Record<string, unknown>): void {
+    if (name.startsWith('fps') && document.hidden) return // 后台暂停（§三）
+    const ring = this.series.get(name) ?? new RingBuffer(this.bufferCap)
+    ring.push(value)
+    this.series.set(name, ring)
+  }
+
+  /** 指标快照：计数 + 分位数（p50/p75/p95）+ max */
+  metricsSnapshot(): Record<string, MetricSummary> {
+    const out: Record<string, MetricSummary> = {}
+    for (const [name, ring] of this.series) {
+      const sorted = [...ring.values()].sort((a, b) => a - b)
+      out[name] = {
+        count: sorted.length,
+        p50: quantile(sorted, 0.5),
+        p75: quantile(sorted, 0.75),
+        p95: quantile(sorted, 0.95),
+        max: sorted[sorted.length - 1] ?? 0,
+      }
+    }
+    return out
+  }
+
+  /**
+   * 泄漏嫌疑登记（§四）：dispose 后登记（宿主/lifecycle 调用）；FinalizationRegistry
+   * 在 GC 时自动洗清嫌疑；存活超 TTL 且期间有 GC 活动证据才告警（LEAK_SUSPECT，
+   * 同 instanceId 去抖一次）。能力边界：只覆盖可 WeakRef 的对象（分离 DOM 等），
+   * JS 堆泄漏（闭包/数组）由沙箱记账审计补位。
+   */
+  trackDisposed(target: { instanceId: string; object: object }): void {
+    if (!this.leakSupported) return // 特性降级：不探测（检测插件自身不抛错）
+    this.suspects.set(target.instanceId, { ref: new WeakRef(target.object), at: Date.now() })
+    this.registry?.register(target.object, target.instanceId)
+  }
+
+  /** 嫌疑清扫（轮询）：超 TTL + 有 GC 活动 + 引用仍活着 -> LEAK_SUSPECT（去抖一次） */
+  private sweepSuspects(ttlMs: number): void {
+    const now = Date.now()
+    for (const [key, s] of [...this.suspects]) {
+      if (s.ref.deref() === undefined) {
+        this.suspects.delete(key) // 已回收（Registry 回调之外的兜底）
+        continue
+      }
+      if (now - s.at > ttlMs && !this.leakReported.has(key) && this.gcActivity()) {
+        this.leakReported.add(key)
+        this.suspects.delete(key)
+        this.trigger({ type: 'LEAK_SUSPECT', appId: key.split(':')[0], level: 'warning', detail: { instanceId: key, ttlMs } })
+      }
+    }
+  }
+
+  /** GC 活动证据（§四）：performance.memory 下降事件（无此 API = 无证据 -> 不告警，诚实降级） */
+  private observeHeapDecline(): boolean {
+    const mem = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory
+    if (!mem) return false
+    if (this.lastHeap !== undefined && mem.usedJSHeapSize < this.lastHeap) {
+      this.lastHeap = mem.usedJSHeapSize
+      return true // 发生过 GC（堆下降）
+    }
+    this.lastHeap = mem.usedJSHeapSize
+    return false
+  }
 
   /** 唯一错误入口：appId 归因 + monitor/report 通知（fire-and-forget）+ 错误率计数 */
   capture(error: unknown, meta: { appId?: string; phase: AppPhase } = { phase: 'runtime' }): void {
