@@ -106,8 +106,10 @@ describe('send 服务方法（§3.1，ADR-0041）', () => {
     expect(cGot).toHaveLength(0) // 旁观者收不到
 
     await host.lifecycle.destroy(ib.instanceId, 't')
-    // 目标已卸载：投递失败即显式错误（挂起入队在 08 号票）
-    expect(() => host.bus.send(host, { type: 'evt:ping', payload: 'x', target: 'app-b' })).toThrow(/unreachable/)
+    // 目标已卸载：投递失败显式 false + 死信入 DLQ（§5.4 不静默丢弃）
+    expect(host.bus.send(host, { type: 'evt:ping', payload: 'x', target: 'app-b' })).toBe(false)
+    expect(host.bus.deadLetters()).toHaveLength(1)
+    expect(host.bus.deadLetters()[0]!.error).toMatch(/unreachable/)
   })
 })
 
@@ -383,5 +385,54 @@ describe('publishLatest 响应式 retained（§5.3，B-通信）', () => {
     await host.lifecycle.mount('late2', 'o2') // 挂载即 onLatest 首跑（对过期值）
     await settle()
     expect(expiredGot).toEqual([]) // 过期最新值：onLatest 静默（TTL 消费侧裁决）
+  })
+})
+
+describe('DLQ 死信（§5.4/§5.2，B-通信）', () => {
+  it('不可达目标进 DLQ + QUEUE_DEAD_LETTER 告警；DLQ 有界丢最旧；重放成功移除、失败保留', async () => {
+    const alerts: string[] = []
+    const host = createCordis({
+      bus: { dlqLimit: 2 },
+      apps: [receiverApp('dl-app', [])],
+    })
+    await settle()
+    host.on('monitor/alert', (e) => alerts.push(e.alert.message), { global: true })
+
+    // 三条不可达（容量 2）：丢最旧
+    expect(host.bus.send(host, { type: 'evt:x', payload: 1, target: 'nope' })).toBe(false)
+    expect(host.bus.send(host, { type: 'evt:x', payload: 2, target: 'nope' })).toBe(false)
+    expect(host.bus.send(host, { type: 'evt:x', payload: 3, target: 'nope' })).toBe(false)
+    const dlq = host.bus.deadLetters()
+    expect(dlq).toHaveLength(2) // 有界：最旧被丢
+    expect(dlq.map((d) => d.message.payload)).toEqual([2, 3])
+    expect(alerts.filter((a) => a === 'QUEUE_DEAD_LETTER')).toHaveLength(3) // 每次死信都告警
+
+    // 重放：目标仍不可达 -> 失败（原记录保留 + 新死信记录；容量 2 下最旧被挤出）
+    expect(host.bus.replayDeadLetter(0)).toBe(false)
+    expect(host.bus.deadLetters().map((d) => d.message.payload)).toEqual([3, 2])
+
+    // 挂载目标后重放：投递成功 -> 原记录移除
+    const got: unknown[] = []
+    const host2 = host
+    void host2
+    const rec = receiverApp('dl-target', got)
+    void rec
+    // 经 apps 清单外无法新增——改用清单内应用：dl-app 挂载后重放对其定向
+    const inst = await host.lifecycle.mount('dl-app', 'main')
+    await settle()
+    // 直接向 dl-app 发不可达（先卸载制造死信）再重放
+    await host.lifecycle.destroy(inst.instanceId, 't')
+    host.bus.send(host, { type: 'evt:y', payload: 'revive', target: 'dl-app' })
+    const idx = host.bus.deadLetters().findIndex((d) => d.message.payload === 'revive')
+    const inst2 = await host.lifecycle.mount('dl-app', 'main') // 目标回归
+    await settle()
+    void inst2
+    expect(host.bus.replayDeadLetter(idx)).toBe(true) // 重放成功
+  })
+
+  it('重放假索引返回 false（不抛）', async () => {
+    const host = createCordis({ apps: [defineApp('x-app', () => ({ name: 'x-app', apply() {} }))] })
+    await settle()
+    expect(host.bus.replayDeadLetter(99)).toBe(false)
   })
 })

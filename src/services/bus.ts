@@ -25,6 +25,15 @@ export type { SuspendSource, SuspendReason } from '../events'
 export interface BusConfig {
   queueLimit?: number
   replayBatch?: number
+  /** DLQ 容量（默认 100，§5.2 有界；溢出丢最旧） */
+  dlqLimit?: number
+}
+
+/** 死信记录（§5.4：不可达目标不静默丢弃，可审计可重放） */
+export interface DeadLetterRecord {
+  message: CordisMessage
+  error: string
+  at: number
 }
 
 /** 应用实例登记（lifecycle 挂载成功后注入；销毁时注销） */
@@ -129,11 +138,13 @@ export class BusService extends Service<BusConfig> {
 
   private queueLimit: number
   private replayBatchSize: number
+  private dlqLimit: number
 
   constructor(ctx: Ctx, config: BusConfig = {}) {
     super(ctx, 'bus')
     this.queueLimit = config.queueLimit ?? 1000
     this.replayBatchSize = config.replayBatch ?? 50
+    this.dlqLimit = config.dlqLimit ?? 100
     // 挂起队列联动（§5.5，09 号票统一时序）：lifecycle 在 app/resume（state/sync）与
     // router/replay 之后派发 bus/replay 触发回放；dispose 清队列（root + global，不 inject lifecycle）
     ctx.on('bus/replay', (e) => {
@@ -152,6 +163,35 @@ export class BusService extends Service<BusConfig> {
   private queues = new Map<string, { items: CordisMessage[]; coalesced: Set<string>; dropped: number }>()
   /** 回放中标记：期间新消息入队尾保持全序（ADR-0015） */
   private replaying = new Set<string>()
+
+  // ---- DLQ 死信（§5.4/§5.2：不可达不静默丢弃；有界 + 可审计可重放）----
+  private dlq: DeadLetterRecord[] = []
+
+  /** 死信入队：有界（默认 100，溢出丢最旧）+ QUEUE_DEAD_LETTER 告警（monitor 旁听） */
+  private deadLetter(message: CordisMessage, error: string): void {
+    this.dlq.push({ message, error, at: Date.now() })
+    if (this.dlq.length > this.dlqLimit) this.dlq.shift() // 有界：丢最旧（§5.2）
+    this.ctx.emit('monitor/alert', {
+      alert: { level: 'error', message: 'QUEUE_DEAD_LETTER', appId: message.source },
+    })
+  }
+
+  /** DLQ 只读视图（devtools/宿主审计用） */
+  deadLetters(): readonly DeadLetterRecord[] {
+    return this.dlq
+  }
+
+  /**
+   * 死信重放（§5.2 "devtools 可查看/重放"）：重走 send 管线（裁决/TTL/定向全复用）；
+   * 目标仍不可达会再进 DLQ（新记录）——重放不绕过任何校验。成功投递则从 DLQ 移除原记录。
+   */
+  replayDeadLetter(index: number): boolean {
+    const record = this.dlq[index]
+    if (!record) return false
+    const delivered = this.dispatch(record.message)
+    if (delivered) this.dlq.splice(index, 1)
+    return delivered
+  }
 
   /** lifecycle -> bus 单向登记（挂载成功后调用；§3.1 目标解析数据源） */
   register(instance: BusInstance): void {
@@ -223,8 +263,7 @@ export class BusService extends Service<BusConfig> {
   }
 
   /** instanceId 查实例（登记表以 appId 为键；回放/投递路径统一走此助手） */
-  private findByInstanceId(instanceId: string): BusInstance | undefined {
-    for (const list of this.instances.values()) {
+  private findByInstanceId(instanceId: string): BusInstance | undefined {    for (const list of this.instances.values()) {
       const hit = list.find((i) => i.instanceId === instanceId)
       if (hit) return hit
     }
@@ -238,8 +277,12 @@ export class BusService extends Service<BusConfig> {
     const targets = this.instances.get(message.target)
     const target = targets?.[targets.length - 1] // 同 appId 多实例取最新（instance 定向在 08 号票）
     if (!target) {
-      // 投递失败显式错误（挂起目标入队在 08 号票验收）
-      throw new Error(`bus: unreachable target "${message.target}" (not mounted)`)
+      // 死信（§5.4）：目标不存在（未挂载/已卸载）不静默丢弃——进 DLQ + 告警，
+      // devtools 可查看/重放；send 显式返回 false。挂起目标的入队路径见下。
+      //（"目标存在但 PENDING 排队至 ACTIVE"在本实现不可达：bus 登记发生在 fiber
+      //  ACTIVE 之后（lifecycle mountOnce），注册即激活，无需等待窗口）
+      this.deadLetter(message, `unreachable target "${message.target}" (not mounted)`)
+      return false
     }
     if (suspendRegistry.isSuspended(target.appId) || this.replaying.has(target.instanceId)) {
       this.enqueue(target.instanceId, message) // 挂起队列（ADR-0008）：冻结态不处理消息
