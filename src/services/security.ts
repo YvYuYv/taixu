@@ -143,6 +143,7 @@ export class SecurityService extends Service {
     return purifier.sanitize(html, {
       FORBID_TAGS: [...(this.cfg.sanitize?.dangerousTags ?? [])],
       FORBID_ATTR: [...(this.cfg.sanitize?.dangerousAttributes ?? [])],
+      ADD_TAGS: ['style'], // 应用样式注入是合法路径（style-isolation 显式通道 + 记账管理）
     }) as string
   }
 
