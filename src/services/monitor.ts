@@ -1,6 +1,7 @@
 import { Service, type Context } from 'cordis'
 import '../events'
 import type { AppPhase, ErrorMetric, Metric, Alert } from '../events'
+import type { Span, TracingService } from './tracing'
 
 /** 告警规则（§七 AlertEngine）：condition 真实执行 + 冷却按 (appId, type) 维度 */
 export interface AlertRule {
@@ -52,6 +53,21 @@ function quantile(sorted: number[], q: number): number {
   if (sorted.length === 0) return 0
   const idx = Math.min(sorted.length - 1, Math.floor(q * (sorted.length - 1)))
   return sorted[idx] as number
+}
+
+/**
+ * 按应用隔离的主动上报入口（monitoring §2.1，ADR-0010/0025）：应用经挂载事务在
+ * `isolate('monitor', appId)` ctx 上注入本门面——capture/count **自动归因 appId**
+ * （应用无需手动传）；startSpan 续接为子 span（同 traceId 贯通，ADR-0022）。
+ * 只暴露主动上报三件套：trigger/metricsSnapshot 等聚合面留在 root 单例（隔离边界）。
+ */
+export interface AppMonitor {
+  /** 唯一错误入口（隔离版）：appId 自动归因；phase 缺省 runtime */
+  capture(error: unknown, meta?: { phase?: AppPhase }): void
+  /** 指标计数（隔离版）：自动附 appId 标签，聚合汇于 root sink */
+  count(name: string, value: number, tags?: Record<string, unknown>): void
+  /** 开 span（隔离版）：带 parentTraceparent 则同 traceId 续接；tracing 未启用返回 null（诚实降级） */
+  startSpan(name: string, parentTraceparent?: string): Span | null
 }
 
 /**
@@ -233,6 +249,24 @@ export class MonitorService extends Service<MonitorConfig> {
     const payload: Alert = { level: alert.level ?? 'warning', message: alert.type, appId: alert.appId }
     this.ctx.emit('monitor/alert', { alert: payload })
     return true
+  }
+
+  /**
+   * 造按应用隔离的主动上报门面（monitoring §2.1）：capture/count 走 root 管线
+   * （自动归因 appId——聚合汇于 root sink）；startSpan 懒取 tracing（不 inject，
+   * 保持 monitor 零依赖方向 ADR-0054；tracing 未启用 = null 诚实降级）。
+   */
+  forApp(appId: string): AppMonitor {
+    return {
+      capture: (error, meta) => this.capture(error, { appId, phase: meta?.phase ?? 'runtime' }),
+      count: (name, value, tags) => this.count(name, value, { appId, ...tags }),
+      startSpan: (name, parentTraceparent) => {
+        // 懒取 tracing（不 inject，保持 monitor 零依赖方向 ADR-0054）；
+        // tracing 服务未注册时运行时为 undefined = null 诚实降级（不产 span）
+        const tracing = (this.ctx as { tracing?: TracingService }).tracing
+        return tracing ? tracing.startSpan(name, parentTraceparent) : null
+      },
+    }
   }
 }
 

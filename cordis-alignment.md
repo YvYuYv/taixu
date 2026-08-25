@@ -190,6 +190,14 @@ Active（渲染中）⇄ Suspended（DOM 摘除缓存、副作用冻结）→ De
 - **驱逐快照**（ADR-0029/0034）：驱逐前框架对 `local:{appId}:` 键空间序列化快照（`{version, data}`）存 sessionStorage（>2MB 放弃），重挂载时版本匹配直接注水、不匹配查应用清单的 `migrate(snapshot, fromVersion)` 纯函数（无则丢弃冷启动并上报）；**约束：local 键空间的值必须 JSON 可序列化**。快照能力抽象为 lifecycle 内部 `snapshotLocalKeys/hydrateLocalKeys`，驱逐与 HMR 两个调用方复用（ADR-0037）
 - 样式/监听等 effect **保留**（与 dispose 区分），样式隔离模块按此语义定义样式生命周期
 
+### 2.7 monitor 按应用隔离的落地形状（ADR-0010/0025/0022）
+
+§2.2 表中 `isolate('monitor', appId)` 的落地细则：
+
+- **isolate 发生在 lifecycle 挂载事务内**（应用透明，无需自己调 isolate）：应用 fiber 挂在 `root.isolate('monitor', Symbol(appId))` ctx 上，事务内 `reflect.provide('monitor', forApp(appId))` 注册隔离 impl——注入解析到**自动归因 appId 的门面**（capture/count 自动带 appId、startSpan 带 traceparent 时续接同 traceId 子 span）；实例销毁（destroy/级联清理）即注销隔离 impl。
+- **label 用 `Symbol(appId)` 而非字符串 appId**：isolate 的 label 是 registry store 的键，字符串 appId 在同 appId 重挂载时会撞 "already registered"；Symbol 保证每次挂载唯一且描述保留归因。
+- **隔离边界**：门面只暴露主动上报三件套（capture/count/startSpan）；trigger/metricsSnapshot 等聚合面与 `app/*`、`security/violation` 等被动事件入口留在 root 单例（global 监听不隔离），聚合数据汇于 root sink（monitoring §2.1）。
+
 ## 三、错误处理统一模型
 
 ```

@@ -111,6 +111,17 @@ export class LifecycleService extends Service<LifecycleConfig> {
   /** outlet 级串行队列（§2.2-1）：promise 链天然串行、无唤醒竞态 */
   private outletLocks = new Map<string, Promise<void>>()
   private instances = new Map<string, AppInstance>()
+  /** 按应用隔离 monitor impl 的注销器（fiber dispose 即释放；WeakMap 防 root fiber effect 泄漏堆积） */
+  private isolatedMonitors = new WeakMap<Fiber, () => unknown>()
+
+  /** 释放实例的隔离 monitor impl（幂等）：destroy/cascadeCleanup 统一经此收口 */
+  private releaseIsolatedMonitor(fiber: Fiber): void {
+    const release = this.isolatedMonitors.get(fiber)
+    if (release) {
+      this.isolatedMonitors.delete(fiber)
+      void Promise.resolve(release()).catch(() => {})
+    }
+  }
 
   private cfg: LifecycleConfig
 
@@ -223,8 +234,22 @@ export class LifecycleService extends Service<LifecycleConfig> {
 
       // 4. 插件挂载：inject 未满足时 fiber 停留 PENDING（Cordis reactive coeffect）。
       //    plugin() 的 apply 经 _reload 在微任务中执行；实例在 plugin() 返回后同步登记，
-      //    故 apply 运行时 containerOf 已可解析（fiber 判等见其注释）
-      const fiber = this.ctx.plugin(plugin as never, options.config as never)
+      //    故 apply 运行时 containerOf 已可解析（fiber 判等见其注释）。
+      //    按应用隔离 monitor 主动上报入口（monitoring §2.1，ADR-0010/0025）：应用在
+      //    isolate('monitor', appId) ctx 上挂载，注入解析到 forApp(appId) 门面
+      //    （capture/count 自动归因、startSpan 续接子 span）；root 单例与被动事件入口
+      //    不受影响（聚合仍汇 root sink）。隔离 impl 随实例销毁注销（WeakMap 追踪）。
+      //    label 用 Symbol(appId)：唯一（同 appId 重挂载不撞 registry 键）且描述保留归因
+      const isoCtx = this.ctx.isolate('monitor' as never, Symbol(appId)) as Context
+      const releaseMonitor = isoCtx.reflect.provide('monitor', this.ctx.monitor.forApp(appId))
+      let fiber!: Fiber
+      try {
+        fiber = isoCtx.plugin(plugin as never, options.config as never)
+        this.isolatedMonitors.set(fiber, releaseMonitor)
+      } catch (error) {
+        void Promise.resolve(releaseMonitor()).catch(() => {}) // plugin 同步失败：隔离 impl 不滞留 registry
+        throw error
+      }
       const instance: AppInstance = {
         instanceId,
         appId,
@@ -288,6 +313,7 @@ export class LifecycleService extends Service<LifecycleConfig> {
 
   /** 级联清理：fiber dispose -> 沙箱销毁 -> 容器移除（§2.2 catch / §3.2 共用形状） */
   private async cascadeCleanup(fiber: Fiber, sandbox: Sandbox, container: HTMLElement): Promise<void> {
+    this.releaseIsolatedMonitor(fiber)
     await fiber.dispose().catch(() => {})
     await sandbox.destroy().catch(() => {})
     this.removeOutletContainer(container)
@@ -686,6 +712,7 @@ export class LifecycleService extends Service<LifecycleConfig> {
       try {
         await instance.fiber.dispose()
       } finally {
+        this.releaseIsolatedMonitor(instance.fiber)
         await instance.sandbox?.destroy().catch(() => {})
         this.removeOutletContainer(instance.container) // 已摘离的容器 remove 幂等
         this.instances.delete(instanceId)

@@ -14,7 +14,7 @@ import { TracingService } from './services/tracing'
 import { defineCordisApp } from './vue3-adapter'
 
 export { MonitorService } from './services/monitor'
-export type { MonitorConfig, AlertRule } from './services/monitor'
+export type { MonitorConfig, AlertRule, AppMonitor } from './services/monitor'
 export { SecurityService } from './services/security'
 export type { PermissionRule, PermissionVerdict, SecurityConfig } from './services/security'
 export { SandboxService } from './services/sandbox'
