@@ -115,6 +115,7 @@ ctx.effect(() => {
 
 - 滚动锁（`document.body.style.overflow`）：portal 容器代理拦截该赋值，改为容器级 `overflow:hidden`（不泄漏到主应用 body）
 - z-index：宿主提供分层 registry（`--tx-z-modal` 等 token），弹层经 token 取值而非裸数字
+- 落地形式（P1）：`defineApp(..., { shadow: true })` 经容器唯一路径挂 open shadowRoot；样式注入优先 Constructable Stylesheets（能力检测降级 style 节点）；Portal 经 `lifecycle.getPortalContainer(ctx)`（懒创建/复用/销毁移除）。**未落地**：滚动锁代理（body overflow 改容器级）与 z-index 分层 token registry——随 CSS-in-JS 补丁票
 
 ### 4.3 React 16/17 事件 Retargeting（补丁细化）
 

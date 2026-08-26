@@ -50,6 +50,8 @@ export interface AppInstance {
   suspendedAt: number | null
   /** 挂起时摘除的样式节点（head 内 data-cordis-app 匹配本应用，ADR-0033） */
   detachedStyles: Element[]
+  /** Portal 容器（§4.2：Shadow 外、容器旁；懒创建，随实例销毁移除） */
+  portalContainer?: HTMLElement
 }
 
 export interface MountOptions {
@@ -212,7 +214,7 @@ export class LifecycleService extends Service<LifecycleConfig> {
     // 容器在事务开头（首个 await 前）创建：async 函数体第一个 await 即让出，
     // 后续步骤均在微任务批次恢复；容器在 sandbox.create 前就位即不再触发
     // sandbox-missing-container 降级（js-sandbox §3.5 scoped 查询边界 = 容器）
-    const container = this.createOutletContainer(outlet)
+    const container = this.createOutletContainer(outlet, this.ctx.deps.manifest(appId)?.shadow === true)
     this.ctx.emit('app/loading', { appId, instanceId, signal })
 
     let stage: 'load' | 'activate' = 'load' // 阶段跟踪：loadApp 之前 = load（资源期）；之后 = activate（激活期）
@@ -281,6 +283,7 @@ export class LifecycleService extends Service<LifecycleConfig> {
         if (signal.aborted) {
           // 结果作废：激活完成但调用方已取消 -> 级联清理不留半挂载现场
           await this.cascadeCleanup(fiber, sandbox, container)
+          instance.portalContainer?.remove()
           this.instances.delete(instanceId)
           this.ctx.bus.unregister(instanceId)
           throw new DOMException('aborted', 'AbortError')
@@ -369,12 +372,19 @@ export class LifecycleService extends Service<LifecycleConfig> {
     el.appendChild(retry)
   }
 
-  /** 容器创建唯一路径（heterogeneous §4.3）：宿主节点先入 DOM 再返回容器 */
-  createOutletContainer(outlet: string): HTMLElement {
+  /** 容器创建唯一路径（heterogeneous §4.3）：宿主节点先入 DOM 再返回容器。
+   * shadow = true（style-isolation §4.1 Shadow DOM 路线）：宿主挂 open shadowRoot，
+   * 返回 shadow 内的渲染容器（天然样式边界——挂起随宿主摘除，scoped 样式一并缓存） */
+  createOutletContainer(outlet: string, shadow = false): HTMLElement {
     const host = document.createElement('div')
     host.id = `tx-${outlet}`
+    if (shadow) host.dataset.txShadow = '1'
     this.resolveOutletHost(outlet).appendChild(host)
-    return host
+    if (!shadow) return host
+    const root = host.attachShadow({ mode: 'open' })
+    const inner = document.createElement('div')
+    root.appendChild(inner)
+    return inner
   }
 
   private resolveOutletHost(outlet: string): HTMLElement {
@@ -383,7 +393,9 @@ export class LifecycleService extends Service<LifecycleConfig> {
   }
 
   private removeOutletContainer(container: HTMLElement): void {
-    container.remove()
+    // Shadow 容器：移除 shadow 宿主（shadowRoot 随之脱落）；普通容器直接移除
+    const root = container.getRootNode()
+    ;(root instanceof ShadowRoot ? root.host : container).remove()
   }
 
   // ---- 挂起仲裁（§5.1/§5.1.1，ADR-0018/0020/0031/0035）----
@@ -440,8 +452,11 @@ export class LifecycleService extends Service<LifecycleConfig> {
   private suspendInstance(instance: AppInstance, reason: SuspendReason): void {
     suspendRegistry.suspend(instance.appId) // 注册表（沙箱包装/bus 投递的共享查询点）
     instance.sandbox?.freeze() // 定时器保留剩余时长、监听门控、WS close(1000)（§5.2）
-    // DOM 摘离到文档片段缓存（§5.3 dom 模式默认）；恢复原位还回
-    instance.container.remove()
+    // DOM 摘离到文档片段缓存（§5.3 dom 模式默认）；恢复原位还回。
+    // Shadow 应用摘离目标 = shadow 宿主（连带 shadow 内样式一并缓存，§六；
+    // 摘 shadow 内容器只会移除渲染目标、样式边界仍在文档）
+    const detachRoot = instance.container.getRootNode()
+    ;(detachRoot instanceof ShadowRoot ? detachRoot.host : instance.container).remove()
     // head 内本应用样式节点一并摘除（不留幽灵样式，ADR-0033/0042）
     instance.detachedStyles = [...document.head.querySelectorAll<Element>(`style[data-cordis-app="${instance.appId}"], link[data-cordis-app="${instance.appId}"]`)]
     for (const node of instance.detachedStyles) node.remove()
@@ -456,7 +471,10 @@ export class LifecycleService extends Service<LifecycleConfig> {
     suspendRegistry.resume(instance.appId)
     instance.sandbox?.unfreeze() // 定时器以剩余时长续期
     const host = this.resolveOutletHost(instance.outlet)
-    if (!host.contains(instance.container)) host.appendChild(instance.container) // 原位还回
+    // 还回目标 = shadow 宿主（若 shadow 应用）；contains 判等防重复还回
+    const attachRoot = instance.container.getRootNode()
+    const reattach = attachRoot instanceof ShadowRoot ? attachRoot.host : instance.container
+    if (!host.contains(reattach)) host.appendChild(reattach) // 原位还回
     for (const node of instance.detachedStyles) document.head.appendChild(node) // 样式还回零闪烁
     instance.detachedStyles = []
     instance.lastAccessAt = Date.now() // LRU 键刷新（§5.4）
@@ -738,6 +756,7 @@ export class LifecycleService extends Service<LifecycleConfig> {
       } finally {
         this.releaseIsolatedMonitor(instance.fiber)
         await instance.sandbox?.destroy().catch(() => {})
+        instance.portalContainer?.remove()
         this.removeOutletContainer(instance.container) // 已摘离的容器 remove 幂等
         this.instances.delete(instanceId)
         this.ctx.bus.unregister(instanceId)
@@ -777,14 +796,36 @@ export class LifecycleService extends Service<LifecycleConfig> {
 
   /** 应用 ctx -> 槽位容器（heterogeneous §4.1：适配器 mount 的目标，容器唯一路径的读取面） */
   containerOf(ctx: Context): HTMLElement | null {
+    return this.instanceOf(ctx)?.container ?? null
+  }
+
+  /**
+   * Portal 容器（style-isolation §4.2）：Shadow 外、容器旁（继承应用命名空间样式）——
+   * antd/Element 弹层默认挂 document.body 的重定向目标。懒创建、同实例复用、
+   * 随实例销毁移除（应用侧经 ctx.effect 进一步托管可提前回收）。
+   */
+  getPortalContainer(ctx: Context): HTMLElement {
+    const instance = this.instanceOf(ctx)
+    if (!instance) throw new Error('lifecycle.getPortalContainer: no instance for ctx (mount outside lifecycle transaction?)')
+    if (instance.portalContainer) return instance.portalContainer
+    const portal = document.createElement('div')
+    portal.dataset.txPortal = instance.appId
+    // Shadow 外、容器旁：挂在容器宿主的父节点（shadow 宿主或容器本身同级之后）
+    const root = instance.container.getRootNode()
+    const host = root instanceof ShadowRoot ? root.host : instance.container
+    host.parentNode?.insertBefore(portal, host.nextSibling)
+    instance.portalContainer = portal
+    return portal
+  }
+
+  /** 应用 ctx -> 实例（fiber 原型链判等：plugin() 返回 Object.create(fiber) 包装） */
+  private instanceOf(ctx: Context): AppInstance | undefined {
     for (const instance of this.instances.values()) {
-      // ctx.plugin() 返回 Object.create(fiber) 的 thenable 包装（cordis registry），
-      // 而 ctx.fiber 是原 fiber -- 以原型链判等
       if (instance.fiber === ctx.fiber || Object.getPrototypeOf(instance.fiber) === ctx.fiber) {
-        return instance.container
+        return instance
       }
     }
-    return null
+    return undefined
   }
 }
 

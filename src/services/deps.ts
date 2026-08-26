@@ -23,6 +23,8 @@ export interface AppManifestEntry {
    * 'state' = 销毁 DOM 仅留状态快照；'memory' = 销毁 DOM 与状态仅留模块缓存；false = 直接 dispose
    */
   keepAlive?: boolean | 'dom' | 'state' | 'memory'
+  /** Shadow DOM 路线（style-isolation §4.1）：容器挂 open shadowRoot（天然样式边界） */
+  shadow?: boolean
   /** 快照版本迁移纯函数（无副作用、沙箱外执行，ADR-0034）；缺省 = 漂移即丢弃 */
   migrate?: (data: Record<string, unknown>, fromVersion: number) => Record<string, unknown>
 }

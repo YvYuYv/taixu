@@ -41,7 +41,12 @@ function fontHash(appId: string, family: string, declarations: string): string {
   return `${appId}:${(h >>> 0).toString(36)}`
 }
 
-export class StyleService extends Service<Record<never, never>> {
+export interface StyleConfig {
+  /** Constructable Stylesheet 工厂注入（测试/宿主；缺省能力检测 CSSStyleSheet） */
+  sheetFactory?: () => CSSStyleSheetLike
+}
+
+export class StyleService extends Service<StyleConfig> {
   static provide = 'style'
 
   /** 字体 registry（§3.3：family+src 哈希去重，重复注册复用同一 @font-face 节点） */
@@ -49,8 +54,9 @@ export class StyleService extends Service<Record<never, never>> {
   /** 应用 -> 已注册字体哈希（dispose 时引用计数递减回收） */
   private appFonts = new Map<string, Set<string>>()
 
-  constructor(ctx: Context, _config: Record<never, never> = {}) {
+  constructor(ctx: Context, config: StyleConfig = {}) {
     super(ctx, 'style')
+    this.sheetFactory = config.sheetFactory
     // 应用销毁：字体引用计数回收（零引用移除文档级节点）
     ctx.on('app/disposed', (e) => this.releaseFonts(e.appId), { global: true })
   }
@@ -130,13 +136,32 @@ export class StyleService extends Service<Record<never, never>> {
   }
 
   /**
-   * 显式注入：在 head 挂 style 节点并打标；移除挂调用方 fiber effect。
-   * 同 file 重复注入 = 真热替换语义（替换文本，不叠加节点）。
+   * 显式注入：Shadow DOM 路线（§4.1）——应用容器在 shadowRoot 内时注入 shadow
+   * （天然边界；挂起随宿主摘除自动缓存，无幽灵样式）；优先 Constructable
+   * Stylesheets（adoptedStyleSheets 替换式更新零重排；能力缺失检测降级 style 节点）。
+   * 非shadow应用照旧注入 head 并打标（data-cordis-app 供 HMR 定位）；
+   * 同 file 重复注入 = 真热替换语义（style 节点替换文本 / constructable 走 replaceSync）。
    */
-  inject(ctx: Context, asset: StyleAsset): HTMLStyleElement {
+  inject(ctx: Context, asset: StyleAsset): HTMLStyleElement | CSSStyleSheetLike {
     // fail-closed：匿名 fiber（无插件名）无法归因，拒绝注入而非挂到共享 unknown 槽
     const appId = ctx.fiber.name
     if (!appId) throw new Error('style.inject: cannot attribute to anonymous fiber (app plugin must declare name)')
+
+    // Shadow 路线判定：容器经 lifecycle 唯一路径创建，getRootNode 即边界事实。
+    // lifecycle 未注入可用（cordis inject 语义下取值抛错）时按非 shadow 路线走 head
+    //（style 不 inject lifecycle——懒取保持依赖方向，ADR-0054）
+    let container: HTMLElement | null = null
+    try {
+      const lifecycle = (this.ctx as Context & { lifecycle?: import('./lifecycle').LifecycleService }).lifecycle
+      container = lifecycle?.containerOf(ctx) ?? null
+    } catch {
+      container = null
+    }
+    const containerRoot = container?.getRootNode()
+    if (container && containerRoot instanceof ShadowRoot) {
+      return this.injectShadow(ctx, containerRoot, appId, asset)
+    }
+
     const selector = `style[data-cordis-app="${appId}"][data-file="${asset.file}"]`
     const existing = document.querySelector<HTMLStyleElement>(selector)
     if (existing) {
@@ -151,6 +176,62 @@ export class StyleService extends Service<Record<never, never>> {
     ctx.effect(() => () => el.remove()) // dispose 逆序移除
     return el
   }
+
+  /** constructable sheet 结构面（能力检测/测试注入共用同一形状） */
+  private readonly sheetFactory?: () => CSSStyleSheetLike
+
+  /** shadow 内已注入记账（HMR 热替换定位）：root -> file -> sheet/节点 */
+  private shadowInjected = new WeakMap<ShadowRoot, Map<string, HTMLStyleElement | CSSStyleSheetLike>>()
+
+  /** Shadow 注入（§4.1）：Constructable 优先，能力缺失降级 style 节点入 shadowRoot */
+  private injectShadow(
+    ctx: Context,
+    root: ShadowRoot,
+    appId: string,
+    asset: StyleAsset,
+  ): HTMLStyleElement | CSSStyleSheetLike {
+    const ledger = this.shadowInjected.get(root) ?? new Map()
+    this.shadowInjected.set(root, ledger)
+    const existing = ledger.get(asset.file)
+    if (existing) {
+      if ('replaceSync' in existing) existing.replaceSync(asset.css) // HMR：替换式更新零重排
+      else (existing as HTMLStyleElement).textContent = asset.css
+      return existing
+    }
+    const Ctor = this.sheetFactory ?? (typeof CSSStyleSheet === 'function' && 'replaceSync' in CSSStyleSheet.prototype ? () => new CSSStyleSheet() : undefined)
+    if (Ctor) {
+      const sheet = Ctor()
+      sheet.replaceSync(asset.css)
+      // jsdom 等环境 adoptedStyleSheets 可能不可迭代/未定义：以数组重赋（构造面自洽）
+      const current = Array.isArray(root.adoptedStyleSheets) ? [...root.adoptedStyleSheets] : []
+      root.adoptedStyleSheets = [...current, sheet as CSSStyleSheet]
+      ledger.set(asset.file, sheet)
+      ctx.effect(() => () => {
+        root.adoptedStyleSheets = (Array.isArray(root.adoptedStyleSheets) ? root.adoptedStyleSheets : []).filter(
+          (sh) => sh !== (sheet as CSSStyleSheet),
+        )
+        ledger.delete(asset.file)
+      })
+      return sheet
+    }
+    // 降级：style 节点入 shadowRoot（scoped；随宿主摘除自动缓存）
+    const el = document.createElement('style')
+    el.dataset.cordisApp = appId
+    el.dataset.file = asset.file
+    el.textContent = asset.css
+    root.appendChild(el)
+    ledger.set(asset.file, el)
+    ctx.effect(() => () => {
+      el.remove()
+      ledger.delete(asset.file)
+    })
+    return el
+  }
+}
+
+/** Constructable Stylesheet 最小结构面（§4.1；jsdom 缺失——测试经 sheetFactory 注入） */
+export interface CSSStyleSheetLike {
+  replaceSync(css: string): void
 }
 
 declare module 'cordis' {

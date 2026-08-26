@@ -5,7 +5,7 @@ import { SecurityService, isIsolateAllowed, type PermissionRule, type SecurityCo
 import { SandboxService } from './services/sandbox'
 import { DepsService, type AppManifestEntry } from './services/deps'
 import { LifecycleService, type RecoveryConfig, type KeepAliveConfig } from './services/lifecycle'
-import { StyleService } from './services/style'
+import { StyleService, type StyleConfig } from './services/style'
 import { RouterService, type RouteRule, type RouterConfig } from './services/router'
 import { StateService, type StateConfig } from './services/state'
 import type { TracingConfig } from './services/tracing'
@@ -29,7 +29,7 @@ export { satisfies as satisfiesSemver } from './services/deps'
 export { LifecycleService } from './services/lifecycle'
 export type { AppInstance, MountOptions, RecoveryConfig, LifecycleConfig, KeepAliveConfig, AppExternalState } from './services/lifecycle'
 export { StyleService } from './services/style'
-export type { StyleAsset } from './services/style'
+export type { StyleAsset, StyleConfig, CSSStyleSheetLike } from './services/style'
 export { RouterService } from './services/router'
 export type { RouteRule, RouterConfig, GuardResult, MountIntent, IntersectionObserverLike } from './services/router'
 export { StateService } from './services/state'
@@ -54,6 +54,8 @@ export interface CreateCordisOptions {
   security?: Omit<SecurityConfig, 'rules'>
   /** 应用清单（appId + 入口工厂） */
   apps?: AppManifestEntry[]
+  /** style 配置（Constructable Stylesheet 工厂注入等） */
+  style?: StyleConfig
   /** deps 扩展配置（容灾重试退避基数等） */
   deps?: { retryBackoffMs?: number }
   /** 错误恢复策略（lifecycle §六） */
@@ -86,7 +88,13 @@ export interface CreateCordisOptions {
 export function defineApp(
   appId: string,
   entry: () => unknown,
-  options: { version?: number; migrate?: AppManifestEntry['migrate']; keepAlive?: AppManifestEntry['keepAlive'] } = {},
+  options: {
+    version?: number
+    migrate?: AppManifestEntry['migrate']
+    keepAlive?: AppManifestEntry['keepAlive']
+    /** Shadow DOM 路线（style-isolation §4.1）：容器挂 open shadowRoot */
+    shadow?: boolean
+  } = {},
 ): AppManifestEntry {
   return { appId, entry, ...options }
 }
@@ -173,7 +181,7 @@ export function createCordis(options: CreateCordisOptions = {}): Context {
   ctx.plugin(SecurityService, { ...options.security, rules: options.permissions ?? [] })
   ctx.plugin(SandboxService)
   ctx.plugin(DepsService, { apps: options.apps, retryBackoffMs: options.deps?.retryBackoffMs })
-  ctx.plugin(StyleService)
+  ctx.plugin(StyleService, options.style)
   ctx.plugin(RouterService, {
     ...options.router,
     // 懒 outlet 宿主选择器：router 扩展未指定处回落顶层 outlets（同一约定，免重复声明）
