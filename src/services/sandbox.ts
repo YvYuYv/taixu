@@ -1,6 +1,7 @@
 import { Service, type Context } from 'cordis'
 import '../events'
 import { createSandbox, type Sandbox, type SandboxOptions } from '../sandbox'
+import { createIframeSandbox } from '../iframe-sandbox'
 
 /**
  * 沙箱服务（js-sandbox §二）：
@@ -18,7 +19,17 @@ export class SandboxService extends Service<Record<never, never>> {
   }
 
   /** 每应用创建独立沙箱（不池化：池化会把上一应用的闭包/前缀残留带进下一应用，§4.4） */
-  create(appId: string, options: SandboxOptions = {}): Promise<Sandbox> {
+  /**
+   * 沙箱工厂（js-sandbox §二）：first-party 走 Proxy 沙箱（污染隔离与效应回收，
+   * 非安全边界）；trust: 'third-party' 走 IframeSandbox（真正安全边界，§五）。
+   * iframe 专属选项（csp/originAllowlist/handshakeTimeoutMs/onBridge）经
+   * IframeSandboxOptions 透传。
+   */
+  create(appId: string, options: SandboxOptions & { trust?: 'first-party' | 'third-party' } & Partial<import('../iframe-sandbox').IframeSandboxOptions> = {}): Promise<Sandbox> {
+    if (options.trust === 'third-party') {
+      const { trust: _trust, ...rest } = options
+      return createIframeSandbox(this.ctx, appId, rest as import('../iframe-sandbox').IframeSandboxOptions)
+    }
     return createSandbox(this.ctx, appId, options)
   }
 }

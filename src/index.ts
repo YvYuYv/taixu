@@ -21,6 +21,8 @@ export type { PermissionRule, PermissionVerdict, SecurityConfig } from './servic
 export { SandboxService } from './services/sandbox'
 export { prefixSelectors } from './services/style'
 export { createSandbox, storagePrefix } from './sandbox'
+export { createIframeSandbox, IframeBridge } from './iframe-sandbox'
+export type { IframeSandboxOptions, IframeBridgeOptions } from './iframe-sandbox'
 export { SandboxDisposedError, AppDisabledError, DependencyConflictError } from './errors'
 export type { Sandbox, SandboxOptions } from './sandbox'
 export { createProbeApp } from './probe'

@@ -359,7 +359,8 @@ class IframeSandbox implements Sandbox {
 }
 ```
 
-- 通信：postMessage 桥（origin 校验 + 信封 nonce，communication-protocol.md §八）；**不共享任何对象**
+- 通信：postMessage 桥（origin 校验 + **source 判等** + 信封 nonce，communication-protocol.md §八）；**不共享任何对象**
+- 落地形式（P1，`createIframeSandbox` / `IframeBridge`）：handshake 超时 fail-closed（violation + frame 回收）；调用级超时不滞留 pending；`onBridge` 交宿主代理 ctx 能力面。**未落地**：iframe 内精简运行时（Lite Runtime——本地 fiber/effect，heterogeneous §十一）、崩溃 heartbeat（5s 超时按 appId 批量清理主框架侧资源）、entry 跨源 crossOriginIsolated 策略——随 B-加载 iframe 精简运行时票
 - entry URL 跨源：默认 `crossOriginIsolated` 策略；`srcdoc` 仅用于同源受控内容（且仍带 sandbox 属性）
 - 样式天然隔离（style-isolation.md 引用此路径）；destroy = 桥解绑 + frame 移除
 

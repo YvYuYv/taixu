@@ -317,6 +317,7 @@ class KillSwitch {
 - 全部 postMessage：显式 targetOrigin（禁 `'*`）；接收侧 `event.origin` 白名单 + `event.source` 校验（bus 的 IframeBridge 统一实现，communication-protocol.md §八）
 - BroadcastChannel：仅同源框架内部使用（state 跨 tab），消息含 schema 版本与回声过滤
 - `window.open` 弹窗：经权限（`window:open`）+ opener 关系断开（`noopener`）
+- opaque-origin 例外（裁决注记）：无 `allow-same-origin` 的 sandbox iframe（js-sandbox §五）origin 恒为 `"null"`，postMessage **发件**只能以 `'*'`（标准无替代）；此场景下 `'null'` 入白名单 + `event.source` 判等帧身份 + 信封 nonce（会话级）三重校验替代 targetOrigin 收件约束（IframeBridge 实现）
 
 ## 十二、配置
 
