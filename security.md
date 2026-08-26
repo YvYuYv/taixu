@@ -247,6 +247,7 @@ class SecureScriptLoader {
 - **协议**：服务端登录时下发 `SameSite=Lax/Strict` Cookie + CSRF token（`Set-Cookie: __Host-csrf`）；写请求携带 `X-CSRF-Token` 头（由 NetworkGateway 从受控存储读取附加），服务端 double-submit 校验
 - 旧版客户端 `crypto.getRandomValues` 自生成 token 存 sessionStorage（无服务端校验，不构成防护）废除
 - NetworkGateway 不再强制覆盖 `credentials`（保留应用自身设置，修复对合法跨域请求的破坏）
+- 落地形式（P0 无独立 NetworkGateway 服务）：X-CSRF-Token 附加挂在 lifecycle scopedFetch（ADR-0005 唯一 fetch 链路）内经 `security.applyCsrf` 执行——写请求（POST/PUT/PATCH/DELETE）合并头附加 token；无 token 诚实降级不附加；`csrfCookieName` 默认 `__Host-csrf`（宿主可配置）
 
 ## 八、资源完整性与供应链
 

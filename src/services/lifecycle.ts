@@ -695,7 +695,8 @@ export class LifecycleService extends Service<LifecycleConfig> {
    * 超时 fail-closed，ADR-0024/0051）；拒绝路径 violation 上报
    * （网络类按 (appId, rule) 限流去重，§8）。
    */
-  private scopedFetch(appId: string): typeof fetch {
+  /** scopedFetch（ADR-0005 唯一 fetch 链路；公开面：宿主/测试可用同一链路取应用 fetch） */
+  scopedFetch(appId: string): typeof fetch {
     return async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input instanceof Request ? input.url : input)
       const sanitized = await this.ctx.security.sanitizeURL(appId, url)
@@ -703,9 +704,12 @@ export class LifecycleService extends Service<LifecycleConfig> {
         this.ctx.security.reportViolation(appId, 'net:fetch', { url })
         throw new Error(`scopedFetch: net:fetch denied for ${appId} (${url})`)
       }
-      // Request 对象原样透传（method/body/headers 不丢）；字符串/URL 以规范化后的 href 请求
-      if (input instanceof Request) return globalThis.fetch(input, init)
-      return globalThis.fetch(sanitized, init)
+      // CSRF double-submit（security §七）：写请求附加 X-CSRF-Token（token 读服务端
+      // __Host-csrf cookie，客户端不自造；不动 credentials）；Request 原样透传路径
+      // 同样经 init 合并头（method/body 仍由 Request 承载）
+      const withCsrf = this.ctx.security.applyCsrf(input, init)
+      if (input instanceof Request) return globalThis.fetch(input, withCsrf)
+      return globalThis.fetch(sanitized, withCsrf)
     }
   }
 

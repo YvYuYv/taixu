@@ -35,6 +35,8 @@ export interface SecurityConfig {
   sanitize?: { dangerousTags?: string[]; dangerousAttributes?: string[] }
   /** KillSwitch 指令验签（§十：签名通道，deny-by-default——未配置验签器时一切急停指令拒绝） */
   verifyKillCommand?: (appId: string, action: 'disable' | 'enable', signature: string) => boolean
+  /** CSRF token cookie 名（§七 double-submit：服务端登录下发，默认 __Host-csrf；宿主侧配置——测试环境因 __Host- 前缀要求 Secure 而注入替名） */
+  csrfCookieName?: string
 }
 
 /** isolate 白名单（ADR-0010）：仅 router-view / monitor；其余标签属越权隔离（拦截） */
@@ -124,6 +126,52 @@ export class SecurityService extends Service {
   /** 禁用查询（deps.loadApp 加载路径强制消费，§十） */
   isAppDisabled(appId: string): boolean {
     return this.disabledApps.has(appId)
+  }
+
+  /**
+   * CSRF double-submit 客户端侧（§七）：写请求（POST/PUT/PATCH/DELETE）从受控
+   * cookie 读取 token 附加 `X-CSRF-Token`——token 由服务端登录下发
+   * （`Set-Cookie: __Host-csrf`），**客户端不自造**（废除旧版 crypto 自造存
+   * sessionStorage：无服务端校验不构成防护）。无 token 诚实降级不附加（服务端
+   * double-submit 将拒绝）；应用已设头不覆盖；不动 credentials（§七尾条：
+   * 保留应用自身设置）。
+   */
+  applyCsrf(input: RequestInfo | URL, init?: RequestInit): RequestInit | undefined {
+    const method = (
+      init?.method ?? (input instanceof Request ? input.method : 'GET')
+    ).toUpperCase()
+    if (method !== 'POST' && method !== 'PUT' && method !== 'PATCH' && method !== 'DELETE') {
+      return init // 读请求：不附加
+    }
+    const token = this.readCookie(this.cfg.csrfCookieName ?? '__Host-csrf')
+    if (!token) return init // 诚实降级：无 token 不伪造（服务端拒绝由其 double-submit 裁决）
+    // Request 对象：克隆其自身头合并 token（init.headers 会整体覆盖 Request 头——直接
+    // 只传 token 会丢应用头；init.method 不设，method/body 仍由 Request 承载）
+    // 头合并：Request 对象 + init.headers 同时在场时按 fetch 语义 init 覆盖 Request——
+    // 合并两者（Request 头为底，init 头叠加），再附 token
+    const headers = new Headers(input instanceof Request ? input.headers : undefined)
+    if (!(input instanceof Request)) {
+      const only = new Headers(init?.headers)
+      only.forEach((v, k) => headers.set(k, v))
+    } else if (init?.headers) {
+      const extra = new Headers(init.headers)
+      extra.forEach((v, k) => headers.set(k, v))
+    }
+    if (headers.has('X-CSRF-Token')) return init // 应用已带（如自管 token 流程）：不覆盖
+    headers.set('X-CSRF-Token', token)
+    return { ...init, headers }
+  }
+
+  /** cookie 读取（§七：受控存储=服务端 SameSite cookie；缺失/损坏返回 null 诚实降级） */
+  private readCookie(name: string): string | null {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // 配置名中的正则元字符转义
+    const m = document.cookie.match(new RegExp(`(?:^|;\\s*)${escaped}=([^;]*)`))
+    if (!m) return null
+    try {
+      return decodeURIComponent(m[1] as string)
+    } catch {
+      return null // 损坏编码（裸 % 等）：不炸 fetch 链路，按无 token 降级
+    }
   }
 
   /**
