@@ -21,7 +21,7 @@ import type { Context } from 'cordis'
 import type { Sandbox, SandboxOptions } from './sandbox'
 
 /** 桥信封（communication-protocol §八 信封校验/nonce 防重放的最小面） */
-interface Envelope {
+export interface Envelope {
   v: 1
   appId: string
   nonce: string
@@ -85,16 +85,17 @@ export class IframeBridge {
   }
 
   /** 能力调用转发（§十一：ctx.bus.send / ctx.state.set / ctx.monitor.capture 等异步化） */
-  call<T = unknown>(service: string, method: string, args: unknown[]): Promise<T> {
+  call<T = unknown>(service: string, method: string, args: unknown[], callOptions: { timeoutMs?: number } = {}): Promise<T> {
     if (this.disposed) return Promise.reject(new Error('iframe bridge: disposed'))
     const id = ++this.seq
     const env: Envelope = { v: 1, appId: this.appId, nonce: this.nonce, id, kind: 'call', call: { service, method, args } }
     return new Promise<T>((resolve, reject) => {
-      // 调用级超时（默认 10s）：frame 死亡/无响应不无限滞留 pending（fail-closed 清理）
+      // 调用级超时（默认 10s）：frame 死亡/无响应不无限滞留 pending（fail-closed 清理）；
+      // heartbeat 用独立短超时（= 周期），失联判定不被通用超时绑架
       const timer = setTimeout(() => {
         this.pending.delete(id)
         reject(new Error(`iframe bridge: call ${service}.${method} timeout`))
-      }, this.callTimeoutMs)
+      }, callOptions.timeoutMs ?? this.callTimeoutMs)
       this.pending.set(id, {
         resolve: (v) => {
           clearTimeout(timer)
@@ -111,6 +112,37 @@ export class IframeBridge {
   }
 
   private readonly callTimeoutMs: number
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  private heartbeatMissed = 0
+
+  /**
+   * 心跳（§十一：崩溃由主框架 heartbeat 超时感知）：周期 ping（对端 Lite Runtime
+   * 应答 service 'heartbeat'）；连续 2 次未应答 = frame 崩溃/失联 -> onCrash
+   *（停止心跳，批量清理交调用方——主框架侧资源按 appId 清理）
+   */
+  startHeartbeat(periodMs: number, onCrash: () => void): void {
+    if (this.heartbeatTimer) return
+    this.heartbeatTimer = setInterval(() => {
+      void this.call('heartbeat', 'ping', [], { timeoutMs: periodMs })
+        .then(() => {
+          this.heartbeatMissed = 0
+        })
+        .catch(() => {
+          this.heartbeatMissed += 1
+          if (this.heartbeatMissed >= 2) {
+            this.stopHeartbeat()
+            onCrash()
+          }
+        })
+    }, periodMs)
+  }
+
+  stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = null
+    }
+  }
 
   /** handshake 完成判定：入站合法 ready 信封即本会话（供 sandbox.init 消费） */
   async handshake(timeoutMs: number): Promise<void> {
@@ -134,6 +166,7 @@ export class IframeBridge {
 
   dispose(): void {
     this.disposed = true
+    this.stopHeartbeat()
     window.removeEventListener('message', this.onMessage)
     for (const p of this.pending.values()) p.reject(new Error('iframe bridge: disposed'))
     this.pending.clear()
@@ -149,6 +182,10 @@ export interface IframeSandboxOptions extends SandboxOptions {
   handshakeTimeoutMs?: number
   /** 能力调用超时 ms（默认 10000） */
   callTimeoutMs?: number
+  /** 心跳周期 ms（§十一 崩溃感知；默认 5000）。连续 2 次失联 -> 桥解绑 +
+   * frame 回收 + violation + monitor 上报 + lifecycle.destroyByAppId 按 appId
+   * 批量清理主框架侧资源（消息订阅/状态权限/挂起注册表） */
+  heartbeatMs?: number
   /** 入口文档（缺省最小空文档；生产为受控 srcdoc 或跨源 URL） */
   srcdoc?: string
   /** 桥就位回调（handshake 前）：宿主接桥把 ctx 能力面（bus/state/monitor）代理进 iframe（§十一）；测试亦可模拟对端 */
@@ -205,10 +242,28 @@ export async function createIframeSandbox(
     unfreeze: () => {},
     closedSockets: () => [],
     destroy: async () => {
-      bridge.dispose() // 桥解绑
+      bridge.dispose() // 桥解绑（含心跳停止）
       frame.remove()
       options.onDestroy?.()
     },
   }
+  // heartbeat 默认 5s 周期（§十一"默认 5s 周期"）；显式 0/undefined 语义相同（始终启用）
+  const heartbeatMs = options.heartbeatMs ?? 5000
+  // 崩溃清理（§十一）：失联即桥解绑 + frame 回收 + 审计 + 上报 + 按 appId
+  // **批量清理主框架侧资源**（经 lifecycle.destroyByAppId：实例销毁级联
+  // bus.unregister/状态 watch 随 fiber dispose/挂起注册表解挂）
+  bridge.startHeartbeat(heartbeatMs, () => {
+    bridge.dispose()
+    frame.remove()
+    ctx.emit('security/violation', { appId, rule: 'iframe-heartbeat-lost', detail: { appId } })
+    ;((ctx as unknown as { monitor?: { capture(e: unknown, m?: unknown): void } }).monitor)?.capture(
+      new Error(`iframe sandbox: heartbeat lost for ${appId}`),
+      { appId, phase: 'runtime' },
+    )
+    ;((ctx as unknown as { lifecycle?: { destroyByAppId(a: string, r: string): Promise<void> } }).lifecycle)
+      ?.destroyByAppId(appId, 'iframe-heartbeat-lost')
+      ?.catch(() => {})
+    options.onDestroy?.()
+  })
   return sandbox
 }

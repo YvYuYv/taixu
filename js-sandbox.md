@@ -360,7 +360,7 @@ class IframeSandbox implements Sandbox {
 ```
 
 - 通信：postMessage 桥（origin 校验 + **source 判等** + 信封 nonce，communication-protocol.md §八）；**不共享任何对象**
-- 落地形式（P1，`createIframeSandbox` / `IframeBridge`）：handshake 超时 fail-closed（violation + frame 回收）；调用级超时不滞留 pending；`onBridge` 交宿主代理 ctx 能力面。**未落地**：iframe 内精简运行时（Lite Runtime——本地 fiber/effect，heterogeneous §十一）、崩溃 heartbeat（5s 超时按 appId 批量清理主框架侧资源）、entry 跨源 crossOriginIsolated 策略——随 B-加载 iframe 精简运行时票
+- 落地形式（P1，`createIframeSandbox` / `IframeBridge`）：handshake 超时 fail-closed（violation + frame 回收）；调用级超时不滞留 pending；`onBridge` 交宿主代理 ctx 能力面。heartbeat 默认 5s 周期（连续 2 次失联 -> 桥解绑 + frame 回收 + `lifecycle.destroyByAppId` 按 appId 批量清理主框架侧资源）。Lite Runtime 以 `createLiteRuntime`（transport 抽象、环境无关）落地：本地 effect 记账逆序回收 + 代理 ctx（bus/state/monitor 全异步信封往返）+ heartbeat 应答。**未落地**：Lite Runtime 打包进 frame srcdoc（构建步骤——模块逻辑已就位可打包）、entry 跨源 crossOriginIsolated 策略
 - entry URL 跨源：默认 `crossOriginIsolated` 策略；`srcdoc` 仅用于同源受控内容（且仍带 sandbox 属性）
 - 样式天然隔离（style-isolation.md 引用此路径）；destroy = 桥解绑 + frame 移除
 
