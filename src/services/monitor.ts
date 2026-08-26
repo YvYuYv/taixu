@@ -182,6 +182,11 @@ export class MonitorService extends Service<MonitorConfig> {
     this.registry?.register(target.object, target.instanceId)
   }
 
+  /** 泄漏嫌疑清单（§十 DevTools 只读查询面）：instanceId -> 登记时刻 */
+  leakSuspects(): { instanceId: string; at: number }[] {
+    return [...this.suspects].map(([instanceId, s]) => ({ instanceId, at: s.at }))
+  }
+
   /** 嫌疑清扫（轮询）：超 TTL + 有 GC 活动 + 引用仍活着 -> LEAK_SUSPECT（去抖一次） */
   private sweepSuspects(ttlMs: number): void {
     const now = Date.now()
@@ -210,6 +215,13 @@ export class MonitorService extends Service<MonitorConfig> {
     return false
   }
 
+  /** 错误清单（§十 DevTools 只读查询面；sourcemap 还原随宿主管线接入后在此层应用） */
+  errors(): readonly ErrorMetric[] {
+    return this.errorLedger
+  }
+
+  private errorLedger: ErrorMetric[] = []
+
   /** 唯一错误入口：appId 归因 + monitor/report 通知（fire-and-forget）+ 错误率计数 */
   capture(error: unknown, meta: { appId?: string; phase: AppPhase } = { phase: 'runtime' }): void {
     const normalized = error instanceof Error ? error : new Error(String(error))
@@ -220,6 +232,9 @@ export class MonitorService extends Service<MonitorConfig> {
       appId: meta.appId,
       phase: meta.phase,
     }
+    // 错误清单（§十 DevTools 只读查询）：有界环形（默认 50；溢出丢最旧）
+    this.errorLedger.push(metric)
+    if (this.errorLedger.length > 50) this.errorLedger.shift()
     this.ctx.emit('monitor/report', { metric } satisfies { metric: Metric })
     // JS_ERROR_RATE（§七表）：appId 错误率窗口超阈值
     const key = meta.appId ?? 'host'

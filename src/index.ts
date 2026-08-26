@@ -11,6 +11,7 @@ import { StateService, type StateConfig } from './services/state'
 import type { TracingConfig } from './services/tracing'
 import { BusService, type BusConfig } from './services/bus'
 import { TracingService } from './services/tracing'
+import { DevToolsService, HmrService } from './services/devtools'
 import { defineCordisApp } from './vue3-adapter'
 
 export { MonitorService } from './services/monitor'
@@ -39,6 +40,8 @@ export type { WatchOptions as StateWatchOptions, GetOptions as StateGetOptions, 
 export { BusService, parseTraceparent } from './services/bus'
 export type { Reply, BusInstance, BusConfig, DeadLetterRecord, SendMessageInput, RequestOptions, NetworkMiddleware } from './services/bus'
 export { TracingService, parseTraceparent as parseTraceparentForTracing, formatTraceparent } from './services/tracing'
+export { DevToolsService, HmrService } from './services/devtools'
+export type { DevToolsSnapshot, DevToolsCommand, HmrCssUpdate } from './services/devtools'
 export type { TracingConfig, SpanRecord, Span } from './services/tracing'
 export { defineCordisApp } from './vue3-adapter'
 export type { CordisAppOptions } from './vue3-adapter'
@@ -192,6 +195,8 @@ export function createCordis(options: CreateCordisOptions = {}): Context {
   })
   ctx.plugin(StateService, options.state)
   ctx.plugin(TracingService, options.tracing)
+  ctx.plugin(DevToolsService, {})
+  ctx.plugin(HmrService, {})
   ctx.plugin(BusService, options.bus)
   ctx.plugin(LifecycleService, {
     recovery: options.recovery,
