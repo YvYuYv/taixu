@@ -198,6 +198,7 @@ class NetworkGateway {
 ```
 
 - 覆盖面：fetch/XHR/WebSocket/EventSource/sendBeacon 全部经 js-sandbox 的 scoped 包装（旧版只拦 fetch，`networkAccess: 'blocked'` 承诺无法兑现--修复）
+- 落地形式（P1，`bus.network`）：链在 scopedFetch（ADR-0005 唯一链路）内执行——security 裁决前置链外（拒绝路径不进链，fail-closed 第一闸），链内 = tracing span（懒取，未启用无 span）-> 自定义中间件（`bus.network.intercept(appId, mw)` 按注册序，返回 disposer；应用销毁自动清理）-> monitor 计时（net_ms 成功 / net_err 失败 + capture 上报）-> 原生 fetch 终端；CSRF 头附加仍在裁决后链前（§七）
 
 ### 6.3 动态脚本加载（nonce + 白名单 + SRI，修复 ReferenceError 与绕过）
 

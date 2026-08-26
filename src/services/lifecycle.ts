@@ -708,8 +708,10 @@ export class LifecycleService extends Service<LifecycleConfig> {
       // __Host-csrf cookie，客户端不自造；不动 credentials）；Request 原样透传路径
       // 同样经 init 合并头（method/body 仍由 Request 承载）
       const withCsrf = this.ctx.security.applyCsrf(input, init)
-      if (input instanceof Request) return globalThis.fetch(input, withCsrf)
-      return globalThis.fetch(sanitized, withCsrf)
+      // 网络拦截链（security §6.2）：security 裁决已前置（拒绝不进链）；
+      // 链内 = tracing -> 自定义中间件 -> monitor -> 原生 fetch
+      const finalInput = input instanceof Request ? input : sanitized
+      return this.ctx.bus.runNetwork(appId, finalInput, withCsrf, (i, ini) => globalThis.fetch(i, ini))
     }
   }
 

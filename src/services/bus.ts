@@ -131,6 +131,16 @@ export interface RequestOptions {
   signal?: AbortSignal
 }
 
+/**
+ * 网络中间件（security §6.2 NetworkGateway 挂 bus 链）：宿主/DevTools 经
+ * `bus.network.intercept(appId, mw)` 注册；链序 = 内建（tracing 外包裹 ->
+ * 自定义按注册序 -> monitor 计时 -> 原生 fetch 终端）。不猴补全局 fetch——
+ * 链只在 scopedFetch 唯一链路（ADR-0005）内执行。
+ */
+export interface NetworkMiddleware {
+  (input: RequestInfo | URL, init: RequestInit | undefined, next: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>): Promise<Response>
+}
+
 export class BusService extends Service<BusConfig> {
   static provide = 'bus'
   // 基线 §2.3：bus inject security（发送裁决）+ monitor；不 inject lifecycle
@@ -153,6 +163,7 @@ export class BusService extends Service<BusConfig> {
     ctx.on('app/disposed', (e) => {
       this.queues.delete(e.instanceId)
       this.replaying.delete(e.instanceId)
+      this.networkMiddlewares.delete(e.appId) // 拦截链随应用销毁清理（§6.2 disposer 生命周期语义）
     }, { global: true })
   }
 
@@ -166,6 +177,69 @@ export class BusService extends Service<BusConfig> {
 
   // ---- DLQ 死信（§5.4/§5.2：不可达不静默丢弃；有界 + 可审计可重放）----
   private dlq: DeadLetterRecord[] = []
+
+  // ---- 网络拦截链（§6.2）----
+  private networkMiddlewares = new Map<string, NetworkMiddleware[]>()
+
+  /** 中间件注册面（宿主/DevTools）：返回 disposer；随注册序执行 */
+  get network(): { intercept(appId: string, middleware: NetworkMiddleware): () => void } {
+    return {
+      intercept: (appId, middleware) => {
+        const list = this.networkMiddlewares.get(appId) ?? []
+        list.push(middleware)
+        this.networkMiddlewares.set(appId, list)
+        return () => {
+          const l = this.networkMiddlewares.get(appId)
+          if (!l) return
+          const idx = l.indexOf(middleware)
+          if (idx >= 0) l.splice(idx, 1)
+        }
+      },
+    }
+  }
+
+  /**
+   * 链执行（§6.2 链序）：tracing span（外包裹）-> 自定义中间件（注册序）->
+   * monitor net_ms 计时 -> 终端 fetch。security 裁决由调用方（scopedFetch）
+   * 前置完成——拒绝路径不进链（fail-closed 第一闸）。
+   */
+  async runNetwork(
+    appId: string,
+    input: RequestInfo | URL,
+    init: RequestInit | undefined,
+    terminal: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  ): Promise<Response> {
+    const middlewares = [...(this.networkMiddlewares.get(appId) ?? [])]
+    const dispatch = (i: RequestInfo | URL, ini: RequestInit | undefined, idx: number): Promise<Response> => {
+      if (idx < middlewares.length) {
+        const mw = middlewares[idx]!
+        return mw(i, ini, (ii, ii2) => dispatch(ii, ii2, idx + 1))
+      }
+      return terminal(i, ini)
+    }
+    // tracing 内建（懒取——bus 不 inject tracing，ADR-0054 依赖方向；未启用 = 无 span）
+    let spanName: string
+    try {
+      const url = new URL(input instanceof Request ? input.url : String(input), document.baseURI)
+      spanName = `fetch:${url.host}${url.pathname}`
+    } catch {
+      spanName = `fetch:${String(input)}` // 不可解析目标：以原样命名（span 命名不炸链）
+    }
+    const span = (this.ctx as Ctx & { tracing?: import('./tracing').TracingService }).tracing?.startSpan(spanName)
+    const startedAt = Date.now()
+    try {
+      const res = await dispatch(input, init, 0)
+      this.ctx.monitor.count('net_ms', Date.now() - startedAt, { appId }) // monitor 内建（成功）
+      return res
+    } catch (error) {
+      // 失败路径不留盲区：net_err 计数 + monitor 上报（安全审计经 monitor 可见）
+      this.ctx.monitor.count('net_err', 1, { appId })
+      this.ctx.monitor.capture(error, { appId, phase: 'runtime' })
+      throw error
+    } finally {
+      span?.end()
+    }
+  }
 
   /** 死信入队：有界（默认 100，溢出丢最旧）+ QUEUE_DEAD_LETTER 告警（monitor 旁听） */
   private deadLetter(message: CordisMessage, error: string): void {
