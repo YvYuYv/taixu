@@ -64,8 +64,8 @@ export interface CreateCordisOptions {
   apps?: AppManifestEntry[]
   /** style 配置（Constructable Stylesheet 工厂注入等） */
   style?: StyleConfig
-  /** deps 扩展配置（容灾重试退避基数等） */
-  deps?: { retryBackoffMs?: number }
+  /** deps 扩展配置（容灾退避/共享依赖清单声明，cordis.dependencies.json 形状） */
+  deps?: { retryBackoffMs?: number; shared?: Record<string, import('./services/deps').SharedDeclaration> }
   /** 错误恢复策略（lifecycle §六） */
   recovery?: RecoveryConfig
   /** 槽位选择器映射 */
@@ -188,7 +188,7 @@ export function createCordis(options: CreateCordisOptions = {}): Context {
   installCoreGuard(ctx)
   ctx.plugin(SecurityService, { ...options.security, rules: options.permissions ?? [] })
   ctx.plugin(SandboxService)
-  ctx.plugin(DepsService, { apps: options.apps, retryBackoffMs: options.deps?.retryBackoffMs })
+  ctx.plugin(DepsService, { apps: options.apps, retryBackoffMs: options.deps?.retryBackoffMs, shared: options.deps?.shared })
   ctx.plugin(StyleService, options.style)
   ctx.plugin(RouterService, {
     ...options.router,

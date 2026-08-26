@@ -60,12 +60,25 @@ export interface ResilientLoadOptions {
   signal?: AbortSignal
   /** 归因（DEPLOY_SKEW 告警 appId；缺省 host） */
   appId?: string
+  /** 偏斜比对（§十）：404 时重取最新清单比对 entry；返回 true（变更）才 DEPLOY_SKEW */
+  onSkew?: () => Promise<boolean>
+}
+
+/** 共享依赖清单声明（§七 cordis.dependencies.json 形状，进 manifest 签名范围——宿主受控通道） */
+export interface SharedDeclaration {
+  /** 声明范围（清单形状字段；registry 注册侧版本校验随传递依赖仲裁票消费——当前记账不裁决） */
+  range: string
+  singleton?: boolean
+  strict?: boolean
+  acceptsDuplicate?: boolean
 }
 
 export interface DepsConfig {
   apps?: AppManifestEntry[]
   /** 容灾重试退避基数 ms（默认 200；测试注 0） */
   retryBackoffMs?: number
+  /** 共享依赖声明清单：negotiate 逐调用 options 缺省项从这里解析（per-call 优先） */
+  shared?: Record<string, SharedDeclaration>
 }
 
 // -- 轻量 SemVer（§七：satisfies 含 ^/~/>=/精确与预发布后缀；不引 node-semver 全量包） --
@@ -125,6 +138,8 @@ export class DepsService extends Service<DepsConfig> {
   private appConfig: DepsConfig
   /** 共享依赖 registry（§七）：name -> 已注册版本条目 */
   private shared = new Map<string, SharedModule[]>()
+  /** 版本分裂升级提示去重（§七 ADR-0038：同依赖只提示一次） */
+  private splitAlerted = new Set<string>()
 
   constructor(ctx: Context, config: DepsConfig = {}) {
     super(ctx, 'deps')
@@ -162,17 +177,35 @@ export class DepsService extends Service<DepsConfig> {
    */
   async negotiate(name: string, range: string, options: NegotiateOptions = {}): Promise<SharedModule> {
     const candidates = this.shared.get(name) ?? []
+    // 清单通道（§七）：逐调用缺省项从 deps.shared 清单解析（per-call 声明优先）
+    const declared = this.appConfig.shared?.[name]
+    const singleton = options.singleton ?? declared?.singleton ?? false
+    const strict = options.strict ?? declared?.strict ?? false
+    const acceptsDuplicate = options.acceptsDuplicate ?? declared?.acceptsDuplicate ?? false
     // 1. 最高满足版本
     const matched = candidates
       .filter((c) => satisfies(c.version, range))
       .sort((a, b) => compareVersions(b.version, a.version))
     if (matched[0]) {
       matched[0].refCount++
+      // 版本分裂提示（ADR-0038 默认策略）：同依赖多主版本注册在案——业务可运行
+      //（本次取到满足版本），但统一升级建议发出（DEP_VERSION_SPLIT；强制双实例
+      // 共存须走 iframe 沙箱）
+      const majors = new Set(candidates.map((c) => parseVersion(c.version)[0]))
+      if (majors.size > 1 && !this.splitAlerted.has(name)) {
+        this.splitAlerted.add(name) // 升级提示按依赖去重一次（不随 negotiate 次数刷屏）
+        this.ctx.monitor.trigger({
+          type: 'DEP_VERSION_SPLIT',
+          appId: options.appId ?? 'host',
+          level: 'warning',
+          detail: { name, versions: candidates.map((c) => c.version) },
+        })
+      }
       return matched[0]
     }
     // 2. singleton/strict：无 fallback 路径，硬失败
     // 3. 私有副本 fallback（acceptsDuplicate 声明 + privateLoader 就位才可用）
-    if (!options.singleton && !options.strict && options.acceptsDuplicate && options.privateLoader) {
+    if (!singleton && !strict && acceptsDuplicate && options.privateLoader) {
       this.ctx.monitor.trigger({ type: 'DEP_NEGOTIATION_FALLBACK', appId: options.appId ?? 'host', detail: { name, range } })
       // 同 range 私有副本复用（去重）：重入不叠加 registry 条目
       const sentinel = `${range}#private`
@@ -220,7 +253,7 @@ export class DepsService extends Service<DepsConfig> {
    *   公钥验签不在运行时**——前提是清单经宿主受控通道（构建产物/CI）下发，与
    *   应用源不同源不同权；同 CDN 拉取未签名清单即"形同虚设"（spec 反例）
    */
-  async loadScript(url: string): Promise<void> {
+  async loadScript(url: string, options: { onSkew?: () => Promise<boolean>; appId?: string } = {}): Promise<void> {
     const security = this.ctx.security
     const text = await this.fetchText(url)
     if (security.hasIntegrityManifest()) {
@@ -232,7 +265,11 @@ export class DepsService extends Service<DepsConfig> {
       const digest = await this.sha256Base64(text)
       if (`sha256-${digest}` !== expected) {
         security.reportViolation('host', 'sri-mismatch', { url })
-        this.ctx.monitor.trigger({ type: 'SRI_MISMATCH', appId: 'host', detail: { url } })
+        this.ctx.monitor.trigger({ type: 'SRI_MISMATCH', appId: options.appId ?? 'host', detail: { url } })
+        // SRI 失败同为偏斜候选（§十）：清单重取比对 entry 变更才 DEPLOY_SKEW
+        if (await this.checkSkew(options)) {
+          this.ctx.monitor.trigger({ type: 'DEPLOY_SKEW', appId: options.appId ?? 'host', detail: { urls: [url], via: 'sri' } })
+        }
         throw new Error(`integrity mismatch: ${url}`)
       }
     }
@@ -290,11 +327,22 @@ export class DepsService extends Service<DepsConfig> {
         if (attempt < retries) await new Promise((r) => setTimeout(r, backoff * 2 ** attempt))
       }
     }
-    if (sawNotFound) {
-      // 版本偏斜：404 的权威解释（部署滚动期 chunk 已删）——上报，刷新提示由宿主承接
+    if (sawNotFound && (await this.checkSkew(options))) {
+      // 版本偏斜：404 + 清单重取比对 entry 已变更（部署滚动期 chunk 已删）——
+      // 上报，刷新提示由宿主承接；entry 未变 = 普通故障，不误报提示刷新
       this.ctx.monitor.trigger({ type: 'DEPLOY_SKEW', appId: options.appId ?? 'host', detail: { urls } })
     }
     throw lastError instanceof Error ? lastError : new Error(String(lastError))
+  }
+
+  /** 偏斜裁决：无比对回调 = 维持原语义（404 即报）；有则以其结果为准 */
+  private async checkSkew(options: ResilientLoadOptions): Promise<boolean> {
+    if (!options.onSkew) return true
+    try {
+      return await options.onSkew()
+    } catch {
+      return false // 清单重取自身失败：无法证实偏斜——不误报
+    }
   }
 
   /** 取源（fetch -> text；非 2xx 显式 reject——无静默吞错） */
