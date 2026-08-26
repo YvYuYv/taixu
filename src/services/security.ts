@@ -162,6 +162,16 @@ export class SecurityService extends Service {
     return { ...init, headers }
   }
 
+  /** SRI 清单是否配置（§8.1：未配置 = 宿主显式退出 SRI，加载不校验） */
+  hasIntegrityManifest(): boolean {
+    return Object.keys(this.cfg.integrityManifest ?? {}).length > 0
+  }
+
+  /** SRI 期望哈希查询（§8.1：构建期 manifest url -> 'sha256-<base64>'；未列入返回 undefined） */
+  integrityEntry(url: string): string | undefined {
+    return this.cfg.integrityManifest?.[url]
+  }
+
   /** cookie 读取（§七：受控存储=服务端 SameSite cookie；缺失/损坏返回 null 诚实降级） */
   private readCookie(name: string): string | null {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // 配置名中的正则元字符转义

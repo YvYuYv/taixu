@@ -55,6 +55,57 @@ export class DepsService extends Service<DepsConfig> {
   }
 
   /**
+   * 动态脚本加载 + SRI 校验执行（security §8.1，P1）：fetch 取源 -> SHA-256
+   * 哈希对照 integrityManifest -> 匹配才注入执行。
+   * - 清单非空时 deny-by-default：未列入清单的 url 直接拒（不注入）
+   * - 哈希不匹配：reject + sri-mismatch violation + SRI_MISMATCH 告警（注册规则才派发）
+   * - 清单未配置：宿主显式退出 SRI，加载不校验（§8.1 期望哈希来自构建期清单——
+   *   无清单强行"校验"无锚点，诚实降级为不校验）
+   * - 覆盖面（§8.1）：本方法覆盖显式 loadScript 调用；入口 JS（P0 直载工厂）、
+   *   CSS <link> 与动态 import 分块经此统一校验随 B-加载（共享仲裁/预加载）落地
+   * - 哈希经 arrayBuffer 整体摘要（废除 String.fromCharCode(...bytes) 大资源栈溢出
+   *   ——分块读取的关切在编解码不在摘要本身）
+   */
+  async loadScript(url: string): Promise<void> {
+    const security = this.ctx.security
+    // 信任链边界（§8.1）：本实现消费宿主注入的哈希清单，**清单本身的 CI 签名/
+    // 公钥验签不在运行时**——前提是清单经宿主受控通道（构建产物/CI）下发，与
+    // 应用源不同源不同权；同 CDN 拉取未签名清单即"形同虚设"（spec 反例）
+    const text = await this.fetchText(url)
+    if (security.hasIntegrityManifest()) {
+      const expected = security.integrityEntry(url)
+      if (!expected) {
+        security.reportViolation('host', 'sri-unlisted', { url })
+        throw new Error(`integrity: "${url}" not in manifest (deny-by-default, security §8.1)`)
+      }
+      const digest = await this.sha256Base64(text)
+      if (`sha256-${digest}` !== expected) {
+        security.reportViolation('host', 'sri-mismatch', { url })
+        this.ctx.monitor.trigger({ type: 'SRI_MISMATCH', appId: 'host', detail: { url } })
+        throw new Error(`integrity mismatch: ${url}`)
+      }
+    }
+    const el = document.createElement('script')
+    el.textContent = text // 文本注入（非 src 引用）：校验后的源即执行源，无二次取回窗口
+    document.head.appendChild(el)
+  }
+
+  /** 取源（fetch -> text；非 2xx 显式 reject——无静默吞错） */
+  private async fetchText(url: string): Promise<string> {
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`loadScript: ${url} HTTP ${res.status}`)
+    return res.text()
+  }
+
+  /** SHA-256 base64（§8.1；SubtleCrypto 摘要） */
+  private async sha256Base64(text: string): Promise<string> {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+    let bin = ''
+    for (const b of new Uint8Array(digest)) bin += String.fromCharCode(b) // 逐字节累加（不展开传参）
+    return btoa(bin)
+  }
+
+  /**
    * 加载应用入口，解析为 Cordis 插件。
    * 本票：清单校验 + 工厂调用（直载）。signal 语义：加载已开始则作废结果，未开始则不再开始。
    */

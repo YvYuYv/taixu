@@ -257,6 +257,7 @@ class SecureScriptLoader {
 - `loadScript` 监听 `onload/onerror`；SRI 失败 reject 且告警（旧版只 console.error，调用方无感知继续跑）
 - 覆盖：入口 JS、CSS `<link>`、动态 import 分块（deps 服务统一经此校验）
 - 哈希计算分块读取（废除 `String.fromCharCode(...bytes)` 大资源栈溢出）
+- 落地形式（P1）：`deps.loadScript(url)`——fetch 取源 -> SHA-256 对照 `security.integrityManifest`（`url -> 'sha256-<base64>'`）-> 匹配才以 textContent 注入（校验后的源即执行源，无二次取回窗口）；清单非空时未列入即拒（sri-unlisted）；不匹配 reject + sri-mismatch violation + SRI_MISMATCH 告警；清单未配置 = 宿主显式退出（不校验）。**信任链边界**：清单本身的 CI 签名/公钥验签在构建期/宿主侧（经宿主受控通道下发），运行时只消费哈希；CSS `<link>` 与动态 import 分块统一校验随 B-加载落地
 
 ### 8.2 供应链
 
