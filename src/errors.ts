@@ -13,3 +13,18 @@ export class AppDisabledError extends Error {
     this.name = 'AppDisabledError'
   }
 }
+
+/** 共享依赖仲裁冲突（heterogeneous §七：singleton/strict 无满足版本——加载期 fail-fast，
+ * 进入 lifecycle 恢复策略，不"强制塞旧版本+console.warn"） */
+export class DependencyConflictError extends Error {
+  public readonly depName: string
+  public readonly range: string
+  public readonly available: string[]
+  constructor(depName: string, range: string, available: string[]) {
+    super(`dependency conflict: "${depName}@${range}" unsatisfied (available: ${available.join(', ') || 'none'})`)
+    this.name = 'DependencyConflictError'
+    this.depName = depName
+    this.range = range
+    this.available = available
+  }
+}

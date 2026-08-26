@@ -19,12 +19,13 @@ export { SecurityService } from './services/security'
 export type { PermissionRule, PermissionVerdict, SecurityConfig } from './services/security'
 export { SandboxService } from './services/sandbox'
 export { createSandbox, storagePrefix } from './sandbox'
-export { SandboxDisposedError, AppDisabledError } from './errors'
+export { SandboxDisposedError, AppDisabledError, DependencyConflictError } from './errors'
 export type { Sandbox, SandboxOptions } from './sandbox'
 export { createProbeApp } from './probe'
 export type { ProbeReport, ProbeOptions } from './probe'
 export { DepsService } from './services/deps'
-export type { AppManifestEntry } from './services/deps'
+export type { AppManifestEntry, SharedModule, NegotiateOptions, ResilientLoadOptions } from './services/deps'
+export { satisfies as satisfiesSemver } from './services/deps'
 export { LifecycleService } from './services/lifecycle'
 export type { AppInstance, MountOptions, RecoveryConfig, LifecycleConfig, KeepAliveConfig, AppExternalState } from './services/lifecycle'
 export { StyleService } from './services/style'
@@ -51,6 +52,8 @@ export interface CreateCordisOptions {
   security?: Omit<SecurityConfig, 'rules'>
   /** 应用清单（appId + 入口工厂） */
   apps?: AppManifestEntry[]
+  /** deps 扩展配置（容灾重试退避基数等） */
+  deps?: { retryBackoffMs?: number }
   /** 错误恢复策略（lifecycle §六） */
   recovery?: RecoveryConfig
   /** 槽位选择器映射 */
@@ -167,7 +170,7 @@ export function createCordis(options: CreateCordisOptions = {}): Context {
   installCoreGuard(ctx)
   ctx.plugin(SecurityService, { ...options.security, rules: options.permissions ?? [] })
   ctx.plugin(SandboxService)
-  ctx.plugin(DepsService, { apps: options.apps })
+  ctx.plugin(DepsService, { apps: options.apps, retryBackoffMs: options.deps?.retryBackoffMs })
   ctx.plugin(StyleService)
   ctx.plugin(RouterService, {
     ...options.router,

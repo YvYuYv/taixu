@@ -232,6 +232,7 @@ class DepsService extends Service {
 
 - `strict: true`：版本不满足时直接失败（不做任何 fallback）
 - 仲裁告警接入 monitor（`DEP_NEGOTIATION_FALLBACK` / `DEP_CONFLICT`），非 console.warn
+- 落地形式（P1）：singleton/strict/acceptsDuplicate/privateLoader 经 `negotiate(name, range, options)` 逐调用传入（语义等价，**清单通道与静态检查随 B-加载后续**）；已知未落地：传递依赖进仲裁、`DEP_VERSION_SPLIT` 上报与 iframe 隔离触发（ADR-0038）、容灾 404 时的 manifest 重取与 entry 变更比对（现实现为 404 耗尽即 DEPLOY_SKEW，可能高报非偏斜 404）
 
 ### 7.1 与 Module Federation / AMD 的关系
 
