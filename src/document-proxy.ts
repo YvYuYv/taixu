@@ -94,6 +94,8 @@ export class DocumentProxy {
   ): unknown {
     if (!this.stableViews.has(key)) {
       const tracker = this.tracker
+      const lockContainer = this.container as HTMLElement | null // 滚动锁重定向目标（§4.2）
+      let bodyStyleView: unknown = null // body.style 缓存单例（身份稳定）
       const record = (nodes: unknown[]) => {
         for (const n of nodes) if (n instanceof Node) tracker.maybeRecord(n)
       }
@@ -114,6 +116,37 @@ export class DocumentProxy {
               tracker.harvest(target as unknown as HTMLElement)
               return result
             }
+          }
+          if (key === 'body' && prop === 'style') {
+            // 滚动锁重定向（style-isolation §4.2）：body.style.overflow 写（属性赋值
+            // 与 setProperty 双路径）改容器级（不泄漏到主应用 body）；读镜像容器值
+            //（锁检查代码可见真实生效值）；其余读写透传真实节点。视图缓存单例
+            //（stableView 语义：document.body.style 身份稳定）
+            if (!bodyStyleView) {
+              const realStyle = Reflect.get(target, prop, target) as CSSStyleDeclaration
+              bodyStyleView = new Proxy(realStyle, {
+                get(t, p, r) {
+                  if (p === 'overflow' && lockContainer?.style.overflow) return lockContainer.style.overflow
+                  if (p === 'setProperty' && lockContainer) {
+                    const raw = t.setProperty.bind(t)
+                    return (prop2: string, value: string, priority?: string) => {
+                      if (prop2 === 'overflow') lockContainer!.style.setProperty('overflow', value, priority)
+                      else raw(prop2, value, priority)
+                    }
+                  }
+                  const v = Reflect.get(t, p, r)
+                  return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(t) : v
+                },
+                set(t, p, value, r) {
+                  if (p === 'overflow' && lockContainer) {
+                    lockContainer.style.setProperty('overflow', String(value))
+                    return true
+                  }
+                  return Reflect.set(t, p, value, r)
+                },
+              })
+            }
+            return bodyStyleView
           }
           return Reflect.get(target, prop, receiver)
         },

@@ -227,6 +227,115 @@ export class StyleService extends Service<StyleConfig> {
     })
     return el
   }
+
+
+  // ---- CSS-in-JS 运行时补丁 + z-index 分层（§4.4/§4.2）----
+
+  /**
+   * CSS-in-JS 运行时补丁（§4.4，命名空间路线）：MutationObserver 观察 head 新
+   * style 节点——未打标（第三方运行时注入 emotion/styled-components 等）归属
+   * 当前应用：打标 + §3.1 等价选择器前缀重写（scope = [data-cordis-app]）。
+   * 已注册即扫既有未打标节点；观察挂 ctx.effect（dispose 自动断开）。
+   * 性能敏感应用建议改走 Shadow 路线（§4.4 尾条）。
+   */
+  observeRuntimeStyles(ctx: Context): void {
+    const appId = ctx.fiber.name
+    if (!appId) throw new Error('style.observeRuntimeStyles: cannot attribute to anonymous fiber (app plugin must declare name)')
+    const scope = `[data-cordis-app="${appId}"]`
+    const rewrite = (el: HTMLStyleElement) => {
+      if (el.dataset.cordisApp) return // 已归因（显式通道）：不动
+      el.dataset.cordisApp = appId
+      el.textContent = prefixSelectors(el.textContent ?? '', scope)
+      this.ctx.monitor.count('cssinjs_patched', 1, { appId })
+    }
+    // 只观察**注册后**的注入（"观测 style 注入"）：既有未打标节点可能是宿主/主应用
+    // 样式——无归因证据不捕（误归因会以错误 scope 重写宿主样式）
+    const mo = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const n of m.addedNodes) {
+          if (n instanceof HTMLStyleElement) rewrite(n)
+        }
+      }
+    })
+    mo.observe(document.head, { childList: true })
+    ctx.effect(() => () => mo.disconnect())
+  }
+
+  /**
+   * z-index 分层 registry（§4.2）：`--tx-z-{layer}` token 写文档级 :root（唯一写点；
+   * 宿主生命周期，不随应用卸载）；弹层经 zIndexVar 取值而非裸数字。
+   */
+  setZLayers(layers: Record<string, number>): void {
+    for (const [layer, value] of Object.entries(layers)) {
+      document.documentElement.style.setProperty(`--tx-z-${layer}`, String(value))
+    }
+  }
+
+  /** 弹层取值面：返回 token 引用（未定义层由 CSS 变量缺省语义兜底） */
+  zIndexVar(layer: string): string {
+    return `var(--tx-z-${layer})`
+  }
+}
+
+/**
+ * 选择器前缀重写（§4.4 运行时路径，§3.1 构建期等价语义的最小实现）：
+ * 顶层与一层 @media/@supports 嵌套内的选择器加 scope 前缀；html/body/:root
+ * 语义重写为 scope 本身；@keyframes/@font-face 块原样保留（keyframes 名是
+ * 文档级命名空间，重写需构建期配合——如实边界）。
+ */
+export function prefixSelectors(css: string, scope: string): string {
+  const out: string[] = []
+  let i = 0
+  const takeBlock = (): string => {
+    // 消费到匹配的 '}'（一层嵌套深度）
+    let depth = 1
+    const start = i
+    while (i < css.length && depth > 0) {
+      if (css[i] === '{') depth++
+      else if (css[i] === '}') depth--
+      i++
+    }
+    return css.slice(start, i - 1)
+  }
+  while (i < css.length) {
+    const ch = css[i] as string
+    if (ch === '@') {
+      const atStart = i
+      while (i < css.length && css[i] !== '{') i++
+      const prelude = css.slice(atStart, i + 1)
+      const name = prelude.slice(1).split(/[{(]/)[0]?.trim() ?? ''
+      i++ // 进块
+      const body = takeBlock()
+      if (/^(media|supports|layer|container)/i.test(name)) {
+        out.push(prelude + prefixSelectors(body, scope) + '}') // 条件块内递归前缀
+      } else {
+        out.push(prelude + body + '}') // keyframes/font-face：原样（如实边界）
+      }
+      continue
+    }
+    if (ch === '}' || /\s/.test(ch)) {
+      out.push(ch)
+      i++
+      continue
+    }
+    const selStart = i
+    while (i < css.length && css[i] !== '{') i++
+    const rawSel = css.slice(selStart, i).trim()
+    if (!rawSel) continue
+    i++ // 进块
+    const body = takeBlock()
+    const prefixed = rawSel
+      .split(',')
+      .map((part) => {
+        const t = part.trim()
+        if (!t) return part
+        if (/^(html|body|:root)$/i.test(t)) return scope // html/body/:root 语义重写
+        return `${scope} ${t}`
+      })
+      .join(', ')
+    out.push(`${prefixed}{${body}}`)
+  }
+  return out.join('')
 }
 
 /** Constructable Stylesheet 最小结构面（§4.1；jsdom 缺失——测试经 sheetFactory 注入） */

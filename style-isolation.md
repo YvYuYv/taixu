@@ -127,6 +127,7 @@ ctx.effect(() => {
 
 - antd v4 cssinjs / emotion/styled-components 运行时注入：命名空间路线下提供**运行时前缀补丁**（观测 style 注入，对规则文本做 §3.1 等价前缀重写，性能敏感应用建议改走 Shadow 路线）
 - 检测：InjectedNodesTracker 发现未前缀规则 -> 开发模式告警 + DevTools 面板展示
+- 落地形式（P1，`style.observeRuntimeStyles(ctx)`）：MutationObserver 观察 head **注册后**的注入（既有未打标节点无归因证据不捕——误归因会以错误 scope 重写宿主样式）；@media/@supports/@layer/@container 递归前缀、html/body/:root 语义重写；cssinjs_patched 指标。**未落地**：@keyframes 动画名重写（§3.2 文档级命名空间相撞风险仍在——需构建期配合）、characterData 更新（emotion 复用节点追加规则）、开发模式告警与 DevTools 面板（随 B-DevTools）
 
 ## 五、主题共享
 
