@@ -12,6 +12,7 @@
     "forceConsistentCasingInFileNames": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "jsx": "react-jsx",
     "noEmit": true
   },
   "include": ["src", "tests", "demo", "vitest.config.ts"]

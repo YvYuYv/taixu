@@ -427,7 +427,7 @@ export class StateService extends Service<StateConfig> {
   }
 
   /** watch（§4.3，ADR-0001）：ctx.on 托管 + 键过滤 + 首跑当前值；dispose 自动退订 */
-  watch(ctx: Context, key: string, fn: (value: unknown) => void, options: WatchOptions = {}): void {
+  watch(ctx: Context, key: string, fn: (value: unknown) => void, options: WatchOptions = {}): () => void {
     // 归因：显式 appId > 调用方 fiber 名（应用插件名）；root ctx（fiber 名 'root'）= 系统观察者不受应用挂起影响
     const fiberName = ctx.fiber.name
     const record: WatchRecord = { appId: options.appId ?? (fiberName !== 'root' ? fiberName : null), key }
@@ -443,7 +443,7 @@ export class StateService extends Service<StateConfig> {
       if (idx !== -1) records.splice(idx, 1)
       if (records.length === 0) this.watchers.delete(ctx)
     })
-    ctx.on('state/changed', (payload) => {
+    const off = ctx.on('state/changed', (payload) => {
       if (!matchKey(key, payload.key, payload.path)) return // 键过滤（前缀/点分路径，双向）
       if (record.appId && this.suspendedApps.has(record.appId)) return // 挂起不推送（ADR-0023）
       if (record.appId && !this.canRead(payload.key, record.appId)) return // 投递也过读权限（fail-closed）
@@ -452,6 +452,10 @@ export class StateService extends Service<StateConfig> {
     })
     // 首跑送当前值：同样过读权限（无授权即抛，不留旁路）；子路径经根存储下钻
     fn(this.get(key, { appId: record.appId ?? undefined }))
+    // 组件级退订句柄（state-sharing §六：框架 hook 组件卸载经 effect 归还——
+    // 应用级订阅仍随 fiber dispose 托管，本句柄供 hook 提前归还；闭包捕获各自
+    // off，同 fn 多订阅互不干扰）
+    return off
   }
 
   /** 唯一提交路径（§4.1）：版本与值原子推进 + 单次通知 */
