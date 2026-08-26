@@ -214,6 +214,7 @@ export function createCordisRouter(ctx: Context, options: VueRouterOptions): Rou
 ```
 
 - **跨 Vue 副本安全**：桥接对象不引用运行时全局的 `reactive`（旧版用框架运行时的 Vue 副本创建对象，子应用沙箱内是另一份 Vue 时互不识别）--computed 由子应用入口注入或退化为纯 getter+订阅回调
+- 落地形式（P1，`createCordisRouter`）：`reactive` 容器与 `computed` 须**同源成对注入**（子应用同一 Vue 副本——只注 computed 不注 reactive 则依赖永不失效，如实约定）；VR3 桥（`bridgeVueRouter2`）abstract 实例由调用方 new 后传入（桥接管读写面）；**API 范围**：currentRoute/push/replace/go/back/forward/beforeEach/isReady/onChange 已映射，afterEach/beforeResolve/resolve/getRoutes/params 解析不在桥（路由表归子应用 Router，位置事实归 Cordis）
 - `push` 返回真实 Promise（导航完成后 resolve），修复旧版 `Promise.resolve()` 使 `await router.push()` 失效
 
 ### 5.2 Vue Router 3（真实实例 + 全 API 代理）
