@@ -382,3 +382,135 @@ DevTools / Hmr / Style 等新服务落地时直接继承此模式（helpers 集�
 **延伸 3**：本批次的 deletion test 是**深化最强信号**——所有 12 候选的退出
 标准都依赖 grep 0 命中验证；这一标尺可复用到任何后续重构（创建新候选时
 先思考"什么 inline 定义可以删"，提前 deletion test 即可起步）。
+
+---
+
+# 第三阶段：新视角 + 收口（C14 - C15）
+
+> **TL;DR**：重置视角（不带前两批心智）后以 **config 接口字段数 + 状态字段密度** 为信号，
+> 识别出"config 拆分 + 状态机独立"两类全新 friction，落地 **8 票单 commit**。
+> 核心服务（bus / router / style / monitor / security）的子系统抽离全部收口。
+
+## §15. 第三阶段信号（新视角方法）
+
+前两批（C1-C12）的信号是"文件行数 + helper 函数数"；第三批重置视角后新增两个维度：
+
+| 维度 | 度量 | 最强信号 |
+|---|---|---|
+| **config 接口字段数** | `interface XxxConfig` 字段计数 | SecurityConfig **8 字段**（每字段独立关注面） |
+| **状态字段密度** | `private` 字段计数 | state.ts **28** / router.ts **26** / bus.ts **16** |
+
+**模式差异**：
+
+| 维度 | C1-C12（前两批） | C14-C15（第三批） |
+|---|---|---|
+| friction 类型 | helpers 抽离（位置移动） | config 拆分 + 状态机独立 |
+| 模式 | 零依赖 helpers 集中 | **闭包工厂 + 独立子系统** |
+| 行为变更 | 零变（单 commit） | 零变（单 commit；C14-A config 类型拆分向后兼容） |
+
+## §16. 第三阶段贡献（8 票）
+
+| # | 票 | 强度 | commit | 行数影响 |
+|---|---|---|---|---|
+| C14-A | SecurityConfig 拆 3 子 config | Strong | `6f8fa07` | security +64（3 子 config + 3 getter） |
+| C14-B | router lazy outlet 状态机独立 | Strong | `d88e8b6` | router -22 / lazyOutlet +107 |
+| C14-C | bus 挂起队列 + DLQ 双子系统独立 | Strong | `4bd6f7e` | bus -53 / queue +99 / dlq +61 |
+| C14-D | style.fontRegistry 子系统独立 | Worth | `0a88cf5` | style -66 / fontRegistry +125 |
+| C14-E | monitor errorLedger 子系统独立 | Worth | `edbd7c3` | monitor -20 / errorLedger +68 |
+| C14-F | style CSS-in-JS 补丁独立 | Worth | `4b15b0e` | style -64 / cssinjs +123 |
+| C15-A | bus 网络拦截链独立 | Strong | `9a7c305` | bus -25 / networkChain +118 |
+| C15-B | router commit URL 序列化独立 | Worth | `d44d394` | router -12 / commitUrl +70 |
+
+**闭包工厂模式**（C7-A leakDetector 确立、第三批全面推广）：
+
+```
+create<X>Ledger(config) → { 操作面方法, destroy() }
+```
+
+- 零 ctx 依赖（纯状态机 / 纯账本 / 纯函数编排）
+- 非 cordis service 形态（无 service 抽象必要）
+- 服务类改持 handle 引用；原方法改 thin delegate
+- `app/disposed` / `ctx.effect` 清理统一走 `ledger.destroy()` / `ledger.clear()`
+
+## §17. 服务责任面收敛终态（四批次累计）
+
+| 服务 | 落地前行数 | 落地后行数 | 关注面收敛 |
+|---|---|---|---|
+| **lifecycle.ts** | 846 | 610 | mount/destroy 编排 + scopedFetch 注入点 + outlet 容器管理（**-27.9%**） |
+| **bus.ts** | 583 | 505 | 消息分发本职（单播/广播/请求-应答/pubLatest）；queue/dlq/networkChain/tracing 全出 |
+| **router.ts** | 470 | 412 | outlets 矩阵 + navigate 管线 + popstate；parsers/lazyOutlet/commitUrl 全出 |
+| **monitor.ts** | 292 | 270 | 错误/指标/告警/隔离门面 4 类本职；leakDetector/errorLedger 全出 |
+| **security.ts** | 308 | 338 | 裁决/急停/净化/限流/CSRF/SRI（3 子 config + sanitizers 出） |
+| **state.ts** | ~600 | ~560 | 键空间 + watch + bindLocal（helpers 出） |
+| **style.ts** | 351 | 220 | inject 主路径本职；fontRegistry/cssinjs 全出 |
+| **deps.ts** | 380 | ~330 | 资源加载 + 仲裁 + 容灾本职；semver 出 |
+
+**18 个新模块终态清单**：
+
+```
+src/
+├── sandbox-proxy-helpers.ts          # C12-A：DOM 注入路径 + scoped 查询 + cssEscape + ReportFn
+└── services/
+    ├── suspendScope.ts               # C1：SuspendScope Service（5 类注册面）
+    ├── harden.ts                     # C2：硬化工具集 + ESCAPE_VECTOR_MATRIX + race 修复
+    ├── keepAlive.ts                  # C5-A：KeepAliveCore + KeepAliveService
+    ├── scopedFetch.ts                # C5-C：createScopedFetch（security 裁决 + bus 链路编排）
+    ├── leakDetector.ts               # C7-A：createLeakDetector（WeakRef + FinalizationRegistry）
+    ├── bus/
+    │   ├── queue.ts                  # C14-C：createQueueLedger（挂起队列状态机）
+    │   ├── dlq.ts                    # C14-C：createDlqLedger（死信账本）
+    │   └── networkChain.ts           # C15-A：createNetworkChain（中间件链 + tracing + monitor 计时）
+    ├── router/
+    │   ├── parsers.ts                # C8-A：5 常量 + 4 helper（URL 矩阵 + 守卫契约）
+    │   ├── lazyOutlet.ts             # C14-B：createLazyOutletLedger（IntersectionObserver 状态机）
+    │   └── commitUrl.ts              # C15-B：commitUrl 纯函数（URL 序列化）
+    ├── deps/
+    │   └── semver.ts                 # C9-A：parseVersion / compareVersions / satisfies
+    ├── monitor/
+    │   └── errorLedger.ts            # C14-E：createErrorLedger（错误清单 + JS_ERROR_RATE 窗口）
+    ├── security/
+    │   └── sanitizers.ts             # C10-A：matchAction / readCookie / isIsolateAllowed
+    ├── state/
+    │   └── helpers.ts                # C11-A：6 helper + 1 constant（键路径 + 序列化）
+    └── style/
+        ├── fontRegistry.ts           # C14-D：createFontRegistry（@font-face 提升子系统）
+        └── cssinjs.ts                # C14-F：prefixSelectors + createCssInJsPatcher
+```
+
+## §18. 全量统计（22 commits · 20 候选）
+
+| 维度 | 数 |
+|---|---|
+| 总 commits（本批 deep dive） | 22（9a97cec chore 起 → d44d394） |
+| 候选 | 20（沙箱 4 + lifecycle 3 + service 7 + 新视角 6 + C15 2） |
+| 新模块文件 | 18 |
+| 测试 | 40 文件 / 267 case 全绿 + typecheck 干净（行为零变） |
+| 净代码行数 | ~-200 行（关注面收敛价值 > 抽离成本） |
+| deletion test | 全部通过（每票 grep inline 定义 0 命中） |
+
+## §19. 可复制方法学（三轮迭代结论）
+
+1. **第一轮信号**：文件行数 + git 热点 → "上帝服务" → helpers 抽离
+2. **第二轮信号**：helper 函数数 + 重复定义 → 零依赖 helpers 集中
+3. **第三轮信号**：config 接口字段数 + 状态字段密度 → config 拆分 + 状态机独立（闭包工厂）
+4. **收敛判据**：服务剩余状态字段全部与"本职"相关（deletion test grep 本职关键字全命中）
+
+**下一轮信号建议**（C16+，ROI 边际递减时换方向）：
+- **测试脆弱性**：哪些测试必须 jsdom 真实 DOM？（jsdom mock 密度 = 接口设计缺陷信号）
+- **配置注入面统一**：各服务 config 是否有跨服务重复字段？
+- **事件契约覆盖**：events.ts 事件族 vs 实际 emit 点的一致性机器校验
+
+## §20. 变更溯源（完整）
+
+| 时间 | 事件 |
+|---|---|
+| 2026-08-26 | 第一轮 deep dive：4 候选决策树（C1-C4，12 票计划） |
+| 2026-08-26~27 | C1-C4 落地 + 测试补齐 |
+| 2026-08-27 | 归档本文档 §1-§7 |
+| 2026-08-27 | 第二轮：C5-A/B/C lifecycle 深化（KeepAlive / finalize / scopedFetch） |
+| 2026-08-28 上午 | 第二轮收口：C6-C12 服务横扫 7 票（helpers 抽离） |
+| 2026-08-28 下午 | 检视复核（13 commits 全部验证通过）+ 新视角扫描 |
+| 2026-08-28 晚 | 第三轮：C14-A~F + C15-A/B 共 8 票（config 拆分 + 状态机独立） |
+| 2026-08-28 | 全量归档本文档 §15-§20 |
+
+daily note 见 `.workbuddy/memory/2026-08-26.md`（317 行）/ `2026-08-27.md`（47 行）/ `2026-08-28.md`（494 行，含全部 22 commits 表 + 20 候选清单）。
