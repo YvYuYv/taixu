@@ -477,14 +477,15 @@ src/
         └── cssinjs.ts                # C14-F：prefixSelectors + createCssInJsPatcher
 ```
 
-## §18. 全量统计（22 commits · 20 候选）
+## §18. 全量统计（25 commits · 22 候选 · 18 模块 · 2 防漂移测试）
 
 | 维度 | 数 |
 |---|---|
-| 总 commits（本批 deep dive） | 22（9a97cec chore 起 → d44d394） |
-| 候选 | 20（沙箱 4 + lifecycle 3 + service 7 + 新视角 6 + C15 2） |
+| 总 commits（本批 deep dive） | 25（9a97cec chore 起 → cfca7ec） |
+| 候选 | 22（沙箱 4 + lifecycle 3 + service 7 + 新视角 6 + C15 2） |
 | 新模块文件 | 18 |
-| 测试 | 40 文件 / 267 case 全绿 + typecheck 干净（行为零变） |
+| 测试 | 42 文件 / 276 case 全绿 + typecheck 干净（行为零变） |
+| 防漂移机器校验 | 2（C16-A 事件契约 / C16-B 依赖方向） |
 | 净代码行数 | ~-200 行（关注面收敛价值 > 抽离成本） |
 | deletion test | 全部通过（每票 grep inline 定义 0 命中） |
 
@@ -494,11 +495,19 @@ src/
 2. **第二轮信号**：helper 函数数 + 重复定义 → 零依赖 helpers 集中
 3. **第三轮信号**：config 接口字段数 + 状态字段密度 → config 拆分 + 状态机独立（闭包工厂）
 4. **收敛判据**：服务剩余状态字段全部与"本职"相关（deletion test grep 本职关键字全命中）
+5. **第四轮（C16+）**：架构层 friction 饱和后转**契约/约束机器校验**——把人工核对的
+   架构不变量（事件契约一致性、依赖方向无环、零依赖叶子）固化为静态层红灯
 
-**下一轮信号建议**（C16+，ROI 边际递减时换方向）：
-- **测试脆弱性**：哪些测试必须 jsdom 真实 DOM？（jsdom mock 密度 = 接口设计缺陷信号）
-- **配置注入面统一**：各服务 config 是否有跨服务重复字段？
-- **事件契约覆盖**：events.ts 事件族 vs 实际 emit 点的一致性机器校验
+**C16+ 信号探测结论**（架构层已饱和，换方向）：
+- 测试脆弱性 —— 弱（jsdom 真实 DOM 是环境常态，mock 密度仅 2 处）
+- config 注入面统一 —— 弱（仅 `appId` 重复，属消费面参数非 config 字段）
+- 事件契约覆盖 —— **中**：当前零 drift，但**无自动化防漂移** → 已固化为 C16-A
+- 依赖方向（新增信号）—— **中**：依赖图无环，但**无自动化校验** → 已固化为 C16-B
+
+**再下一轮信号建议**（C17+，若继续）：
+- 载荷形状契约（events.ts 声明的 payload 类型 vs 实际 emit 载荷字段）
+- 事件族调度语义全覆盖（不只 router/navigate，含 message/response 包络族）
+- 各服务 config 默认值与文档（CONTEXT.md）一致性校验
 
 ## §20. 变更溯源（完整）
 
@@ -514,3 +523,76 @@ src/
 | 2026-08-28 | 全量归档本文档 §15-§20 |
 
 daily note 见 `.workbuddy/memory/2026-08-26.md`（317 行）/ `2026-08-27.md`（47 行）/ `2026-08-28.md`（494 行，含全部 22 commits 表 + 20 候选清单）。
+
+---
+
+## §21. 第四轮：C16+ 契约 / 约束机器校验
+
+> **背景**：三轮 deep dive 后架构层 friction 饱和（三个新信号中两个弱）。
+> 本轮换方向——把**人工核对的架构不变量固化为静态层红灯**，防止未来 drift。
+
+### §21.1 C16-A · 事件契约机器校验（commit `0b59c94`）
+
+**新增** `tests/event-contract.test.ts`（4 case）：
+
+| 断言 | 内容 | 守护 ADR |
+|---|---|---|
+| 事件族非空 | events.ts 声明了事件族（非空契约） | — |
+| 无孤儿定义 | events.ts 声明的每个事件都有派发/监听点（无死契约） | 基线 §2.4 |
+| 无野生事件 | 代码派发的每个事件名都在 events.ts 声明（不绕过契约） | 基线 §2.4 |
+| 模板族白名单 | `outlet/changed:{outlet}` 经 `outletEventKey` helper 落键 | ADR-0047/0050 |
+| serial 族调度语义 | `router/navigate` 必须声明 `GuardResult \| Promise<GuardResult>` | ADR-0002 |
+
+**提取策略**：
+- 定义侧：`'xxx/yyy'(payload` 形式（事件名后跟 `(` = 声明行，排除注释引用）
+- 使用侧：`.emit(` / `.on(` / `.serial(` 调用参数内的字符串字面量或模板字面量前缀；
+  模板字面量族另经**落键 helper**（`outletEventKey`）调用登记族前缀
+
+**负向验证**：把 `security/violation` 改名 `security/wildcard` → 孤儿 + 野生**双捕获**红灯 ✅
+
+### §21.2 C16-B · 依赖方向机器校验（commit `cfca7ec`）
+
+**新增** `tests/dependency-graph.test.ts`（5 case）：
+
+| 断言 | 内容 | 守护 ADR |
+|---|---|---|
+| 服务声明非空 | 提取到服务声明（依赖图非空） | — |
+| **无环（DAG）** | 依赖图可拓扑排序（Kahn）；循环注入即红灯 | ADR-0054 |
+| 零业务依赖叶子 | monitor / security 不 inject 任何服务 | ADR-0054 |
+| 核心层不反向依赖 | 核心八服务不依赖 devtools（诊断层不进主路径） | ADR-0011 |
+| 核心层完整 | 核心八服务全部声明在案 | ADR-0011 |
+
+**提取策略**：`static provide = 'x'` 之后（下一个 provide 之前）最近的 `static inject = [...]`；
+同文件多服务各自成条（devtools.ts 的 DevTools + Hmr）。
+
+**负向验证两组** ✅：
+1. monitor 加 `inject=['security']` → 「零业务依赖叶子」红灯
+2. security + monitor **双向注入** → 「无环」红灯（真循环注入捕获）
+
+### §21.3 依赖图实测（无环 DAG）
+
+```
+L0（零依赖）：security, monitor, harden, suspendScope, style, tracing
+L1：bus, deps, router, sandbox, state       (→ security, monitor)
+L2：keepAlive                                (→ state, deps, monitor)
+L3：lifecycle                                (→ security, sandbox, deps, monitor, state, bus, suspendScope, keepAlive)
+L4：devtools, hmr                            (→ lifecycle, monitor, bus, style, security)
+```
+
+### §21.4 本轮价值（为什么值得做）
+
+架构不变量（契约一致性 / 依赖方向）此前只能**人工核对**——
+而这两类破坏的运行时症状与根因距离极远：
+
+| 破坏类型 | 运行时症状 | 根因定位成本 |
+|---|---|---|
+| 事件契约 drift | 监听器静默不触发 / 载荷 undefined | 高（跨服务追踪） |
+| 依赖环 | 注入 undefined / 启动死锁 | 高（启动时序黑盒） |
+
+固化为静态层红灯后：**改坏即失败**，与 `npm run verify` 同跑（42 文件 / 276 case）。
+
+### §21.5 收口状态
+
+- **25 commits / 22 候选 / 18 新模块 / 42-276 测试全绿**
+- 核心服务深化饱和 + 架构不变量机器校验就位
+- 下一阶段建议：新特性开发（架构底座已就绪，18 个 seam 模块 + 2 个防漂移断言）

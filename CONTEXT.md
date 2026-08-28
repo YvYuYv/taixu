@@ -94,6 +94,11 @@ _Avoid_: 缓冲区、离线消息
 
 **事件族（Event Family）**:
 以事件名前缀划分、共享同一调度结果契约的事件分组（如 `router/guard:*` 返回守卫枚举，请求-应答族返回应答包络）；族契约是可机器校验的基线规则。
+
+**C16-A 机器校验**：`tests/event-contract.test.ts` 把族契约固化为静态层红灯——
+双向断言（events.ts 声明的每个事件都有派发/监听点「无孤儿定义」+ 代码派发的每个事件名都在 events.ts 声明「无野生事件」）；
+模板字面量族 `outlet/changed:{outlet}` 经落键 helper `outletEventKey` 登记（ADR-0047/0050）；
+`router/navigate` serial 族必须声明可裁决返回类型（ADR-0002 禁用真值判断）。
 _Avoid_: 事件命名空间、topic
 
 ### 隔离与安全
