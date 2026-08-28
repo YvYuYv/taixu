@@ -596,3 +596,99 @@ L4：devtools, hmr                            (→ lifecycle, monitor, bus, styl
 - **25 commits / 22 候选 / 18 新模块 / 42-276 测试全绿**
 - 核心服务深化饱和 + 架构不变量机器校验就位
 - 下一阶段建议：新特性开发（架构底座已就绪，18 个 seam 模块 + 2 个防漂移断言）
+
+---
+
+## §22. 第五轮：新特性批次（F1 / F3 / F2）
+
+> **背景**：四轮 deep dive 后架构底座就绪（18 seam 模块 + 2 防漂移断言）。
+> 本轮换方向做**新特性**——候选不靠空想，靠**三路工程内证据扫描**：
+>
+> | 证据源 | 扫描方式 | 命中 |
+> |---|---|---|
+> | 代码内未完成票 | `grep "[0-9]{2} 号票"` + `TODO/FIXME/P1` | 4 项（F1/F3/F4） |
+> | 规范文档 P2 清单 | `grep "未实现\|未来\|P2\|P3"` 各 *.md | 8 项（F5-F12） |
+> | 测试盲区 | src 文件 vs tests 同名 test | 7 模块无同名 test |
+>
+> 按「价值 / 工作量」取前三推进：**F1 → F3 → F2**（均属 A 类：代码内已留接入点）。
+
+### §22.1 F1 · bus 多实例精确定向（commit `b119b41`）
+
+**friction**：`communication-protocol.md` §二/§3.1 的 target 携带 instanceId 维度，
+实现把 target 平铺为 appId 字符串——同 appId 挂多实例时 dispatch 只能「取最新」。
+
+| 改动 | 内容 |
+|---|---|
+| `events.ts` | `CordisMessage.targetInstanceId?`（消息携带，DLQ/重放可复现） |
+| `SendMessageInput` / `RequestOptions` | 加 `instanceId?`（send / request 均可定向） |
+| `bus.resolveTarget`（新） | instanceId 精确匹配优先 → 缺省回退「同 appId 取最新」 |
+| 归属校验 | 两者共存时 instanceId 须属于该 appId，否则**不可达死信**（fail-closed 不静默错投） |
+| 附带修复 | `findByInstanceId` 定义行缺换行（`{` 与 `for` 同行） |
+
+向后兼容：不破坏既有 `target: string` 形状。+4 case（精确投递 / 归属不符 / request 定向 / 已卸载实例）。
+
+### §22.2 F3 · XHR/EventSource/WebSocket 网络裁决面（commit `76f397d`）
+
+**friction**：`security.md` §六 承诺「fetch/XHR/WS/ES 全覆盖拦截」，`js-sandbox.md` §3.6
+要求 XHR 是「open/send 包装：URL 白名单 + traceparent + 埋点」；实现只在构造期**记账**
+（一条 violation），不裁决、不注入 traceparent——fetch 之外的网络面等于裸奔。
+
+**中途方向修正**（核对规范后推翻原「删除过渡包装」计划）：删包装只会让覆盖面更窄，
+正确落法是**补齐裁决**（用户确认后执行）。
+
+| 层 | 改动 |
+|---|---|
+| security | 抽 `safeUrl`（协议门 + ws 豁免）复用；新增 `checkNetUrl(appId, url, allowWs?)` **同步**裁决 |
+| sandbox | `SandboxOptions.adjudicateNetworkUrl?` 注入位；拆 xhrConstructor / esConstructor / wsConstructor |
+| services/sandbox | `create` 默认接线 `security.checkNetUrl`（调用方显式提供则优先） |
+
+关键设计：
+- **为什么不是 `bus.network`**：XHR 的 open/send、ES/WS 构造是同步 API，进不了异步链，
+  也无法 await `sanitizeURL` 的 adjudicate 超时路径（ADR-0024）。代价：同步面只认精确源
+  `net:fetch:{origin}`，拿不到粗授权 `net:fetch`
+- 裁决点：XHR 在 `open`（URL 此时才给定，拒绝 = 不 open 且 `send` 抛错）；ES/WS 在构造器
+  （拒绝 = 构造抛错，`super` 之前不建立连接）
+- 授权面与 fetch 共用 `net:fetch:{origin}`——宿主一套规则覆盖全部网络出口
+- traceparent 仅 tracing 启用时注入（未启用不注入：不给应用请求平白增加触发 CORS 预检的自定义头）
+- 记账（`sandbox-network-*`）与拒绝（`sandbox-network-*-denied`）分列上报
+
+**破坏性变更**：未配 net:fetch 授权的应用，其 XHR/ES/WS 现被拦截
+（`tests/suspend.test.ts` 的 WS 用例已补授权——覆盖面兑现的预期代价）。+6 case。
+
+### §22.3 F2 · state 版本冲突消解四策略（commit `f4e5ca9`）
+
+**friction**：`state-sharing.md` §4.5 要求 ConflictResolver 四策略接入写入管线；
+实现在 `setIfMatch` 版本不匹配分支硬编码抛 VERSION_CONFLICT（注释自标 P1 未落地）。
+
+新增 `src/services/state/conflict.ts`（**零状态纯策略**，无 ctx/服务依赖，与 state/helpers.ts 同层）：
+
+| 导出 | 语义 |
+|---|---|
+| `REJECT_RESOLVER` | 默认（P0 行为不变，抛 VERSION_CONFLICT） |
+| `lwwResolver()` | last-write-wins：本地值无条件覆盖 |
+| `mergeResolver(merge?)` | merge 策略，缺省 `defaultMerge` |
+| `defaultMerge` | 数组 = remote ++ local 去重保序；纯对象 = **递归**逐字段合并；类型不一致 / 深度超限（>8 层）回退 local |
+
+**递归而非浅合并的理由**：仅浅合并会让数组字段被 local 整体覆盖、丢失 remote 内容，
+与 §4.5「concat + 去重保序」意图相悖（state 值绝大多数是对象包数组）。
+
+接线：`StateConfig.conflict` → `setIfMatch` 冲突分支；消解值经**同一 commit 管线**
+提交（版本原子推进，通知/持久化/跨 tab 语义一致）；权限裁决仍在最前置（消解不绕过）。+6 case。
+
+### §22.4 本批统计
+
+| 维度 | 数 |
+|---|---|
+| commits | 3（F1 `b119b41` / F3 `76f397d` / F2 `f4e5ca9`） |
+| 新模块 | 1（`services/state/conflict.ts`） |
+| 新增测试 | +16 case（42 文件 / **292 case** 全绿 + typecheck 干净） |
+| 破坏性变更 | 1（F3 网络面拦截：未授权 XHR/ES/WS 被拒） |
+| 负向验证 | 每票均做（F1 3 红 / F3 5 红 / F2 3 红），全部还原 |
+
+### §22.5 剩余候选（未推进）
+
+| 类 | 候选 | 备注 |
+|---|---|---|
+| A | F4 sourcemap 还原 | monitor `errors()` 已留接入点（"随宿主管线接入后在此层应用"） |
+| B | F5 SSR 水合 / F6 Angular 适配器 / F7 主题服务 / F8 Trusted Types / F9 PII 管道 / F10 时间旅行 / F11 切换事务 / F12 沙箱硬化 | 规范 P2 清单；F5 是唯一能拉开框架差距的大特性（需单独立项） |
+| C | 测试盲区（deps/lifecycle/monitor/security/scopedFetch 等无同名 test） | 非特性；做 F4 或新增 seam 时顺带补 |
