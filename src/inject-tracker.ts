@@ -4,9 +4,11 @@
  * （appendChild/insertBefore/append/prepend/replaceChildren/innerHTML/insertAdjacentHTML）；
  * 本模块只负责"记录/收割/移除"三件事，不改写真实 DOM。
  * 记账节点（style/script）供样式生命周期（04 号票登记语义）与 destroy 统一移除消费。
+ *
+ * C12-A：ReportFn 类型与 document-proxy 同源，统一定义在 sandbox-proxy-helpers.ts。
  */
 
-type ReportFn = (rule: string, detail: unknown) => void
+import type { ReportFn } from './sandbox-proxy-helpers'
 
 export class InjectedNodesTracker {
   private nodes = new Set<Element>()

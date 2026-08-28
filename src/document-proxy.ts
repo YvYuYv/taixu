@@ -7,19 +7,17 @@
  * - document.write 禁用
  * - 注入路径全记账（appendChild/insertBefore/append/prepend/replaceChildren/innerHTML/insertAdjacentHTML）
  *   记账在**代理层**完成，真实 DOM 不被改写
+ *
+ * **C12-A**：常量化（INJECT_METHODS / DOM_QUERY_KEYS）与 ReportFn 类型 + cssEscape
+ *   helper 已抽离至 sandbox-proxy-helpers.ts（与 inject-tracker 复用 ReportFn）。
  */
 import type { InjectedNodesTracker } from './inject-tracker'
-
-type ReportFn = (rule: string, detail: unknown) => void
-
-/** head/body 代理拦截的注入方法集（记账语义在 get trap 内联） */
-const INJECT_METHODS = new Set([
-  'appendChild',
-  'insertBefore',
-  'append',
-  'prepend',
-  'replaceChildren',
-])
+import {
+  INJECT_METHODS,
+  DOM_QUERY_KEYS,
+  cssEscape,
+  type ReportFn,
+} from './sandbox-proxy-helpers'
 
 export class DocumentProxy {
   private _proxy: Document | null = null
@@ -139,7 +137,7 @@ export class DocumentProxy {
                 },
                 set(t, p, value, r) {
                   if (p === 'overflow' && lockContainer) {
-                    lockContainer.style.setProperty('overflow', String(value))
+                    lockContainer.style.setProperty(String(p), String(value))
                     return true
                   }
                   return Reflect.set(t, p, value, r)
@@ -185,17 +183,4 @@ export class DocumentProxy {
         return Reflect.get(document, key, document) as (...args: never[]) => unknown
     }
   }
-}
-
-/** DOM 查询键（scoped 语义适用集；与 scoped() 分支一一对应） */
-const DOM_QUERY_KEYS = new Set([
-  'getElementById',
-  'querySelector',
-  'querySelectorAll',
-  'getElementsByClassName',
-  'getElementsByTagName',
-])
-
-function cssEscape(value: string): string {
-  return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(value) : value.replace(/"/g, '\\"')
 }
