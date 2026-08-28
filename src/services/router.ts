@@ -29,6 +29,7 @@ import {
   createLazyOutletLedger,
   type LazyOutletLedgerHandle,
 } from './router/lazyOutlet'
+import { commitUrl } from './router/commitUrl'
 
 export type { GuardResult }
 
@@ -362,30 +363,17 @@ export class RouterService extends Service<RouterConfig> {
     return { status: 'ok' }
   }
 
-  /** URL 回写 + history.state 快照（§4.2）：全量槽位状态合并序列化 */
+  /** URL 回写 + history.state 快照（§4.2）：全量槽位状态合并序列化——
+   * C15-B：URL 序列化纯函数已抽离到 router/commitUrl.ts；本方法保留 history
+   * 写入副作用 + lastCommitted 记账本职。 */
   private commit(outlet: string, options: { replace?: boolean; history?: boolean }): void {
-    const stateSnapshot: HistorySnapshot = { __tx_outlets: {}, __tx_scroll: this.captureScroll() }
-    const url = new URL(window.location.href)
-    const main = this.outlets.get(MAIN_CHANNEL)
-    if (main && !options.history) url.pathname = main.path
-    // 业务 query 保留，仅更新 query 通道槽位参数
-    const params = new URLSearchParams(url.search)
-    for (const key of [...params.keys()]) {
-      if (key.startsWith(RESERVED_PREFIX) && key !== MAIN_RESERVED_KEY) params.delete(key)
-    }
-    if (main) for (const [k, v] of Object.entries(main.query)) params.set(k, v)
-    // hash 通道值 = URL-encoded 的 `槽位=路径` 映射（§3.1-3：w=__tx_widget%3D%2Fhome，多浮窗 & 连接）
-    const hashPairs: string[] = []
-    for (const [name, state] of this.outlets) {
-      stateSnapshot.__tx_outlets![name] = state.path
-      if (name === MAIN_CHANNEL) continue
-      if (this.isWidget(name)) hashPairs.push(encodeURIComponent(`${RESERVED_PREFIX}${name}=${state.path}`))
-      else params.set(`${RESERVED_PREFIX}${name}`, state.path)
-    }
-    url.search = params.toString() ? `?${params}` : ''
-    url.hash = hashPairs.length ? `#${HASH_CHANNEL_KEY}=${hashPairs.join('&')}` : url.hash
-    const href = url.pathname + (url.search || '') + (url.hash || '')
-
+    void outlet
+    const { href, stateSnapshot } = commitUrl(
+      this.outlets,
+      (name) => this.isWidget(name),
+      options,
+      this.captureScroll(),
+    )
     this.lastCommitted = options.history ? window.location.href : href
     if (options.history) return // 历史导航：URL 已由浏览器写入，仅同步矩阵与快照
     if (options.replace) window.history.replaceState(stateSnapshot, '', href)
