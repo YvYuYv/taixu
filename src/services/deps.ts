@@ -4,6 +4,11 @@
 import { AppDisabledError, DependencyConflictError } from '../errors'
 import { Service, type Context } from 'cordis'
 import '../events'
+import {
+  satisfies,
+  compareVersionsInternal as compareVersions,
+  parseVersionInternal as parseVersion,
+} from './deps/semver'
 
 /** 快照载荷（lifecycle §5.5，ADR-0029/0034）：data = local:{appId}: 键空间序列化 */
 export interface Snapshot {
@@ -81,52 +86,11 @@ export interface DepsConfig {
   shared?: Record<string, SharedDeclaration>
 }
 
-// -- 轻量 SemVer（§七：satisfies 含 ^/~/>=/精确与预发布后缀；不引 node-semver 全量包） --
-
-/** 版本解析：主.次.修[-预发布] -> 可比较数组（预发布 < 正式版） */
-function parseVersion(v: string): number[] {
-  const m = v.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/)
-  if (!m) return [-1, -1, -1]
-  const core = [Number(m[1]), Number(m[2]), Number(m[3])]
-  if (m[4] === undefined) return [...core, 1] // 正式版 > 预发布
-  return [...core, 0]
-}
-
-function compareVersions(a: string, b: string): number {
-  const pa = parseVersion(a)
-  const pb = parseVersion(b)
-  for (let i = 0; i < 4; i++) {
-    if (pa[i]! < pb[i]!) return -1
-    if (pa[i]! > pb[i]!) return 1
-  }
-  return 0
-}
-
 /**
- * range 满足判定（AND 组合）：`^x.y.z`（同主版本且 >=）`~x.y.z`（同主.次且 >=）
- * `>=x.y.z` 与精确。已知盲区（轻量裁剪，§七 允许不引 node-semver）：预发布之间
- * 不逐标识符比较（alpha/beta 判等）；OR（`||`）组合不支持。
+ * Re-export satisfies 保持公共面稳定（C9-A：原定义迁出至 deps/semver.ts）。
+ * 不引 node-semver 全量包，保持 ~30 行轻量实现（§七允许）。
  */
-export function satisfies(version: string, range: string): boolean {
-  return range.split(/\s+/).filter(Boolean).every((part) => {
-    const pv = parseVersion(version)
-    const caret = part.match(/^\^(\d+)\.(\d+)\.(\d+)$/)
-    if (caret) {
-      return pv[0] === Number(caret[1]) && compareVersions(version, part.slice(1)) >= 0
-    }
-    const tilde = part.match(/^~(\d+)\.(\d+)\.(\d+)$/)
-    if (tilde) {
-      return (
-        pv[0] === Number(tilde[1]) &&
-        pv[1] === Number(tilde[2]) &&
-        compareVersions(version, part.slice(1)) >= 0
-      )
-    }
-    const gte = part.match(/^>=(\d+\.\d+\.\d+)$/)
-    if (gte) return compareVersions(version, gte[1]!) >= 0
-    return compareVersions(version, part) === 0
-  })
-}
+export { satisfies } from './deps/semver'
 
 /**
  * deps 服务：资源加载与入口解析。
