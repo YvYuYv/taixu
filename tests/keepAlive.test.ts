@@ -1,5 +1,5 @@
 /**
- * 主缝测试：驱逐与暖启动（10 号票）。
+ * 主缝测试：驱逐与暖启动（10 号票；C5.1 起对应 services/keepAlive.ts——helper = file 一一对应）。
  *
  * 主缝 = createCordis({ keepAlive, apps, permissions }) + lifecycle + state + 事件探针。
  * 语义源：lifecycle-management.md §5.4（LRU/水位/候选序，ADR-0019/0026/0031/0057）、

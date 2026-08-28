@@ -273,11 +273,11 @@ describe('WS 重连（§5.2-3，ADR-0017）', () => {
     void new WS('ws://localhost:1/channel') // 应用建连（进断连名单）
 
     await host.lifecycle.requestSuspend(host, instance.instanceId, 'system', 'command')
-    expect(instance.sandbox!.closedSockets()).toEqual([{ url: 'ws://localhost:1/channel', protocols: undefined }])
+    expect(host.suspendScope.closedSockets('w-app')).toEqual([{ url: 'ws://localhost:1/channel', protocols: undefined }])
 
     await host.lifecycle.requestResume(host, instance.instanceId, 'command') // 恢复：框架重建连接
     await host.lifecycle.requestSuspend(host, instance.instanceId, 'system', 'command') // 再次冻结：重建的连接又入名单
-    expect(instance.sandbox!.closedSockets()).toHaveLength(2) // 描述符含重建连接（可再次冻结 = 真重建）
+    expect(host.suspendScope.closedSockets('w-app')).toHaveLength(2) // 描述符含重建连接（可再次冻结 = 真重建）
     await host.lifecycle.requestResume(host, instance.instanceId, 'command')
   })
 })

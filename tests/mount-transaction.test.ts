@@ -139,6 +139,43 @@ describe('挂载事务（lifecycle §2.2）', () => {
     expect(host.lifecycle.getInstances().length).toBe(0) // 无半挂载登记
   })
 
+  it('C5B.2 abort 清理完整性：finalizeInstance 统一收口（app/disposed 派发 + bus 注销幂等）', async () => {
+    const ac = new AbortController()
+    const disposed: string[] = []
+    let releaseEntry!: () => void
+    const entryGate = new Promise<void>((r) => (releaseEntry = r))
+    const host = createCordis({
+      apps: [
+        defineApp('probe-app', () => ({
+          name: 'probe-app',
+          async apply() {
+            await entryGate // 挡住 fiber settle：制造"instance 已登记、激活未完成"窗口
+          },
+        })),
+      ],
+      recovery: { maxRetries: 0 },
+    })
+    await settle()
+    host.on('app/disposed', (p) => disposed.push(p.appId), { global: true })
+
+    const mountPromise = host.lifecycle.mount('probe-app', 'main', { signal: ac.signal })
+    // 等 instance 登记（plugin() 同步返回后即 set；apply 仍被 entryGate 挡住）
+    for (let i = 0; i < 100 && host.lifecycle.getInstances().length === 0; i++) {
+      await settle()
+    }
+    expect(host.lifecycle.getInstances().length).toBe(1) // 已进入激活窗口
+    ac.abort() // fiber settle 后的检查点将作废
+    releaseEntry() // 放行 apply -> fiber ACTIVE -> 走 signal.aborted 分支
+    await expect(mountPromise).rejects.toThrow()
+    await settle()
+
+    expect(host.lifecycle.getInstances().length).toBe(0)
+    // C5B.2 补齐：abort 路径也派发 app/disposed（旧 cascadeCleanup 漏）
+    expect(disposed).toEqual(['probe-app'])
+    // bus 注销幂等（unregister 未知 instanceId 是 noop，不抛错即证明清理路径完整走过）
+    expect(() => host.bus.unregister('probe-app:deleted')).not.toThrow()
+  })
+
   it('AbortSignal 取消：挂载中途 abort 不留半挂载现场', async () => {
     const ac = new AbortController()
     let entryLoaded = false

@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import type { Context } from 'cordis'
-import { createCordis, defineApp } from '../src'
+import { createCordis, createScopedFetch, defineApp } from '../src'
 
 async function settle() {
   await Promise.resolve()
@@ -39,7 +39,7 @@ describe('网络拦截链（§6.2）', () => {
     const inst = await host.lifecycle.mount('net-app', 'main')
     await settle()
 
-    await host.lifecycle.scopedFetch('net-app')('https://api.example.com/data')
+    await createScopedFetch(host, 'net-app')('https://api.example.com/data')
     await settle()
 
     const span = host.tracing.spans().find((s) => s.name === 'fetch:api.example.com/data')
@@ -67,13 +67,13 @@ describe('网络拦截链（§6.2）', () => {
       return next(input, init)
     })
 
-    const res = await host.lifecycle.scopedFetch('net-app')('https://api.example.com/x')
+    const res = await createScopedFetch(host, 'net-app')('https://api.example.com/x')
     expect(await res.text()).toContain('ok:') // 响应透传
     expect(order).toEqual(['mw1:before', 'mw2:before', 'mw1:after']) // 注册序 + 包络序
 
     off1()
     order.length = 0
-    await host.lifecycle.scopedFetch('net-app')('https://api.example.com/y')
+    await createScopedFetch(host, 'net-app')('https://api.example.com/y')
     expect(order).toEqual(['mw2:before']) // mw1 已移除
 
     await host.lifecycle.destroy(inst.instanceId, 't')
@@ -92,7 +92,7 @@ describe('网络拦截链（§6.2）', () => {
     await host.lifecycle.destroy(inst.instanceId, 't')
     await settle()
 
-    await host.lifecycle.scopedFetch('net-app')('https://api.example.com/z') // 宿主侧调用仍可
+    await createScopedFetch(host, 'net-app')('https://api.example.com/z') // 宿主侧调用仍可
     expect(seen).toEqual([]) // 应用已销毁：其中间件已清
   })
 
@@ -103,7 +103,7 @@ describe('网络拦截链（§6.2）', () => {
     await settle()
 
     await expect(
-      host.lifecycle.scopedFetch('denied-app')('https://api.example.com/secret'),
+      createScopedFetch(host, 'denied-app')('https://api.example.com/secret'),
     ).rejects.toThrow(/net:fetch denied/)
     expect(host.tracing.spans().find((s) => s.name.startsWith('fetch:'))).toBeUndefined()
     expect(host.monitor.metricsSnapshot()['net_ms']).toBeUndefined()

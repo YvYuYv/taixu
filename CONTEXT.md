@@ -20,10 +20,24 @@ _Avoid_: 包装器、桥接器、loader（那是资源加载）
 
 **保活（Keep-alive）**:
 微应用 UI 被挂起但 Fiber 保持 ACTIVE 的驻留模式。挂起裁决单点化于生命周期服务（来源分级：路由 > 系统信号 > 手动命令，任一请求即挂起、高优先级可单独解除低优先级挂起）；保活池 LRU 上限 5 + Chromium 内存水位辅助触发，超限驱逐为 dispose 并对 local 键空间做快照供暖启动。
+**C5 抽离**：保活账本/探测/仲裁/快照已迁出 lifecycle，归 KeepAliveService（services/keepAlive.ts）——lifecycle 仅编排 mount/destroy 并通过 `ctx.keepAlive` 委托（Q4/Q5/Q8 决策）。探测心跳（轮询/visibility）由 KeepAliveService 自持（Q18）。
 _Avoid_: 缓存、休眠、deactivated（Cordis 不存在此状态）
 
 **挂起域（SuspendScope）**:
 生命周期服务在挂载时建立的资源登记处，记录微应用的定时器、rAF 与其他副作用，供挂起时批量冻结、恢复时批量解冻。
+
+SuspendScope 是 Cordis Service（`static provide = 'suspendScope'`），由 lifecycle 注入消费；当前 5 类注册面：
+
+| 资源类型 | 注册 API | 冻结行为 | 恢复行为 |
+|---|---|---|---|
+| timer / interval / rAF | `forApp(appId).registerTimer(kind, cb, ms?)` | `rawClearTimeout/Interval` + 记账剩余时长 | 续期（以冻结时剩余时长重排） |
+| event listener | `registerListener(listener)` | 挂起期回调门控、监听保留（非清理） | 解门控 |
+| observer | `registerObserver(Ctor)` | 挂起期 callback 不透传 | 解门控 |
+| socket | `registerSocket(handle)` | `close(1000)` 并入 `closedDescriptors` 队列 | 重建连接（ADR-0017）；订阅状态由应用重建 |
+| socket descriptor（`closedSockets()`） | 仅只读视图（devtools/审计） | — | — |
+
+lifecycle 调 `ctx.suspendScope.freeze/unfreeze(appId)` 直访（不再经 sandbox 中转）；`sandbox.freeze/unfreeze` 字段已删除（C1.2 wiring）。
+
 _Avoid_: 快照、检查点
 
 **卸载（Dispose）**:
@@ -90,6 +104,7 @@ _Avoid_: 基础服务、平台服务
 
 **作用域网络（Scoped Fetch）**:
 沙箱内注入的受限 fetch 包装，由生命周期服务在沙箱创建之后、`plugin()` 之前注入，携带微应用身份供安全服务裁决。
+**C5-C 归属**：工厂已迁出 lifecycle，归独立模块 `services/scopedFetch.ts` 的纯函数 `createScopedFetch(ctx, appId)`——security 管裁决（sanitizeURL/CSRF）、bus 管链路执行（runNetwork），本模块是两者的编排。lifecycle 注入点直调 `createScopedFetch(this.ctx, appId)`。
 _Avoid_: 网络拦截器、请求代理
 
 **服务隔离（Isolate）**:
@@ -98,6 +113,16 @@ _Avoid_: 状态隔离、命名空间、沙箱（与沙箱是不同层）
 
 **沙箱（Sandbox）**:
 微应用代码的执行隔离环境：Proxy 快照沙箱负责全局污染隔离（非安全边界），iframe 沙箱（`sandbox` 属性且不含 `allow-same-origin`）才是安全边界。
+
+硬化工具（向量防御集——C2 wiring 后迁移至独立模块 `services/harden.ts`）：
+
+| 防御面 | 实现位置 | 行为 |
+|---|---|---|
+| 函数硬化（向量 #1/#2） | `services/harden.ts` `harden(target, report)` | 包装函数的 constructor/__proto__/prototype 不可穿透；受控构造器仅记账返 undefined（不再透传 raw.apply） |
+| eval/Function 记账（向量 #1） | `services/harden.ts` `wrapEvalAccounting` / `controlledConstructor` | 记账 + 告警（执行不拦，宿主 CSP 兜底） |
+| Escape Vector Matrix 字典（5 向量） | `services/harden.ts` `ESCAPE_VECTOR_MATRIX` + `runEscapeMatrixImpl` | 分类字典 `{kind: {check, doc}}`，独立探测不需 sandbox 闭包 |
+| 报告通道 race 修复 | 闭包粒度（`harden(target, report)` 传入） | sandbox 实例独立 report 闭包，**消解原模块单例 `installHardenReport` race** |
+
 _Avoid_: 容器、隔离区
 
 **精简运行时（Lite Runtime）**:

@@ -4,7 +4,8 @@ import { MonitorService, type MonitorConfig } from './services/monitor'
 import { SecurityService, isIsolateAllowed, type PermissionRule, type SecurityConfig } from './services/security'
 import { SandboxService } from './services/sandbox'
 import { DepsService, type AppManifestEntry } from './services/deps'
-import { LifecycleService, type RecoveryConfig, type KeepAliveConfig } from './services/lifecycle'
+import { LifecycleService, type RecoveryConfig } from './services/lifecycle'
+import { KeepAliveService, type KeepAliveConfig, type KeepAliveHost } from './services/keepAlive'
 import { StyleService, type StyleConfig } from './services/style'
 import { RouterService, type RouteRule, type RouterConfig } from './services/router'
 import { StateService, type StateConfig } from './services/state'
@@ -12,6 +13,7 @@ import type { TracingConfig } from './services/tracing'
 import { BusService, type BusConfig } from './services/bus'
 import { TracingService } from './services/tracing'
 import { DevToolsService, HmrService } from './services/devtools'
+import { SuspendScopeService } from './services/suspendScope'
 import { defineCordisApp } from './vue3-adapter'
 
 export { MonitorService } from './services/monitor'
@@ -21,8 +23,8 @@ export type { PermissionRule, PermissionVerdict, SecurityConfig } from './servic
 export { SandboxService } from './services/sandbox'
 export { prefixSelectors } from './services/style'
 export { createSandbox, storagePrefix } from './sandbox'
-export { createIframeSandbox, IframeBridge } from './iframe-sandbox'
-export type { IframeSandboxOptions, IframeBridgeOptions, Envelope } from './iframe-sandbox'
+export { createIframeSandbox, IframeBridge } from './services/sandbox'
+export type { IframeSandboxOptions, IframeBridgeOptions, Envelope } from './services/sandbox'
 export { createLiteRuntime } from './lite-runtime'
 export type { LiteRuntime, LiteCtx, LiteTransport } from './lite-runtime'
 export { SandboxDisposedError, AppDisabledError, DependencyConflictError } from './errors'
@@ -33,7 +35,10 @@ export { DepsService } from './services/deps'
 export type { AppManifestEntry, SharedModule, NegotiateOptions, ResilientLoadOptions } from './services/deps'
 export { satisfies as satisfiesSemver } from './services/deps'
 export { LifecycleService } from './services/lifecycle'
-export type { AppInstance, MountOptions, RecoveryConfig, LifecycleConfig, KeepAliveConfig, AppExternalState } from './services/lifecycle'
+export type { AppInstance, MountOptions, RecoveryConfig, LifecycleConfig, AppExternalState } from './services/lifecycle'
+export { KeepAliveService } from './services/keepAlive'
+export type { KeepAliveConfig, KeepAliveHost } from './services/keepAlive'
+export { createScopedFetch } from './services/scopedFetch'
 export { StyleService } from './services/style'
 export type { StyleAsset, StyleConfig, CSSStyleSheetLike } from './services/style'
 export { RouterService } from './services/router'
@@ -47,6 +52,8 @@ export { TracingService, parseTraceparent as parseTraceparentForTracing, formatT
 export { DevToolsService, HmrService } from './services/devtools'
 export type { DevToolsSnapshot, DevToolsCommand, HmrCssUpdate } from './services/devtools'
 export type { TracingConfig, SpanRecord, Span } from './services/tracing'
+export { SuspendScopeService } from './services/suspendScope'
+export type { SuspendReconnect, SuspendScope, SuspendClosedSocket, SuspendSocketHandle } from './services/suspendScope'
 export { defineCordisApp } from './vue3-adapter'
 export type { CordisAppOptions } from './vue3-adapter'
 export { useSharedState, defineSharedState } from './state-adapters'
@@ -203,10 +210,14 @@ export function createCordis(options: CreateCordisOptions = {}): Context {
   ctx.plugin(DevToolsService, {})
   ctx.plugin(HmrService, {})
   ctx.plugin(BusService, options.bus)
+  // C1.2 wiring：SuspendScopeService 先于 LifecycleService 注册（lifecycle inject suspendScope 走标准 DI 解析）
+  ctx.plugin(SuspendScopeService, {})
+  // C5.2 wiring：KeepAliveService 先于 LifecycleService 注册（lifecycle inject keepAlive 走标准 DI 解析；
+  // keepAlive 配置面从 LifecycleService 拆出独立注入）
+  ctx.plugin(KeepAliveService, options.keepAlive)
   ctx.plugin(LifecycleService, {
     recovery: options.recovery,
     outlets: options.outlets,
-    keepAlive: options.keepAlive,
   })
   return ctx
 }

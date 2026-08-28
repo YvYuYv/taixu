@@ -10,13 +10,13 @@
  * 本票范围（03 号）：挂载/销毁主链路。保活/挂起/驱逐（§五）在 08-10 号票。
  */
 import { Service, FiberState, type Context, type Fiber } from 'cordis'
-import { compressToUTF16, decompressFromUTF16 } from 'lz-string'
 import '../events'
 import type { Sandbox } from '../sandbox'
 import { suspendRegistry } from '../suspend'
 import { AppDisabledError } from '../errors'
 import type { SuspendReason, SuspendSource } from '../events'
-import type { Snapshot } from './deps'
+import type { KeepAliveHost } from './keepAlive'
+import { createScopedFetch } from './scopedFetch'
 
 export type { SuspendReason, SuspendSource }
 
@@ -72,36 +72,13 @@ export interface LifecycleConfig {
   recovery?: RecoveryConfig
   /** 槽位选择器映射（outlet 名 -> CSS selector；缺省 outlet 名即 selector） */
   outlets?: Record<string, string>
-  /** 保活池预算与驱逐（§5.4/§5.5，ADR-0019/0026/0052/0057） */
-  keepAlive?: KeepAliveConfig
 }
 
-/** 保活池预算（§5.4）：数量上限为主、内存水位辅助；快照池上限独立 */
-export interface KeepAliveConfig {
-  /** 最大同时保活实例数（默认 5；超限 LRU 驱逐） */
-  maxCount?: number
-  /** 单实例最长保活 ms（超时驱逐；后台标签页 document.hidden 期间暂停计时，§5.4 尾条） */
-  ttlMs?: number
-  /** 内存水位阈值（默认 0.85；Chromium 限定，非 Chromium 优雅退化跳过） */
-  watermark?: number
-  /** 水位轮询间隔 ms（默认 30000；操作触发检查为主、轮询兜底，ADR-0057） */
-  pollMs?: number
-  /** mUASM 路径的堆上限字节（仅 measureUserAgentSpecificMemory 可用而无 legacy jsHeapSizeLimit 时作分母） */
-  memoryLimitBytes?: number
-  /** 快照池总量上限字节（默认 6MB；超限按 LRU 回收最旧快照，ADR-0052） */
-  snapshotPoolBytes?: number
-}
+/** 保活池预算配置已迁至 services/keepAlive.ts（C5.1）；此处 re-export 保持 import 面不变 */
+export type { KeepAliveConfig } from './keepAlive'
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
-}
-
-/** idle 回调（§5.4：驱逐决策避免切换关键路径卡顿）；无 rIC 环境退化为 setTimeout(0) */
-function idleCallback(): Promise<void> {
-  return new Promise((resolve) => {
-    if (typeof requestIdleCallback === 'function') requestIdleCallback(() => resolve())
-    else setTimeout(resolve, 0)
-  })
 }
 
 export class LifecycleService extends Service<LifecycleConfig> {
@@ -109,7 +86,9 @@ export class LifecycleService extends Service<LifecycleConfig> {
   // 唯一多注入编排者（ADR-0054）；security 显式注入 = fail-closed（ADR-0009）。
   // 03 号票裁剪：router/bus/state 于 05/06/07 号票落地后逐个补入
   // （router 经 onResolve 事件解耦不 inject；bus/state 由 lifecycle 单向登记/监听）
-  static inject = ['security', 'sandbox', 'deps', 'monitor', 'state', 'bus']
+  // C1.2 wiring：suspendScope 由 lifecycle 注入（lifecycle 是唯一编排者 ADR-0054）。
+  // lifecycle 调 ctx.suspendScope.freeze/unfreeze 直访——不再经 sandbox.freeze/unfreeze 中转
+  static inject = ["security", "sandbox", "deps", "monitor", "state", "bus", "suspendScope", "keepAlive"]
 
   /** outlet 级串行队列（§2.2-1）：promise 链天然串行、无唤醒竞态 */
   private outletLocks = new Map<string, Promise<void>>()
@@ -117,7 +96,7 @@ export class LifecycleService extends Service<LifecycleConfig> {
   /** 按应用隔离 monitor impl 的注销器（fiber dispose 即释放；WeakMap 防 root fiber effect 泄漏堆积） */
   private isolatedMonitors = new WeakMap<Fiber, () => unknown>()
 
-  /** 释放实例的隔离 monitor impl（幂等）：destroy/cascadeCleanup 统一经此收口 */
+  /** 释放实例的隔离 monitor impl（幂等）：finalizeInstance 统一经此收口 */
   private releaseIsolatedMonitor(fiber: Fiber): void {
     const release = this.isolatedMonitors.get(fiber)
     if (release) {
@@ -131,53 +110,34 @@ export class LifecycleService extends Service<LifecycleConfig> {
   constructor(ctx: Context, config: LifecycleConfig = {}) {
     super(ctx, 'lifecycle')
     this.cfg = config
-    // 水位轮询兜底（ADR-0057）：30s 低频；操作触发检查为主。非 Chromium（无 memory API）
-    // 不启用轮询（优雅退化）。ctx.effect 托管清理
-    if (this.hasMemoryApi()) {
-      const timer = setInterval(() => void this.enforceBudget(), config.keepAlive?.pollMs ?? 30000)
-      ctx.effect(() => () => clearInterval(timer))
-    }
-    // 后台标签页 TTL 计时暂停（§5.4 尾条）：document.hidden 期间累计隐藏时长，
-    // TTL 裁决时从挂起时长中扣除（浏览器节流 setTimeout 不可靠，改记账补算）
-    const onVisibility = () => {
-      if (document.hidden) this.hiddenAt = Date.now()
-      else if (this.hiddenAt !== null) {
-        this.hiddenTotal += Date.now() - this.hiddenAt
-        this.hiddenAt = null
-      }
-    }
-    document.addEventListener('visibilitychange', onVisibility)
-    ctx.effect(() => () => document.removeEventListener('visibilitychange', onVisibility))
+    // C5.2 wiring：KeepAliveService 承载保活账本/探测/仲裁/快照（services/keepAlive.ts）；
+    // lifecycle bindHost 注入编排回调（C1.2 setReconnect 同 pattern）——core 不反向依赖
+    // lifecycle 类型（ADR-0054 依赖方向）。探测心跳（轮询/visibility）由 KeepAliveService 自持（Q18）
+    ctx.keepAlive.bindHost(this.keepAliveHost())
     // KillSwitch 急停执行点（security §十）：禁用指令 -> 该应用全部实例销毁
     //（含挂起实例；事件旁听，security 不反向注入）
     ctx.on('security/killswitch', (e) => {
       if (e.action === 'disable') void this.destroyByAppId(e.appId, `killswitch: ${e.reason}`)
     }, { global: true })
-    // 快照池跨会话账本重建（ADR-0052）：扫描上一会话残留的 __tx_snapshot:* 键入账
-    //（at = 0 视为最旧——预算紧张时优先回收，本会话快照存活率更高）
-    for (let i = 0; i < sessionStorage.length; i++) {
-      const key = sessionStorage.key(i)
-      if (key && key.startsWith('__tx_snapshot:')) {
-        const payload = sessionStorage.getItem(key) ?? ''
-        this.snapshotPool.set(key.slice('__tx_snapshot:'.length), { bytes: payload.length * 2, at: 0 })
-      }
+  }
+
+  /**
+   * 保活核心宿主回调（C5.1）：state/deps/monitor 服务面直通 + 编排委托
+   *（listSuspended 投影挂起池；destroyInstance 走 §3.2 destroy；onEvicted 派发事件）。
+   */
+  private keepAliveHost(): KeepAliveHost {
+    return {
+      dumpLocal: (appId) => this.ctx.state.dumpLocal(appId),
+      hydrateLocal: (appId, data) => this.ctx.state.hydrateLocal(appId, data),
+      manifest: (appId) => this.ctx.deps.manifest(appId),
+      capture: (err, meta) => this.ctx.monitor.capture(err, meta),
+      listSuspended: () =>
+        this.getInstances()
+          .filter((i) => i.suspendSources.size > 0)
+          .map((i) => ({ appId: i.appId, instanceId: i.instanceId, suspendedAt: i.suspendedAt, lastAccessAt: i.lastAccessAt })),
+      destroyInstance: (instanceId, reason) => this.destroy(instanceId, reason),
+      onEvicted: (appId, instanceId, cause) => this.ctx.emit('app/evicted', { appId, instanceId, cause }),
     }
-  }
-
-  /** 隐藏记账（TTL 计时暂停用） */
-  private hiddenAt: number | null = null
-  private hiddenTotal = 0
-
-  /** TTL 已挂起时长（扣除后台隐藏时长；未声明 ttlMs 时不参与裁决） */
-  private ttlElapsed(instance: AppInstance): number {
-    const hiddenNow = this.hiddenAt !== null ? Date.now() - this.hiddenAt : 0
-    return Date.now() - (instance.suspendedAt ?? Date.now()) - this.hiddenTotal - hiddenNow
-  }
-
-  /** Chromium memory API 可用性（水位驱逐的启用条件，ADR-0026） */
-  private hasMemoryApi(): boolean {
-    const perf = this.memoryPerf()
-    return Boolean(perf.memory) || typeof perf.measureUserAgentSpecificMemory === 'function'
   }
 
   /** outlet 级互斥入口：mount 与 destroy 共用（§2.2："含其 unmount"） */
@@ -225,20 +185,27 @@ export class LifecycleService extends Service<LifecycleConfig> {
       if (signal.aborted) throw new DOMException('aborted', 'AbortError')
       this.ctx.emit('app/loaded', { appId, instanceId }) // 资源就绪（基线 §2.4）
 
-      // 2. sandbox 创建（first-party；teardown 双保险注册在 fiber effect 上，§四所有权表）
-      const sandbox = await this.ctx.sandbox.create(appId, { container })
+      // 2. SuspendScope 注册（lifecycle §5.2；C1.2 wiring）——在 sandbox create 之前
+      //   forApp 二次注入 reconnect 由 sandbox 创建后 step 2.5 完成
+      const suspendScope = this.ctx.suspendScope.forApp(appId)
+
+      // 2.sandbox 创建（first-party；teardown 双保险注册在 fiber effect 上，§四所有权表）
+      const sandbox = await this.ctx.sandbox.create(appId, { container, suspendScope })
       if (signal.aborted) {
         await sandbox.destroy()
         this.removeOutletContainer(container)
         throw new DOMException('aborted', 'AbortError')
       }
+      // 2.5 reconnect 二次注入（ADR-0017：框架重建连接，订阅由应用重建）
+      suspendScope.setReconnect((d) => sandbox.reconnectSocket(d))
 
       // 3. scopedFetch 注入（ADR-0005：沙箱创建后、plugin() 前）
-      sandbox.injectSlot.fetch = this.scopedFetch(appId)
+      // C5-C：工厂已迁出 lifecycle——security 管裁决、bus 管链路，模块在 services/scopedFetch.ts
+      sandbox.injectSlot.fetch = createScopedFetch(this.ctx, appId)
 
       // 3.5 暖启动注水（§5.5）：plugin() **之前**预注水到 state 服务——
-      // 应用 apply 时 local 键空间已就位；版本漂移裁决在 hydrateLocalKeys 内（ADR-0034）
-      this.hydrateLocalKeys(appId)
+      // 应用 apply 时 local 键空间已就位；版本漂移裁决在 ctx.keepAlive.hydrate 内（ADR-0034）
+      this.ctx.keepAlive.hydrate(appId)
 
       // 4. 插件挂载：inject 未满足时 fiber 停留 PENDING（Cordis reactive coeffect）。
       //    plugin() 的 apply 经 _reload 在微任务中执行；实例在 plugin() 返回后同步登记，
@@ -282,16 +249,18 @@ export class LifecycleService extends Service<LifecycleConfig> {
         await fiber // resolve = ACTIVE；reject = FAILED
         if (signal.aborted) {
           // 结果作废：激活完成但调用方已取消 -> 级联清理不留半挂载现场
-          await this.cascadeCleanup(fiber, sandbox, container)
-          instance.portalContainer?.remove()
-          this.instances.delete(instanceId)
-          this.ctx.bus.unregister(instanceId)
+          // C5B.2：与 destroy 同构（fiber.dispose + finalizeInstance 统一收口，
+          // 补齐旧 cascadeCleanup 漏掉的 bus.unregister / trackDisposed / app/disposed）
+          await fiber.dispose().catch(() => {})
+          await this.finalizeInstance(instance)
           throw new DOMException('aborted', 'AbortError')
         }
       } catch (error) {
         this.instances.delete(instanceId)
         this.ctx.bus.unregister(instanceId)
-        await this.cascadeCleanup(fiber, sandbox, container)
+        // C5B.2：事务失败路径同构收口（fiber 可能 PENDING——dispose 幂等 catch）
+        await fiber.dispose().catch(() => {})
+        await this.finalizeInstance(instance)
         throw error
       }
 
@@ -300,7 +269,7 @@ export class LifecycleService extends Service<LifecycleConfig> {
       this.ctx.bus.register({ appId, instanceId, ctx: fiber.ctx, touch: () => (instance.lastAccessAt = Date.now()) })
 
       this.ctx.emit('app/ready', { appId, instanceId })
-      void this.enforceBudget() // 操作触发预算检查（挂载，ADR-0057）
+      void this.ctx.keepAlive.probe() // 操作触发预算检查（挂载，ADR-0057）
       return instance
     } catch (error) {
       // 事务失败统一回收容器（loadApp/sandbox 失败路径不经过 fiber 级联清理）
@@ -320,13 +289,8 @@ export class LifecycleService extends Service<LifecycleConfig> {
     }
   }
 
-  /** 级联清理：fiber dispose -> 沙箱销毁 -> 容器移除（§2.2 catch / §3.2 共用形状） */
-  private async cascadeCleanup(fiber: Fiber, sandbox: Sandbox, container: HTMLElement): Promise<void> {
-    this.releaseIsolatedMonitor(fiber)
-    await fiber.dispose().catch(() => {})
-    await sandbox.destroy().catch(() => {})
-    this.removeOutletContainer(container)
-  }
+  // C5B.2：cascadeCleanup 已删除——destroy / abort / 事务失败三路径统一走
+  // fiber.dispose + finalizeInstance（Q2 决策：不留两个顺序源）
 
   /**
    * 错误恢复（§6.1）：重试主体 = 重走挂载事务；配置驱动（测试注 backoffMs:0）。
@@ -451,7 +415,8 @@ export class LifecycleService extends Service<LifecycleConfig> {
   /** 挂起动作（fiber 仍 ACTIVE、DOM 摘离、效应冻结，§5.1） */
   private suspendInstance(instance: AppInstance, reason: SuspendReason): void {
     suspendRegistry.suspend(instance.appId) // 注册表（沙箱包装/bus 投递的共享查询点）
-    instance.sandbox?.freeze() // 定时器保留剩余时长、监听门控、WS close(1000)（§5.2）
+    // C1.2 wiring：lifecycle 经 ctx.suspendScope 直访（不再经 sandbox.freeze 中转）
+    this.ctx.suspendScope.freeze(instance.appId) // 定时器保留剩余时长、监听门控、WS close(1000)（§5.2）
     // DOM 摘离到文档片段缓存（§5.3 dom 模式默认）；恢复原位还回。
     // Shadow 应用摘离目标 = shadow 宿主（连带 shadow 内样式一并缓存，§六；
     // 摘 shadow 内容器只会移除渲染目标、样式边界仍在文档）
@@ -463,13 +428,14 @@ export class LifecycleService extends Service<LifecycleConfig> {
     instance.lastAccessAt = Date.now() // 触点更新（§5.4：挂起/恢复/通信）
     if (instance.suspendedAt === null) instance.suspendedAt = Date.now() // 候选序键（压力驱逐）
     this.ctx.emit('app/suspend', { instanceId: instance.instanceId, reason })
-    void this.enforceBudget() // 操作触发预算检查（ADR-0057）
+    void this.ctx.keepAlive.probe() // 操作触发预算检查（ADR-0057）
   }
 
   /** 恢复动作：注册表解挂 + 解冻 + DOM/样式还回（§5.1/§5.3） */
   private resumeInstance(instance: AppInstance): void {
     suspendRegistry.resume(instance.appId)
-    instance.sandbox?.unfreeze() // 定时器以剩余时长续期
+    // C1.2 wiring：lifecycle 经 ctx.suspendScope 直访（不再经 sandbox.unfreeze 中转）
+    this.ctx.suspendScope.unfreeze(instance.appId) // 定时器以剩余时长续期
     const host = this.resolveOutletHost(instance.outlet)
     // 还回目标 = shadow 宿主（若 shadow 应用）；contains 判等防重复还回
     const attachRoot = instance.container.getRootNode()
@@ -486,185 +452,7 @@ export class LifecycleService extends Service<LifecycleConfig> {
     // 3. bus/replay——挂起队列按全序回放（ADR-0015/0030）
     this.ctx.emit('bus/replay', { instanceId: instance.instanceId })
     instance.suspendedAt = null
-    void this.enforceBudget() // 操作触发预算检查（ADR-0057）
-  }
-
-  // ---- 驱逐与暖启动（§5.4/§5.5，ADR-0019/0026/0029/0031/0034/0044/0052/0057）----
-
-  /** 快照池账本（appId -> 压缩载荷 + 字节 + 最近写入时刻；LRU 回收依据） */
-  private snapshotPool = new Map<string, { bytes: number; at: number }>()
-  private get keepAlive(): KeepAliveConfig {
-    return this.cfg.keepAlive ?? {}
-  }
-
-  /** Chromium memory API 的类型视图（水位检查共用，避免重复 cast） */
-  private memoryPerf(): Performance & {
-    memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number }
-    measureUserAgentSpecificMemory?: () => Promise<{ bytes: number }>
-  } {
-    return performance as Performance & {
-      memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number }
-      measureUserAgentSpecificMemory?: () => Promise<{ bytes: number }>
-    }
-  }
-
-  /** 挂起池（保活候选） */
-  private suspendedInstances(): AppInstance[] {
-    return this.getInstances().filter((i) => i.suspendSources.size > 0)
-  }
-
-  /**
-   * 预算执行（§5.4）：数量上限为主（LRU 驱逐）+ 内存水位辅助（压力候选序驱逐）。
-   * 决策经 idle 回调（§5.4：避免切换关键路径卡顿）；操作触发为主 + 轮询兜底（ADR-0057）。
-   */
-  private async enforceBudget(): Promise<void> {
-    if (this.budgetRunning) return
-    this.budgetRunning = true
-    try {
-      await idleCallback()
-      const maxCount = this.keepAlive.maxCount ?? 5
-      // TTL 驱逐（§5.4 尾条）：单实例最长保活，超时按挂起时长驱逐（后台隐藏时间不计）
-      const ttlMs = this.keepAlive.ttlMs
-      if (ttlMs !== undefined) {
-        for (const instance of [...this.suspendedInstances()]) {
-          if (this.ttlElapsed(instance) > ttlMs) {
-            this.ctx.monitor.capture(new Error('TTL 保活超时驱逐'), { appId: instance.appId, phase: 'runtime' })
-            await this.evict(instance, 'ttl')
-          }
-        }
-      }
-      // 数量上限（LRU：lastAccessAt 最旧先走）
-      while (this.suspendedInstances().length > maxCount) {
-        const victim = [...this.suspendedInstances()].sort((a, b) => a.lastAccessAt - b.lastAccessAt)[0]
-        if (!victim) break
-        await this.evict(victim, 'lru')
-      }
-      // 内存水位（ADR-0026：Chromium 限定）：压力下按候选序驱逐；**每轮预算检查至多驱逐一个**
-      // （压力常驻时由后续操作触发/轮询检查继续，逐个释放给 GC 留出时间）
-      if (await this.underPressure()) {
-        const victim = this.pickPressureCandidate()
-        if (victim) {
-          this.ctx.monitor.capture(new Error('内存压力驱逐'), { appId: victim.appId, phase: 'runtime' })
-          await this.evict(victim, 'pressure')
-        }
-      }
-    } finally {
-      this.budgetRunning = false
-    }
-  }
-
-  private budgetRunning = false
-
-  /** 压力候选序（ADR-0031 候选清单）：挂起时长降序，同长按快照体积降序 */
-  private pickPressureCandidate(): AppInstance | undefined {
-    const candidates = this.suspendedInstances()
-    return candidates.sort((a, b) => {
-      const da = a.suspendedAt ?? Date.now()
-      const db = b.suspendedAt ?? Date.now()
-      if (da !== db) return da - db // 挂起更久者优先
-      return (this.snapshotPool.get(b.appId)?.bytes ?? 0) - (this.snapshotPool.get(a.appId)?.bytes ?? 0)
-    })[0]
-  }
-
-  /**
-   * 内存压力检查（§5.4，ADR-0026）：`performance.measureUserAgentSpecificMemory` 优先
-   * （分母 = memoryLimitBytes 配置或 legacy jsHeapSizeLimit），降级 `performance.memory`
-   * 比率；两者皆无（非 Chromium）不启用水位（优雅退化为纯数量上限）。
-   */
-  private async underPressure(): Promise<boolean> {
-    const perf = this.memoryPerf()
-    const watermark = this.keepAlive.watermark ?? 0.85
-    const limit = this.keepAlive.memoryLimitBytes ?? perf.memory?.jsHeapSizeLimit
-    if (typeof perf.measureUserAgentSpecificMemory === 'function') {
-      if (!limit || limit <= 0) return false
-      const { bytes } = await perf.measureUserAgentSpecificMemory()
-      return bytes / limit > watermark
-    }
-    if (perf.memory && perf.memory.jsHeapSizeLimit > 0) {
-      return perf.memory.usedJSHeapSize / perf.memory.jsHeapSizeLimit > watermark
-    }
-    return false // 非 Chromium：不启用（降级跳过）
-  }
-
-  /** 驱逐 = 快照 + 销毁 + app/evicted（§5.4/§5.5：淘汰统一走 §3.2 destroy 真正释放） */
-  private async evict(instance: AppInstance, cause: 'lru' | 'pressure' | 'ttl'): Promise<void> {
-    this.snapshotLocalKeys(instance.appId) // 销毁会回收 local 键空间：先快照（app/disposed 监听）
-    await this.destroy(instance.instanceId, 'evicted')
-    this.ctx.emit('app/evicted', { appId: instance.appId, instanceId: instance.instanceId, cause })
-  }
-
-  /**
-   * local: 键空间快照（§5.5，ADR-0029/0044/0052；cordis-alignment：>2MB 放弃）：
-   * lz-string 压缩落 sessionStorage `__tx_snapshot:{appId}`；单快照超 2MB 放弃
-   * （快照丢失仅降级冷启动）；池总量超限按 LRU 回收最旧。
-   */
-  snapshotLocalKeys(appId: string): Snapshot | null {
-    const data = this.ctx.state.dumpLocal(appId)
-    const snapshot: Snapshot = { version: this.ctx.deps.manifest(appId)?.version ?? 0, data }
-    const compressed = compressToUTF16(JSON.stringify(snapshot))
-    const bytes = compressed.length * 2 // UTF-16 近似字节
-    if (bytes > 2 * 1024 * 1024) {
-      // >2MB 放弃（cordis-alignment 驱逐快照基线）：同时清掉旧快照，避免残留过时状态
-      sessionStorage.removeItem(`__tx_snapshot:${appId}`)
-      this.snapshotPool.delete(appId)
-      return null
-    }
-    sessionStorage.setItem(`__tx_snapshot:${appId}`, compressed)
-    this.snapshotPool.set(appId, { bytes, at: Date.now() })
-    this.trimSnapshotPool()
-    return snapshot
-  }
-
-  /** 快照池 LRU 回收（ADR-0052）：总量超限丢最旧（哪怕对应应用还在保活池） */
-  private trimSnapshotPool(): void {
-    const limit = this.keepAlive.snapshotPoolBytes ?? 6 * 1024 * 1024
-    const total = () => [...this.snapshotPool.values()].reduce((sum, e) => sum + e.bytes, 0)
-    while (total() > limit && this.snapshotPool.size > 0) {
-      const oldest = [...this.snapshotPool.entries()].sort((a, b) => a[1].at - b[1].at)[0]!
-      this.snapshotPool.delete(oldest[0])
-      sessionStorage.removeItem(`__tx_snapshot:${oldest[0]}`)
-    }
-  }
-
-  /**
-   * 快照读取 + 版本裁决（ADR-0034）：命中直接注水；漂移经 manifest.migrate 纯函数迁移，
-   * 无 migrate 丢弃冷启动并 monitor 上报"快照版本漂移丢弃"；损坏快照（解析失败）
-   * 同样降级冷启动（§5.5"快照丢失仅降级冷启动"姿态）。快照一次性消费：用后即删
-   * （快照生命周期跟随驱逐，避免非驱逐销毁后的残留旧态注回下次冷启动）。
-   */
-  hydrateLocalKeys(appId: string): void {
-    const compressed = sessionStorage.getItem(`__tx_snapshot:${appId}`)
-    if (!compressed) return
-    const consume = () => {
-      sessionStorage.removeItem(`__tx_snapshot:${appId}`)
-      this.snapshotPool.delete(appId)
-    }
-    let parsed: Snapshot | null = null
-    try {
-      parsed = JSON.parse(decompressFromUTF16(compressed) ?? 'null') as Snapshot | null
-    } catch {
-      this.ctx.monitor.capture(new Error(`快照损坏丢弃: ${appId}`), { appId, phase: 'runtime' })
-      consume()
-      return
-    }
-    if (!parsed) return
-    const manifest = this.ctx.deps.manifest(appId)
-    const currentVersion = manifest?.version ?? 0
-    if (parsed.version !== currentVersion) {
-      if (manifest?.migrate) {
-        const data = manifest.migrate(parsed.data, parsed.version) // 纯函数、沙箱外执行
-        this.ctx.state.hydrateLocal(appId, data)
-        consume()
-        return
-      }
-      this.ctx.monitor.capture(new Error(`快照版本漂移丢弃: ${appId} ${parsed.version} -> ${currentVersion}`), {
-        appId, phase: 'runtime',
-      })
-      consume()
-      return
-    }
-    this.ctx.state.hydrateLocal(appId, parsed.data)
-    consume()
+    void this.ctx.keepAlive.probe() // 操作触发预算检查（ADR-0057）
   }
 
   /**
@@ -700,36 +488,10 @@ export class LifecycleService extends Service<LifecycleConfig> {
     if (mode === 'dom' || mode === true) {
       await this.requestSuspend(this.ctx, current.instanceId, 'keepalive', 'route')
     } else if (mode === 'state') {
-      this.snapshotLocalKeys(current.appId) // 状态快照入池（§5.3 state 模式）
+      this.ctx.keepAlive.snapshot(current.appId) // 状态快照入池（§5.3 state 模式）
       await this.destroy(current.instanceId, 'keepalive-state')
     } else {
       await this.destroy(current.instanceId, 'keepalive-disabled') // memory/false（ADR-0020）
-    }
-  }
-
-  /**
-   * scopedFetch（ADR-0005 唯一 fetch 链路；11 号票全链路接线）：
-   * security.sanitizeURL 一体裁决（协议门 + origin 授权，粗授权经 adjudicate
-   * 超时 fail-closed，ADR-0024/0051）；拒绝路径 violation 上报
-   * （网络类按 (appId, rule) 限流去重，§8）。
-   */
-  /** scopedFetch（ADR-0005 唯一 fetch 链路；公开面：宿主/测试可用同一链路取应用 fetch） */
-  scopedFetch(appId: string): typeof fetch {
-    return async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input instanceof Request ? input.url : input)
-      const sanitized = await this.ctx.security.sanitizeURL(appId, url)
-      if (sanitized === null) {
-        this.ctx.security.reportViolation(appId, 'net:fetch', { url })
-        throw new Error(`scopedFetch: net:fetch denied for ${appId} (${url})`)
-      }
-      // CSRF double-submit（security §七）：写请求附加 X-CSRF-Token（token 读服务端
-      // __Host-csrf cookie，客户端不自造；不动 credentials）；Request 原样透传路径
-      // 同样经 init 合并头（method/body 仍由 Request 承载）
-      const withCsrf = this.ctx.security.applyCsrf(input, init)
-      // 网络拦截链（security §6.2）：security 裁决已前置（拒绝不进链）；
-      // 链内 = tracing -> 自定义中间件 -> monitor -> 原生 fetch
-      const finalInput = input instanceof Request ? input : sanitized
-      return this.ctx.bus.runNetwork(appId, finalInput, withCsrf, (i, ini) => globalThis.fetch(i, ini))
     }
   }
 
@@ -741,6 +503,8 @@ export class LifecycleService extends Service<LifecycleConfig> {
     for (const inst of [...this.instances.values()].filter((i) => i.appId === appId)) {
       await this.destroy(inst.instanceId, reason)
     }
+    // C5.2 wiring：KillSwitch 销毁后清账本/快照（Q4/Q5 决策兑现）；禁用应用不应在重挂载时注水旧态
+    this.ctx.keepAlive.destroyLedger(appId)
   }
 
   /** destroy 级联（§3.2）：fiber dispose -> 沙箱销毁（effect 双保险兜底）-> 容器移除；挂起实例同样可销毁（§5.4 驱逐走本路径） */
@@ -754,17 +518,27 @@ export class LifecycleService extends Service<LifecycleConfig> {
       try {
         await instance.fiber.dispose()
       } finally {
-        this.releaseIsolatedMonitor(instance.fiber)
-        await instance.sandbox?.destroy().catch(() => {})
-        instance.portalContainer?.remove()
-        this.removeOutletContainer(instance.container) // 已摘离的容器 remove 幂等
-        this.instances.delete(instanceId)
-        this.ctx.bus.unregister(instanceId)
-        // 泄漏嫌疑登记（monitoring §四）：容器应随 dispose 可回收——超 TTL 仍活且发生过 GC 则告警
-        this.ctx.monitor.trackDisposed({ instanceId, object: instance.container })
-        this.ctx.emit('app/disposed', { appId: instance.appId, instanceId })
+        await this.finalizeInstance(instance)
       }
     })
+  }
+
+  /**
+   * 实例终结清理原语（C5B.1 抽离，Q4 决策：fiber dispose 之后的确定性清理 8 步）：
+   * 释放隔离 monitor -> 沙箱销毁 -> portal/容器移除 -> 账本删除 -> bus 注销 ->
+   * 泄漏嫌疑登记 -> app/disposed 派发。全量幂等（Q3）：半挂载现场（bus 未注册 /
+   * portal 未建）各步均安全 noop——destroy / 事务失败 / abort 三路径统一走此收口。
+   */
+  private async finalizeInstance(instance: AppInstance): Promise<void> {
+    this.releaseIsolatedMonitor(instance.fiber)
+    await instance.sandbox?.destroy().catch(() => {})
+    instance.portalContainer?.remove()
+    this.removeOutletContainer(instance.container) // 已摘离的容器 remove 幂等
+    this.instances.delete(instance.instanceId)
+    this.ctx.bus.unregister(instance.instanceId)
+    // 泄漏嫌疑登记（monitoring §四）：容器应随 dispose 可回收——超 TTL 仍活且发生过 GC 则告警
+    this.ctx.monitor.trackDisposed({ instanceId: instance.instanceId, object: instance.container })
+    this.ctx.emit('app/disposed', { appId: instance.appId, instanceId: instance.instanceId })
   }
 
   /** 应用状态查询（§2.3）：monitor/devtools 的唯一同步查询 API，从 fiber.state 派生（挂起账本优先，§5.1） */

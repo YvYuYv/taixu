@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import type { Context } from 'cordis'
-import { createCordis, defineApp } from '../src'
+import { createCordis, createScopedFetch, defineApp } from '../src'
 
 async function settle() {
   await Promise.resolve()
@@ -95,7 +95,7 @@ describe('CSRF double-submit（§七）', () => {
     await settle()
 
     // 应用侧经 scopedFetch（唯一 fetch 链路，ADR-0005）：宿主经 security 裁决后附加 token
-    const scoped = host.lifecycle.scopedFetch('csrf-app')
+    const scoped = createScopedFetch(host, 'csrf-app')
     await scoped('https://api.example.com/data', { method: 'POST', credentials: 'include' })
     expect(fetches).toHaveLength(1)
     const headers = new Headers(fetches[0]!.init?.headers)
