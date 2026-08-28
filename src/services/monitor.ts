@@ -2,6 +2,7 @@ import { Service, type Context } from 'cordis'
 import '../events'
 import type { AppPhase, ErrorMetric, Metric, Alert } from '../events'
 import type { Span, TracingService } from './tracing'
+import { createLeakDetector, type LeakDetectorHandle } from './leakDetector'
 
 /** 告警规则（§七 AlertEngine）：condition 真实执行 + 冷却按 (appId, type) 维度 */
 export interface AlertRule {
@@ -79,6 +80,10 @@ export interface AppMonitor {
  * - alertEngine.trigger：规则查表（deny-by-default）-> condition 裁决 ->
  *   (appId, type) 维度冷却 -> monitor/alert 派发
  * - 违规上报走 security/violation 事件由 monitor 旁听，不构成 security -> monitor 依赖（ADR-0054）
+ *
+ * **C7-A 抽离**：leak detection（§四）已独立为 `services/leakDetector.ts` 闭包模块；
+ *   monitor 仅持 detector 引用 + LEAK_SUSPECT 告警去抖 + 轮询定时器。
+ *   关注面从 7+ 收敛到：错误/指标/告警/隔离门面 4 类本职。
  */
 export class MonitorService extends Service<MonitorConfig> {
   static provide = 'monitor'
@@ -92,24 +97,20 @@ export class MonitorService extends Service<MonitorConfig> {
   private bufferCap: number
   /** 挂载计时（app_loading -> app_ready 时长，§三 加载指标）：instanceId -> 起始时刻 */
   private loadingSince = new Map<string, number>()
-  /** 泄漏嫌疑（§四）：instanceId -> { ref, at }；FinalizationRegistry 回收确认即移除 */
-  private suspects = new Map<string, { ref: WeakRef<object>; at: number }>()
-  private leakReported = new Set<string>() // 告警去抖：同 instanceId 只报一次
-  private gcActivity: () => boolean
-  private lastHeap: number | undefined
+  private errorRate: { windowMs: number; max: number }
+  private errorLedger: ErrorMetric[] = []
+  /** Leak detector 闭包（C7-A）：源自 services/leakDetector.ts；
+   *   告警去抖 `leakReported` 由 monitor 持有——LEAK_SUSPECT 触发的副作用在 monitor 自身 */
+  private leakDetector: LeakDetectorHandle
+  /** LEAK_SUSPECT 告警去抖：同 instanceId 只报一次（§四：决疑证据弱，避免风暴） */
+  private leakReported = new Set<string>()
 
   constructor(ctx: Context, config: MonitorConfig = {}) {
     super(ctx, 'monitor')
     this.rules = config.alertRules ?? {}
     this.bufferCap = config.metricsBuffer ?? 1024
     this.errorRate = { windowMs: config.errorRate?.windowMs ?? 300_000, max: config.errorRate?.max ?? 20 }
-    // 泄漏探测特性检测（§四）：WeakRef/FinalizationRegistry 缺失则降级为纯记账（不抛错）
-    this.leakSupported = typeof WeakRef === 'function' && typeof FinalizationRegistry === 'function'
-    if (this.leakSupported) {
-      this.registry = new FinalizationRegistry((key: string) => {
-        this.suspects.delete(key) // 回收确认：被 GC -> 移出嫌疑（修复 deref 误报）
-      })
-    }
+    this.leakDetector = createLeakDetector(config.leak)
     // 旁听 security/violation（事件旁听不构成服务依赖，ADR-0054）
     ctx.on('security/violation', (violation) => {
       this.capture(new Error(`security violation: ${violation.rule}`), {
@@ -131,17 +132,26 @@ export class MonitorService extends Service<MonitorConfig> {
         this.count('app_load_ms', Date.now() - startedAt, { appId: e.appId })
       }
     }, { global: true })
-    // 泄漏探测轮询（§四）：嫌疑存活超 TTL 且期间发生过 GC 才告警（deref 非空不能证明泄漏）
-    this.gcActivity = config.leak?.hasGcActivity ?? (() => this.observeHeapDecline())
-    const ttlMs = config.leak?.ttlMs ?? 60_000
+    // 泄漏探测轮询（§四）：嫌疑存活超 TTL + 期间发生过 GC 才告警
     const pollMs = config.leak?.pollMs ?? 5_000
-    const poll = setInterval(() => this.sweepSuspects(ttlMs), pollMs)
-    ctx.effect(() => () => clearInterval(poll))
+    const poll = setInterval(() => {
+      for (const s of this.leakDetector.sweepOnce()) {
+        if (!this.leakReported.has(s.instanceId)) {
+          this.leakReported.add(s.instanceId)
+          this.trigger({
+            type: 'LEAK_SUSPECT',
+            appId: s.instanceId.split(':')[0],
+            level: 'warning',
+            detail: { instanceId: s.instanceId, ttlMs: config.leak?.ttlMs ?? 60_000 },
+          })
+        }
+      }
+    }, pollMs)
+    ctx.effect(() => () => {
+      clearInterval(poll)
+      this.leakDetector.destroy()
+    })
   }
-
-  private errorRate: { windowMs: number; max: number }
-  private leakSupported: boolean
-  private registry?: FinalizationRegistry<string>
 
   /**
    * 指标计数（§三）：值进环形缓冲（分位数而非均值）；连续型指标（`fps` 前缀）
@@ -175,52 +185,21 @@ export class MonitorService extends Service<MonitorConfig> {
    * 在 GC 时自动洗清嫌疑；存活超 TTL 且期间有 GC 活动证据才告警（LEAK_SUSPECT，
    * 同 instanceId 去抖一次）。能力边界：只覆盖可 WeakRef 的对象（分离 DOM 等），
    * JS 堆泄漏（闭包/数组）由沙箱记账审计补位。
+   * C7-A：thin delegate 到 leakDetector.trackDisposed。
    */
   trackDisposed(target: { instanceId: string; object: object }): void {
-    if (!this.leakSupported) return // 特性降级：不探测（检测插件自身不抛错）
-    this.suspects.set(target.instanceId, { ref: new WeakRef(target.object), at: Date.now() })
-    this.registry?.register(target.object, target.instanceId)
+    this.leakDetector.trackDisposed(target)
   }
 
-  /** 泄漏嫌疑清单（§十 DevTools 只读查询面）：instanceId -> 登记时刻 */
+  /** 泄漏嫌疑清单（§十 DevTools 只读查询面）：C7-A 透传 leakDetector.leakSuspects */
   leakSuspects(): { instanceId: string; at: number }[] {
-    return [...this.suspects].map(([instanceId, s]) => ({ instanceId, at: s.at }))
-  }
-
-  /** 嫌疑清扫（轮询）：超 TTL + 有 GC 活动 + 引用仍活着 -> LEAK_SUSPECT（去抖一次） */
-  private sweepSuspects(ttlMs: number): void {
-    const now = Date.now()
-    for (const [key, s] of [...this.suspects]) {
-      if (s.ref.deref() === undefined) {
-        this.suspects.delete(key) // 已回收（Registry 回调之外的兜底）
-        continue
-      }
-      if (now - s.at > ttlMs && !this.leakReported.has(key) && this.gcActivity()) {
-        this.leakReported.add(key)
-        this.suspects.delete(key)
-        this.trigger({ type: 'LEAK_SUSPECT', appId: key.split(':')[0], level: 'warning', detail: { instanceId: key, ttlMs } })
-      }
-    }
-  }
-
-  /** GC 活动证据（§四）：performance.memory 下降事件（无此 API = 无证据 -> 不告警，诚实降级） */
-  private observeHeapDecline(): boolean {
-    const mem = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory
-    if (!mem) return false
-    if (this.lastHeap !== undefined && mem.usedJSHeapSize < this.lastHeap) {
-      this.lastHeap = mem.usedJSHeapSize
-      return true // 发生过 GC（堆下降）
-    }
-    this.lastHeap = mem.usedJSHeapSize
-    return false
+    return this.leakDetector.leakSuspects()
   }
 
   /** 错误清单（§十 DevTools 只读查询面；sourcemap 还原随宿主管线接入后在此层应用） */
   errors(): readonly ErrorMetric[] {
     return this.errorLedger
   }
-
-  private errorLedger: ErrorMetric[] = []
 
   /** 唯一错误入口：appId 归因 + monitor/report 通知（fire-and-forget）+ 错误率计数 */
   capture(error: unknown, meta: { appId?: string; phase: AppPhase } = { phase: 'runtime' }): void {
