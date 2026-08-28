@@ -436,3 +436,111 @@ describe('DLQ 死信（§5.4/§5.2，B-通信）', () => {
     expect(host.bus.replayDeadLetter(99)).toBe(false)
   })
 })
+
+/**
+ * F1 · 多实例精确定向（§3.1）：同 appId 挂多实例时，`instanceId` 精确投递；
+ * 缺省回退「同 appId 取最新」。归属不符 = 不可达死信（fail-closed，不静默错投）。
+ */
+describe('多实例定向 instanceId（F1，§3.1）', () => {
+  /** 同 appId 的多个实例各自落入独立 bucket（entry 每次挂载调用一次，seq 即实例序） */
+  function multiReceiverApp(appId: string, buckets: unknown[][]) {
+    let seq = 0
+    return defineApp(appId, () => {
+      const mine = seq++
+      return {
+        name: appId,
+        inject: ['bus'],
+        apply(ctx: Context) {
+          ctx.on('message/receive', (e) => buckets[mine]?.push(e.message))
+        },
+      }
+    })
+  }
+
+  it('同 appId 多实例：instanceId 精确投递，未指定回退最新实例', async () => {
+    const buckets: unknown[][] = [[], []]
+    const host = createCordis({ permissions: GRANTS, apps: [multiReceiverApp('app-b', buckets)] })
+    await settle()
+    const first = await host.lifecycle.mount('app-b', 'main')
+    await host.lifecycle.mount('app-b', 'side')
+    await settle()
+
+    // 未指定 instanceId：回退「同 appId 取最新」（第二个实例）
+    host.bus.send(host, { type: 'evt:ping', payload: 'latest', target: 'app-b' })
+    await settle()
+    expect(buckets[1]).toHaveLength(1)
+    expect(buckets[0]).toHaveLength(0)
+
+    // 指定 instanceId：精确投递到第一个实例（绕过"最新"默认）
+    host.bus.send(host, { type: 'evt:ping', payload: 'first', target: 'app-b', instanceId: first.instanceId })
+    await settle()
+    expect(buckets[0]).toHaveLength(1)
+    expect((buckets[0]![0] as { payload: string }).payload).toBe('first')
+    expect((buckets[0]![0] as { targetInstanceId?: string }).targetInstanceId).toBe(first.instanceId)
+  })
+
+  it('归属不符 = 死信（instanceId 不属于指定 appId，fail-closed 不静默错投）', async () => {
+    const buckets: unknown[][] = [[]]
+    const cGot: unknown[] = []
+    const host = createCordis({
+      permissions: GRANTS,
+      apps: [multiReceiverApp('app-b', buckets), receiverApp('app-c', cGot)],
+    })
+    await settle()
+    const b1 = await host.lifecycle.mount('app-b', 'main')
+    await host.lifecycle.mount('app-c', 'side')
+    await settle()
+
+    // app-b 的实例 id 冒充 app-c 目标：不投递 + 进 DLQ
+    const ok = host.bus.send(host, { type: 'evt:ping', payload: 'x', target: 'app-c', instanceId: b1.instanceId })
+    await settle()
+    expect(ok).toBe(false)
+    expect(host.bus.deadLetters().some((d) => /unreachable/.test(d.error))).toBe(true)
+    expect(cGot).toHaveLength(0) // 不静默错投
+    expect(buckets[0]).toHaveLength(0) // 也不投给 instanceId 的真实归属实例
+  })
+
+  it('request 定向指定实例：应答来自目标实例', async () => {
+    // 每个实例应答自己的挂载序号，据此判断 request 落在哪个实例
+    let seq = 0
+    const host = createCordis({
+      permissions: GRANTS,
+      apps: [
+        defineApp('app-b', () => {
+          const mine = seq++
+          return {
+            name: 'app-b',
+            inject: ['bus'],
+            apply(ctx: Context) {
+              ctx.bus.respond(ctx, 'query:price', () => ({ ok: true, value: mine }))
+            },
+          }
+        }),
+      ],
+    })
+    await settle()
+    const first = await host.lifecycle.mount('app-b', 'main')
+    await host.lifecycle.mount('app-b', 'side')
+    await settle()
+
+    // 指定实例：应答来自第一个实例（seq=0）
+    const directed = await host.bus.request(host, 'query:price', {}, { target: 'app-b', instanceId: first.instanceId })
+    expect(directed).toEqual({ ok: true, value: 0 })
+
+    // 未指定：回退最新实例（seq=1）
+    const fallback = await host.bus.request(host, 'query:price', {}, { target: 'app-b' })
+    expect(fallback).toEqual({ ok: true, value: 1 })
+  })
+
+  it('已卸载实例的 instanceId：不可达死信（与未指定路径一致）', async () => {
+    const buckets: unknown[][] = [[], []]
+    const host = createCordis({ permissions: GRANTS, apps: [multiReceiverApp('app-b', buckets)] })
+    await settle()
+    const first = await host.lifecycle.mount('app-b', 'main')
+    await settle()
+    await host.lifecycle.destroy(first.instanceId, 't')
+
+    expect(host.bus.send(host, { type: 'evt:ping', payload: 'x', target: 'app-b', instanceId: first.instanceId })).toBe(false)
+    expect(host.bus.deadLetters().some((d) => /unreachable/.test(d.error))).toBe(true)
+  })
+})

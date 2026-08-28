@@ -28,6 +28,8 @@ export interface CordisMessage {
   type: string
   source: string
   target: string
+  /** 目标实例精确匹配（F1：同 appId 多实例定向；缺省 = 该 appId 最新实例） */
+  targetInstanceId?: string
   payload: unknown
   /** 创建时间（TTL 裁决基准，bus 构建时注入） */
   createdAt: number

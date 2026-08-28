@@ -76,6 +76,8 @@ export interface SendMessageInput {
   payload: unknown
   /** 定向目标 appId；缺省 = 广播（broadcast 显式调用） */
   target?: string
+  /** 目标实例精确匹配（F1：同 appId 多实例定向；缺省 = 该 appId 最新实例） */
+  instanceId?: string
   /** 生存期 ms；过期消息投递前丢弃（§3.1） */
   ttl?: number
   /** 同键合并元数据（挂起队列替换同键旧值，§5.5） */
@@ -86,6 +88,8 @@ export interface SendMessageInput {
 
 export interface RequestOptions {
   target?: string
+  /** 目标实例精确匹配（F1：同 appId 多实例定向） */
+  instanceId?: string
   /** 超时 ms（默认 5000；超时 = 无应答者，resolve undefined） */
   timeout?: number
   signal?: AbortSignal
@@ -248,6 +252,7 @@ export class BusService extends Service<BusConfig> {
       type: message.type,
       source, // 覆写：入参伪造无效（不可伪造）
       target: message.target ?? '',
+      targetInstanceId: message.instanceId, // F1：多实例精确定向（缺省回退最新实例）
       payload: message.payload,
       createdAt: Date.now(),
       correlationId: message.correlationId,
@@ -274,19 +279,33 @@ export class BusService extends Service<BusConfig> {
   }
 
   /** instanceId 查实例（登记表以 appId 为键；回放/投递路径统一走此助手） */
-  private findByInstanceId(instanceId: string): BusInstance | undefined {    for (const list of this.instances.values()) {
+  private findByInstanceId(instanceId: string): BusInstance | undefined {
+    for (const list of this.instances.values()) {
       const hit = list.find((i) => i.instanceId === instanceId)
       if (hit) return hit
     }
     return undefined
   }
 
+  /**
+   * 目标解析（§3.1，F1）：`targetInstanceId` 精确匹配优先；缺省回退「同 appId 取最新」。
+   * 两者共存时校验归属——instanceId 不属于该 appId 视为不可达（fail-closed：不静默错投）。
+   */
+  private resolveTarget(message: CordisMessage): BusInstance | undefined {
+    if (message.targetInstanceId) {
+      const hit = this.findByInstanceId(message.targetInstanceId)
+      if (hit && message.target && hit.appId !== message.target) return undefined // 归属不符
+      return hit
+    }
+    const list = this.instances.get(message.target)
+    return list?.[list.length - 1]
+  }
+
   /** 定向投递：仅目标 ctx 子树（scoped filter）与 global 监听者（载荷不广播）；挂起/回放中入队（§5.5） */
   private dispatch(message: CordisMessage): boolean {
     // TTL（§3.1 dispatch 第一步）：过期消息投递前丢弃
     if (message.ttl !== undefined && Date.now() - message.createdAt > message.ttl) return false
-    const targets = this.instances.get(message.target)
-    const target = targets?.[targets.length - 1] // 同 appId 多实例取最新（instance 定向在 08 号票）
+    const target = this.resolveTarget(message) // F1：instanceId 精确优先，否则同 appId 最新
     if (!target) {
       // 死信（§5.4）：目标不存在（未挂载/已卸载）不静默丢弃——进 DLQ + 告警，
       // devtools 可查看/重放；send 显式返回 false。挂起目标的入队路径见下。
@@ -446,7 +465,7 @@ export class BusService extends Service<BusConfig> {
         onAbort = () => finish(() => reject(new DOMException('aborted', 'AbortError')))
         options.signal.addEventListener('abort', onAbort, { once: true })
       }
-      this.send(ctx, { type, payload, target: options.target, correlationId })
+      this.send(ctx, { type, payload, target: options.target, instanceId: options.instanceId, correlationId })
     })
   }
 
