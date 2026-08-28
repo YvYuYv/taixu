@@ -182,8 +182,8 @@ describe('审计补面（终检覆盖率）', () => {
       apps: [defineApp('s2', () => ({ name: 's2', apply() {} }))],
     })
     await settle()
-    expect(host.security.lookupSri('https://cdn/x.js')).toBe('sha384-abc')
-    expect(host.security.lookupSri('https://cdn/other.js')).toBeUndefined()
+    expect(host.security.integrityEntry('https://cdn/x.js')).toBe('sha384-abc')
+    expect(host.security.integrityEntry('https://cdn/other.js')).toBeUndefined()
   })
 
   it('allowInsecure 配置：明文 http 经粗授权放行（§3.2 策略开关）', async () => {

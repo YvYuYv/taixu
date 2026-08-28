@@ -1,6 +1,7 @@
 import { Service, type Context } from 'cordis'
 import createDOMPurify from 'dompurify'
 import '../events'
+import { isIsolateAllowed, matchAction, readCookie } from './security/sanitizers'
 
 /** 权限规则：本地可判定（ADR-0051），deny-by-default */
 export interface PermissionRule {
@@ -37,14 +38,6 @@ export interface SecurityConfig {
   verifyKillCommand?: (appId: string, action: 'disable' | 'enable', signature: string) => boolean
   /** CSRF token cookie 名（§七 double-submit：服务端登录下发，默认 __Host-csrf；宿主侧配置——测试环境因 __Host- 前缀要求 Secure 而注入替名） */
   csrfCookieName?: string
-}
-
-/** isolate 白名单（ADR-0010）：仅 router-view / monitor；其余标签属越权隔离（拦截） */
-const ISOLATE_WHITELIST = new Set(['router-view', 'monitor'])
-
-/** isolate 标签白名单查询（框架入口守卫用；ADR-0010"仅允许两处"） */
-export function isIsolateAllowed(tag: string): boolean {
-  return ISOLATE_WHITELIST.has(tag)
 }
 
 /** 网络违规类规则前缀（security §8 采样与限流：仅此类按 (appId, rule) 去重） */
@@ -172,16 +165,11 @@ export class SecurityService extends Service {
     return this.cfg.integrityManifest?.[url]
   }
 
-  /** cookie 读取（§七：受控存储=服务端 SameSite cookie；缺失/损坏返回 null 诚实降级） */
+  /** cookie 读取（§七：受控存储=服务端 SameSite cookie）—
+   * C10-A 抽离至 security/sanitizers.ts（readCookie）；applyCsrf 内部 inline 封装一层保持 this 绑定。
+   */
   private readCookie(name: string): string | null {
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // 配置名中的正则元字符转义
-    const m = document.cookie.match(new RegExp(`(?:^|;\\s*)${escaped}=([^;]*)`))
-    if (!m) return null
-    try {
-      return decodeURIComponent(m[1] as string)
-    } catch {
-      return null // 损坏编码（裸 % 等）：不炸 fetch 链路，按无 token 降级
-    }
+    return readCookie(name)
   }
 
   /**
@@ -300,18 +288,6 @@ export class SecurityService extends Service {
       if (now - at >= window) this.networkViolationAt.delete(key)
     }
   }
-
-  /** SRI 签名查询（§8.1 就位 seam：url -> integrity；deps 子资源加载在后续票接线） */
-  lookupSri(url: string): string | undefined {
-    return this.cfg.integrityManifest?.[url]
-  }
-}
-
-/** 通配匹配：`*` 全量、`net:*`/`shared:cart.*` 前缀族（冒号/点分通配一体，state-sharing §4.1-2）、`net:fetch` 精确 */
-function matchAction(pattern: string, action: string): boolean {
-  if (pattern === '*') return true
-  if (pattern.endsWith(':*') || pattern.endsWith('.*')) return action.startsWith(pattern.slice(0, -1))
-  return pattern === action
 }
 
 declare module 'cordis' {
