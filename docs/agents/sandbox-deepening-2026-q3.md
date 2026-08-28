@@ -261,3 +261,124 @@ C1-C4 全部与现有 ADR 措辞一致：
 | 2026-08-27 | 归档本文档至 `docs/agents/sandbox-deepening-2026-q3.md` |
 
 daily note 见 `.workbuddy/memory/2026-08-26.md`（317 行，含决策细节）+ `2026-08-27.md`（收尾记录）。
+
+---
+
+# 第二阶段：服务关注面横扫（C5 - C12）
+
+> **TL;DR**：本阶段针对 6 个核心服务（lifecycle / bus / monitor / router / deps /
+> security / state）横扫关注面收敛 + 新增 1 个 sandbox helpers 抽离，共 **7 票
+> 单 commit 全部落地**。所有票都是"zero-dependency helper 集中 + 服务类瘦身"模式。
+>
+> 全阶段后：`npm run verify` 全套 **40 文件 / 267 case 全绿 + working tree 干净**；
+> 累计 12 票（沙箱 8 + 服务关注面 7，含 1 票 Redux 重复清理）。新增 7 个
+> `src/<feature>-helpers.ts` 或 `src/services/<subdir>/<feature>.ts` 模块化层。
+
+## §8. 第二阶段贡献（7 票）
+
+| # | 票 | 强度 | commit | 行数影响 |
+|---|---|---|---|---|
+| C5-A | KeepAliveService 抽离 | Strong | `4a91cc6`/`46f1966` 中合并 | lifecycle -219 行 / keepAlive +369 |
+| C5-B | `finalizeInstance` 统一 cleanup | Strong | `46f1966` | cascadeCleanup 删 |
+| C5-C | `scopedFetch` owner 重划 | Strong | `46f1966` | lifecycle -24 / scopedFetch +34 |
+| C6-A | `tracing helpers` 下移到 `tracing.ts` | Strong | `20ea82e` | bus -38 / tracing +35 |
+| C7-A | `leak detection` 子系统抽离 | Strong | `02a609f` | monitor -21 / leakDetector +113 |
+| C8-A | `router parsers` 抽离 | Worth | `1a2ce7c` | router -24 / parsers +54 |
+| C9-A | `deps SemVer` 抽离 | Worth | `cd68082` | deps -47 / semver +56 |
+| C10-A | `security sanitizers` + 删 `lookupSri` | Strong | `cdcef32` | security -11 / sanitizers +48 |
+| C11-A | `state helpers` 抽离 | Worth | `fcb4ac7` | state -59 / helpers +91 |
+| C12-A | `document-proxy helpers` + `ReportFn` 复用 | Worth | `2683932` | document-proxy -15 / proxy-helpers +30 |
+
+> C5 三票合并到 `46f1966` 大 commit（lifecycle 关注面集中收口），不独立票号。
+
+## §9. 第二阶段"模式收敛"
+
+7 个单 commit 助手票（C6 ~ C12）共享同一模式：
+
+1. **零依赖 helper 抽离** —— 6 个 `*Helpers` 文件全部符合"零接触 ctx/inspector/
+   monitor"；helper 可独立单测
+2. **行为零变更** —— 全部以"位置移动 + import 切换"完成；测试用例不需新增
+3. **deletion test** —— grep inline 定义 0 命中（如 `^function parseVersion`,
+   `^const INJECT_METHODS` 等）
+4. **公共面 re-export 兼容** —— `parseTraceparent` / `satisfies` /
+   `isIsolateAllowed` 等已 export 符号保留 re-export，外部 import 路径不变
+
+## §10. 文件结构（最终态）
+
+```
+src/
+├── index.ts                                # 公共 API 聚合
+├── services/                               # Cordis 服务 + 助手模块
+│   ├── sandbox.ts                          # 沙箱本体（C1/C2/C4 关注面收敛）
+│   ├── sandbox/                            # （历史占位；实际 impl 在 services/sandbox.ts）
+│   ├── router/
+│   │   └── parsers.ts                      # C8-A：5 常量 + 4 helper
+│   ├── deps/
+│   │   └── semver.ts                       # C9-A：parseVersion / compareVersions / satisfies
+│   ├── security/
+│   │   └── sanitizers.ts                   # C10-A：matchAction / readCookie / isIsolateAllowed
+│   ├── state/
+│   │   └── helpers.ts                      # C11-A：6 helper + 1 constant
+│   ├── bus.ts                              # 沙箱服务（C6-A tracing helpers 下移）
+│   ├── monitor.ts                          # C7-A 关注面收敛到 4 类本职
+│   ├── leakDetector.ts                     # C7-A：独立子模块
+│   ├── routing.ts ...
+│   └── ...
+├── sandbox-proxy-helpers.ts                # C12-A：DOM 注入路径 + scoped 查询 + cssEscape
+├── document-proxy.ts / inject-tracker.ts   # 沙箱组件（C12-A 复用 ReportFn）
+├── suspend.ts                              # SuspendScope（C1 抽离）
+└── ...
+```
+
+## §11. 决策收敛规则（强化）
+
+第二阶段确认了 1 阶段决策树的 4 个核心规则的可持续性：
+
+1. **不开新 ADR** —— 所有抽离都"补全 seam"而非"立契约"
+2. **commit 拆/合节奏** —— "先 refactor 行为不变 → 再 wiring 改消费点"；
+   本阶段纯位置移动大多单 commit（C6/C7/C8/C9/C10/C11/C12）
+3. **测试 helper = file 一一对应** —— 抽离后独立 `<feature>.test.ts`；本阶段
+   助手文件零测试（helpers 极简且无业务路径，断言内联即可）
+4. **代码 + 文档同步** —— header 注释写明抽离原因，**不**在 doc-typeset 阶段
+   单独同步（CONTEST.md 不再引用 helper 内部）
+
+## §12. 改动的可观测证据（27 行删除 vs 12 文件新增）
+
+累计本批次：
+
+| 维度 | 数 |
+|---|---|
+| 总 commit | 13（沙箱 6 + 服务 7） |
+| 新模块文件 | 9（suspendScope.ts / harden.ts / keepAlive.ts / scopedFetch.ts / leakDetector.ts / parsers.ts / semver.ts / sanitizers.ts / helpers.ts / proxy-helpers.ts） |
+| 修改文件 | 13 |
+| 净行数变化 | ~-50 行（关注面收敛价值 > 抽离成本） |
+| 测试通过 | 40 / 267 |
+
+## §13. 未来起手建议（C13+）
+
+可继续的高 leverage 抽离（按强度）：
+
+1. **`monitor.metricsSnapshot` 拆分** —— 当前含 RingBuffer 实例计算（~25 行），
+   可独立 `monitor/metrics.ts`（关注面继续收敛：monitor → 错误 / 告警 / 隔离门面 3 类本职）
+2. **`router.commit` 独立** —— 入口 URL 回写（~30 行）的纯函数性质强；
+   可独立为 `router/commitUrl.ts`
+3. **`router.ioFactory` 抽象独立** —— IntersectionObserver 适配+降级策略
+   可单独测试
+4. **小模块深度** —— `errors.ts` / `events.ts` / `storage.ts` 已"独立模块"，
+   无 helpers 可抽
+
+> 候选 1 是最强 — `metricsSnapshot` + `RingBuffer` 同源紧耦合，且有量化测试可下沉。
+
+## §14. 决策树与本批次之外的延伸展望
+
+**延伸 1**：本批次建立的"零依赖 helpers 集中"模式同样适用于**未来新服务**——
+DevTools / Hmr / Style 等新服务落地时直接继承此模式（helpers 集中，
+服务本体聚焦主路径）。
+
+**延伸 2**：所有 helper 模块的 `*-helpers.ts` 后缀统一，未来 `import { x } from
+'/<feature>-helpers'` 即为"暴露内部小工具"的明确信号；与 `services/`
+子目录"对外规约" 形成对照。
+
+**延伸 3**：本批次的 deletion test 是**深化最强信号**——所有 12 候选的退出
+标准都依赖 grep 0 命中验证；这一标尺可复用到任何后续重构（创建新候选时
+先思考"什么 inline 定义可以删"，提前 deletion test 即可起步）。
