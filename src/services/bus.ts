@@ -27,6 +27,7 @@ import {
 } from './tracing'
 import { createQueueLedger, type QueueLedgerHandle } from './bus/queue'
 import { createDlqLedger, type DlqLedgerHandle, type DeadLetterRecord } from './bus/dlq'
+import { createNetworkChain, type NetworkChainHandle } from './bus/networkChain'
 
 export type { Reply }
 export type { SuspendSource, SuspendReason } from '../events'
@@ -117,6 +118,12 @@ export class BusService extends Service<BusConfig> {
     // C14-C：挂起队列 + DLQ 抽离到 bus/queue.ts + bus/dlq.ts；bus 改持两个 ledger 引用
     this.queueLedger = createQueueLedger()
     this.dlqLedger = createDlqLedger()
+    // C15-A：网络拦截链抽离到 bus/networkChain.ts；tracing 懒取（bus 不 inject tracing，
+    // ADR-0054 依赖方向）；monitor 懒取（构造时 ctx.monitor 尚未就绪）
+    this.networkChain = createNetworkChain(null, {
+      count: (name, value, tags) => this.ctx.monitor.count(name, value, tags),
+      capture: (error, meta) => this.ctx.monitor.capture(error, { ...meta, phase: 'runtime' as const }),
+    })
     // 挂起队列联动（§5.5，09 号票统一时序）：lifecycle 在 app/resume（state/sync）与
     // router/replay 之后派发 bus/replay 触发回放；dispose 清队列（root + global，不 inject lifecycle）
     ctx.on('bus/replay', (e) => {
@@ -124,7 +131,7 @@ export class BusService extends Service<BusConfig> {
     }, { global: true })
     ctx.on('app/disposed', (e) => {
       this.queueLedger.delete(e.instanceId)
-      this.networkMiddlewares.delete(e.appId) // 拦截链随应用销毁清理（§6.2 disposer 生命周期语义）
+      this.networkChain.clear(e.appId) // 拦截链随应用销毁清理（§6.2 disposer 生命周期语义）
     }, { global: true })
   }
 
@@ -139,23 +146,16 @@ export class BusService extends Service<BusConfig> {
    *   bus 改持 dlqLedger 引用。 */
   private dlqLedger: DlqLedgerHandle
 
-  // ---- 网络拦截链（§6.2）----
-  private networkMiddlewares = new Map<string, NetworkMiddleware[]>()
+  /** 网络拦截链（C15-A）：runNetwork 链执行逻辑（中间件循环 + tracing span + monitor 计时）
+   *   已抽离到 bus/networkChain.ts；bus 改持 networkChain 引用。tracing 懒取（run 时从
+   *   this.ctx 反射取——与原实现一致）。 */
+  private networkChain: NetworkChainHandle
 
-  /** 中间件注册面（宿主/DevTools）：返回 disposer；随注册序执行 */
+  /** 中间件注册面（宿主/DevTools）：返回 disposer；随注册序执行——
+   * C15-A：thin delegate 到 networkChain.intercept。 */
   get network(): { intercept(appId: string, middleware: NetworkMiddleware): () => void } {
     return {
-      intercept: (appId, middleware) => {
-        const list = this.networkMiddlewares.get(appId) ?? []
-        list.push(middleware)
-        this.networkMiddlewares.set(appId, list)
-        return () => {
-          const l = this.networkMiddlewares.get(appId)
-          if (!l) return
-          const idx = l.indexOf(middleware)
-          if (idx >= 0) l.splice(idx, 1)
-        }
-      },
+      intercept: (appId, middleware) => this.networkChain.intercept(appId, middleware),
     }
   }
 
@@ -163,6 +163,9 @@ export class BusService extends Service<BusConfig> {
    * 链执行（§6.2 链序）：tracing span（外包裹）-> 自定义中间件（注册序）->
    * monitor net_ms 计时 -> 终端 fetch。security 裁决由调用方（scopedFetch）
    * 前置完成——拒绝路径不进链（fail-closed 第一闸）。
+   *
+   * C15-A：thin delegate 到 networkChain.run；tracing 懒取（从 this.ctx 反射——
+   * 与原实现一致，bus 不 inject tracing 保持 ADR-0054 依赖方向）。
    */
   async runNetwork(
     appId: string,
@@ -170,36 +173,8 @@ export class BusService extends Service<BusConfig> {
     init: RequestInit | undefined,
     terminal: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   ): Promise<Response> {
-    const middlewares = [...(this.networkMiddlewares.get(appId) ?? [])]
-    const dispatch = (i: RequestInfo | URL, ini: RequestInit | undefined, idx: number): Promise<Response> => {
-      if (idx < middlewares.length) {
-        const mw = middlewares[idx]!
-        return mw(i, ini, (ii, ii2) => dispatch(ii, ii2, idx + 1))
-      }
-      return terminal(i, ini)
-    }
-    // tracing 内建（懒取——bus 不 inject tracing，ADR-0054 依赖方向；未启用 = 无 span）
-    let spanName: string
-    try {
-      const url = new URL(input instanceof Request ? input.url : String(input), document.baseURI)
-      spanName = `fetch:${url.host}${url.pathname}`
-    } catch {
-      spanName = `fetch:${String(input)}` // 不可解析目标：以原样命名（span 命名不炸链）
-    }
-    const span = (this.ctx as Ctx & { tracing?: import('./tracing').TracingService }).tracing?.startSpan(spanName)
-    const startedAt = Date.now()
-    try {
-      const res = await dispatch(input, init, 0)
-      this.ctx.monitor.count('net_ms', Date.now() - startedAt, { appId }) // monitor 内建（成功）
-      return res
-    } catch (error) {
-      // 失败路径不留盲区：net_err 计数 + monitor 上报（安全审计经 monitor 可见）
-      this.ctx.monitor.count('net_err', 1, { appId })
-      this.ctx.monitor.capture(error, { appId, phase: 'runtime' })
-      throw error
-    } finally {
-      span?.end()
-    }
+    const tracing = (this.ctx as Ctx & { tracing?: import('./tracing').TracingService }).tracing ?? null
+    return this.networkChain.runWithTracing(appId, tracing, input, init, terminal)
   }
 
   /** 死信入队：有界（默认 100，溢出丢最旧）+ QUEUE_DEAD_LETTER 告警（monitor 旁听）——
