@@ -25,6 +25,10 @@ import {
   segmentPrefixMatch,
   stripReserved,
 } from './router/parsers'
+import {
+  createLazyOutletLedger,
+  type LazyOutletLedgerHandle,
+} from './router/lazyOutlet'
 
 export type { GuardResult }
 
@@ -91,13 +95,10 @@ export class RouterService extends Service<RouterConfig> {
   private routes: RouteRule[]
   private widgetOutlets: Set<string>
   private onResolve: RouterConfig['onResolve']
-  /** 懒 outlet（§六表 loadOnVisible）：pending 意图 / 已可见 / 元素->槽位观察账本 */
-  private lazyOutlets: Set<string>
-  private lazyVisible = new Set<string>()
-  private lazyPending = new Map<string, MountIntent>()
-  private lazyElToOutlet = new Map<Element, string>()
   private outletSelectors: Record<string, string>
-  private io: IntersectionObserverLike | null
+  /** Lazy outlet 账本（C14-B）：5 字段 + 3 方法自洽状态机已抽离到 router/lazyOutlet.ts；
+   *   router 改持 ledger 引用，dispatchIntent / flushLazy 改 thin delegate。 */
+  private lazyOutletLedger: LazyOutletLedgerHandle
 
   constructor(ctx: Context, config: RouterConfig = {}) {
     super(ctx, 'router')
@@ -105,23 +106,15 @@ export class RouterService extends Service<RouterConfig> {
     this.widgetOutlets = new Set(config.widgetOutlets ?? [])
     this.onResolve = config.onResolve
     this.outletSelectors = config.outlets ?? {}
-    this.lazyOutlets = new Set(config.lazyOutlets ?? [])
-    type IOFactory = NonNullable<RouterConfig['ioFactory']>
-    const IO = (config.ioFactory ?? (globalThis as { IntersectionObserver?: IOFactory }).IntersectionObserver) ?? null
-    this.io = IO
-      ? new IO((entries) => {
-          for (const entry of entries) {
-            if (!entry.isIntersecting) continue
-            const outlet = this.lazyElToOutlet.get(entry.target)
-            if (outlet === undefined) continue
-            // 命中即了结：unobserve + 派发 pending 意图（一次性触发）
-            this.lazyElToOutlet.delete(entry.target)
-            this.io?.unobserve(entry.target)
-            this.flushLazy(outlet)
-          }
-        })
-      : null
-    if (this.io) ctx.effect(() => () => this.io?.disconnect()) // observer 挂 ctx.effect（§六表）
+    // C14-B：lazy outlet 状态机抽离到 router/lazyOutlet.ts；router 改持 ledger 引用
+    this.lazyOutletLedger = createLazyOutletLedger(
+      config.ioFactory ?? (globalThis as unknown as { IntersectionObserver?: typeof config.ioFactory }).IntersectionObserver ?? null,
+      this.outletSelectors,
+      this.onResolve,
+      config.lazyOutlets ?? [],
+    )
+    // C14-B：io 初始化已抽离到 router/lazyOutlet.ts；router 不再持 io 字段
+    ctx.effect(() => () => this.lazyOutletLedger.destroy()) // observer 挂 ctx.effect（§六表）
     this.initFromLocation()
     this.initPopState()
     this.resolveDeepLinks()
@@ -142,32 +135,17 @@ export class RouterService extends Service<RouterConfig> {
    * 挂载意图统一派发口（导航第 3 步与深链启动同一入口）：懒槽位（§六表
    * loadOnVisible）未可见时扣住意图——观察宿主元素，进入视口才派发最新意图；
    * IO 能力缺失/宿主元素缺失降级为立即派发（懒加载是优化不是正确性闸门，不阻塞挂载）。
+   *
+   * C14-B：thin delegate 到 lazyOutletLedger.dispatchIntent。
    */
   private dispatchIntent(intent: MountIntent): void {
-    if (this.lazyOutlets.has(intent.outlet) && !this.lazyVisible.has(intent.outlet)) {
-      this.lazyPending.set(intent.outlet, intent) // 多次导航只保留最新意图
-      if (this.io) {
-        // 宿主选择器约定与 lifecycle resolveOutletHost 同源（outlets 映射，缺省 `#{outlet}`）
-        const selector = this.outletSelectors[intent.outlet] ?? `#${intent.outlet}`
-        const el = document.querySelector(selector)
-        if (el && !this.lazyElToOutlet.has(el)) {
-          this.lazyElToOutlet.set(el, intent.outlet)
-          this.io.observe(el)
-        }
-        if (el) return // 已在观察：意图留 pending，视口命中时派发
-      }
-      this.flushLazy(intent.outlet) // 降级：无 IO / 无宿主元素 -> 立即派发
-      return
-    }
-    this.onResolve?.(intent)
+    this.lazyOutletLedger.dispatchIntent(intent)
   }
 
-  /** 懒槽位放行：标记已可见 + 派发 pending 的最新意图（一次性；后续导航走直通） */
+  /** 懒槽位放行：标记已可见 + 派发 pending 的最新意图（一次性；后续导航走直通）——
+   * C14-B：thin delegate 到 lazyOutletLedger.flush。 */
   private flushLazy(outlet: string): void {
-    this.lazyVisible.add(outlet)
-    const intent = this.lazyPending.get(outlet)
-    this.lazyPending.delete(outlet)
-    if (intent) this.onResolve?.(intent)
+    this.lazyOutletLedger.flush(outlet)
   }
 
   /** 槽位滚动容器查找（lifecycle 容器 id 约定 `tx-{outlet}`；缺失返回 null——读侧宽容） */
