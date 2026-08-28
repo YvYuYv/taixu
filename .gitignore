@@ -2,3 +2,7 @@
 node_modules/
 dist/
 coverage/
+# WorkBuddy workspace metadata（identity / memory / 跨项目笔记）
+.workbuddy/
+# 本地 issue tracker（per AGENTS.md："Issues 以本地 Markdown 文件形式追踪于 .scratch/<feature>/"）
+.scratch/
