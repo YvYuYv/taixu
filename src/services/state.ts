@@ -14,6 +14,14 @@
  */
 import { Service, type Context } from 'cordis'
 import '../events'
+import {
+  SENSITIVE_KEY_PATTERN,
+  isPlainObject,
+  assertJsonSerializable,
+  instanceIdAppId,
+  watchedValue,
+  matchKey,
+} from './state/helpers'
 
 interface StoredValue {
   value: unknown
@@ -43,43 +51,6 @@ export interface GetOptions {
 
 export interface SetOptions {
   appId?: string
-}
-
-/** local: 键使用条款：敏感键名黑名单（ADR-0044：快照落 sessionStorage 同源可读） */
-const SENSITIVE_KEY_PATTERN = /(token|password|passwd|secret|credential|pii)/i
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null)
-}
-
-/** local: 值必须 JSON 可序列化（深层扫描：函数/symbol/DOM/循环引用即拒，序列化不丢真） */
-function assertJsonSerializable(key: string, value: unknown): void {
-  const seen = new Set<unknown>()
-  const scan = (v: unknown): void => {
-    if (v === null || typeof v !== 'object') {
-      if (typeof v === 'function' || typeof v === 'symbol' || typeof v === 'bigint') {
-        throw new Error(`state: value for "${key}" is not JSON-serializable (local: keys must support eviction snapshots)`)
-      }
-      return
-    }
-    if (seen.has(v)) {
-      throw new Error(`state: value for "${key}" contains a circular reference (not JSON-serializable)`)
-    }
-    seen.add(v)
-    // DOM 节点（nodeType 存在且非 plain object）
-    if (typeof (v as { nodeType?: number }).nodeType === 'number' && !isPlainObject(v)) {
-      throw new Error(`state: value for "${key}" contains a DOM node (not JSON-serializable)`)
-    }
-    if (Array.isArray(v)) {
-      for (const item of v) scan(item)
-      return
-    }
-    if (!isPlainObject(v)) {
-      throw new Error(`state: value for "${key}" contains a ${Object.prototype.toString.call(v)} (not JSON-serializable)`)
-    }
-    for (const child of Object.values(v)) scan(child)
-  }
-  scan(value)
 }
 
 /** 持久化配置（§7.1）：防抖批量、敏感排除、schema 版本化迁移 */
@@ -611,36 +582,7 @@ export class StateService extends Service<StateConfig> {
   }
 }
 
-/** instanceId -> appId（lifecycle §2.1：`${appId}:${uuid}`） */
-function instanceIdAppId(instanceId: string): string {
-  const idx = instanceId.indexOf(':')
-  return idx === -1 ? instanceId : instanceId.slice(0, idx)
-}
-
-/** 子路径观察者的取值：watched 为 changedKey 的子路径时下钻，否则原值 */
-function watchedValue(watched: string, changedKey: string, value: unknown): unknown {
-  if (!watched.startsWith(`${changedKey}.`)) return value
-  let cursor: unknown = value
-  for (const seg of watched.slice(changedKey.length + 1).split('.')) {
-    if (cursor === null || typeof cursor !== 'object') return undefined
-    cursor = (cursor as Record<string, unknown>)[seg]
-  }
-  return cursor
-}
-
-/**
- * 键过滤（§4.3，双向）：
- * - watch('shared:cart') 收 'shared:cart' 与 'shared:cart.items'（子路径）
- * - watch('shared:cart.items') 收根键 'shared:cart' 提交（根提交整体替换子树，子路径观察者需刷新）
- */
-function matchKey(watched: string, changedKey: string, changedPath?: string): boolean {
-  const target = changedPath ?? changedKey
-  return (
-    watched === target ||
-    target.startsWith(`${watched}.`) ||
-    watched.startsWith(`${changedKey}.`)
-  )
-}
+/** state 服务尾注（helpers 已迁出至 state/helpers.ts —— C11-A） */
 
 declare module 'cordis' {
   interface Context {
