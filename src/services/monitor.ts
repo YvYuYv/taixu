@@ -3,6 +3,7 @@ import '../events'
 import type { AppPhase, ErrorMetric, Metric, Alert } from '../events'
 import type { Span, TracingService } from './tracing'
 import { createLeakDetector, type LeakDetectorHandle } from './leakDetector'
+import { createErrorLedger, type ErrorLedgerHandle } from './monitor/errorLedger'
 
 /** 告警规则（§七 AlertEngine）：condition 真实执行 + 冷却按 (appId, type) 维度 */
 export interface AlertRule {
@@ -90,27 +91,30 @@ export class MonitorService extends Service<MonitorConfig> {
 
   private rules: Record<string, AlertRule>
   private cooldowns = new Map<string, number>()
-  /** 错误计数（JS_ERROR_RATE）：appId -> 窗口内时刻列表 */
-  private errorTimes = new Map<string, number[]>()
   /** 指标缓冲（name -> 环形缓冲） */
   private series = new Map<string, RingBuffer>()
   private bufferCap: number
   /** 挂载计时（app_loading -> app_ready 时长，§三 加载指标）：instanceId -> 起始时刻 */
   private loadingSince = new Map<string, number>()
-  private errorRate: { windowMs: number; max: number }
-  private errorLedger: ErrorMetric[] = []
   /** Leak detector 闭包（C7-A）：源自 services/leakDetector.ts；
    *   告警去抖 `leakReported` 由 monitor 持有——LEAK_SUSPECT 触发的副作用在 monitor 自身 */
   private leakDetector: LeakDetectorHandle
   /** LEAK_SUSPECT 告警去抖：同 instanceId 只报一次（§四：决疑证据弱，避免风暴） */
   private leakReported = new Set<string>()
+  /** Error ledger 账本（C14-E）：errorTimes Map + errorLedger Array + JS_ERROR_RATE
+   *   子系统已抽离到 monitor/errorLedger.ts；monitor 改持 errorLedger 引用。 */
+  private errorLedger: ErrorLedgerHandle
 
   constructor(ctx: Context, config: MonitorConfig = {}) {
     super(ctx, 'monitor')
     this.rules = config.alertRules ?? {}
     this.bufferCap = config.metricsBuffer ?? 1024
-    this.errorRate = { windowMs: config.errorRate?.windowMs ?? 300_000, max: config.errorRate?.max ?? 20 }
     this.leakDetector = createLeakDetector(config.leak)
+    // C14-E：errorLedger 子系统抽离到 monitor/errorLedger.ts；monitor 改持 errorLedger 引用
+    this.errorLedger = createErrorLedger({
+      windowMs: config.errorRate?.windowMs,
+      max: config.errorRate?.max,
+    })
     // 旁听 security/violation（事件旁听不构成服务依赖，ADR-0054）
     ctx.on('security/violation', (violation) => {
       this.capture(new Error(`security violation: ${violation.rule}`), {
@@ -196,12 +200,14 @@ export class MonitorService extends Service<MonitorConfig> {
     return this.leakDetector.leakSuspects()
   }
 
-  /** 错误清单（§十 DevTools 只读查询面；sourcemap 还原随宿主管线接入后在此层应用） */
+  /** 错误清单（§十 DevTools 只读查询面；sourcemap 还原随宿主管线接入后在此层应用）——
+   * C14-E：thin delegate 到 errorLedger.entries。 */
   errors(): readonly ErrorMetric[] {
-    return this.errorLedger
+    return this.errorLedger.entries()
   }
 
-  /** 唯一错误入口：appId 归因 + monitor/report 通知（fire-and-forget）+ 错误率计数 */
+  /** 唯一错误入口：appId 归因 + monitor/report 通知（fire-and-forget）+ 错误率计数——
+   * C14-E：errorLedger.capture 消费账本；JS_ERROR_RATE 触发逻辑保留在 monitor（告警副作用）。 */
   capture(error: unknown, meta: { appId?: string; phase: AppPhase } = { phase: 'runtime' }): void {
     const normalized = error instanceof Error ? error : new Error(String(error))
     const metric: ErrorMetric = {
@@ -211,18 +217,11 @@ export class MonitorService extends Service<MonitorConfig> {
       appId: meta.appId,
       phase: meta.phase,
     }
-    // 错误清单（§十 DevTools 只读查询）：有界环形（默认 50；溢出丢最旧）
-    this.errorLedger.push(metric)
-    if (this.errorLedger.length > 50) this.errorLedger.shift()
+    const { shouldAlert, count, windowMs } = this.errorLedger.capture(metric, meta.appId)
     this.ctx.emit('monitor/report', { metric } satisfies { metric: Metric })
     // JS_ERROR_RATE（§七表）：appId 错误率窗口超阈值
-    const key = meta.appId ?? 'host'
-    const now = Date.now()
-    const times = (this.errorTimes.get(key) ?? []).filter((t) => now - t <= this.errorRate.windowMs)
-    times.push(now)
-    this.errorTimes.set(key, times)
-    if (times.length === this.errorRate.max + 1) { // 恰超阈值那一刻触发一次（窗口内不重复计数触发）
-      this.trigger({ type: 'JS_ERROR_RATE', appId: meta.appId, detail: { count: times.length, windowMs: this.errorRate.windowMs } })
+    if (shouldAlert) {
+      this.trigger({ type: 'JS_ERROR_RATE', appId: meta.appId, detail: { count, windowMs } })
     }
   }
 
