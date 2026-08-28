@@ -131,6 +131,13 @@ _Avoid_: 影子 fiber、子框架
 
 **权限（Permission）**:
 安全服务对能力调用的拒绝优先（deny-by-default）裁决，支持 `action:'*'` 通配；违例一律上报 `security/violation`。
+
+**C14-A 拆分**：`SecurityConfig` 8 字段拆为 3 子 config——
+- `SecurityPermissionsConfig`（rules + allowInsecure + adjudicationTimeoutMs）：权限策略
+- `SecuritySanitizerConfig`（queryBlacklist + integrityManifest + sanitize + csrfCookieName）：净化策略
+- `SecurityProtocolConfig`（violationThrottleMs + verifyKillCommand）：协议策略
+
+SecurityConfig extends 3 子 config（类型层面拆分，向后兼容平铺字段）；SecurityService 提供 3 个 getter 返回分组视图（permissions / sanitizers / protocol）。
 _Avoid_: 白名单（语义不同：默认拒绝）
 
 ### 治理

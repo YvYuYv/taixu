@@ -20,25 +20,51 @@ export interface PermissionVerdict {
   rule?: string
 }
 
-export interface SecurityConfig {
+/**
+ * 权限策略子 config（security §四.6 裁决 + §3.2 协议门 + ADR-0024 超时）。
+ * C14-A 拆分：从 SecurityConfig 8 字段拆出 3 子 config——权限策略 / 净化策略 / 协议策略。
+ */
+export interface SecurityPermissionsConfig {
+  /** 权限规则表（deny-by-default） */
   rules?: PermissionRule[]
   /** 允许明文 http（默认 false：https-only，security §3.2） */
   allowInsecure?: boolean
-  /** query 敏感键黑名单追加项（route-adaptation §3.2；默认 token/_t/sign） */
-  queryBlacklist?: string[]
-  /** 网络违规 (appId, rule) 限流窗口 ms（默认 5000；非网络类全量，security §8） */
-  violationThrottleMs?: number
   /** 裁决超时 ms（默认 5000；超时视为失败拒绝，ADR-0024） */
   adjudicationTimeoutMs?: number
+}
+
+/**
+ * 净化策略子 config（security §3.2 query 净化 + §3.3 HTML 净化 + §8.1 SRI + §七 CSRF）。
+ * C14-A 拆分：query 黑名单 / SRI 清单 / HTML 净化 / CSRF cookie 名。
+ */
+export interface SecuritySanitizerConfig {
+  /** query 敏感键黑名单追加项（route-adaptation §3.2；默认 token/_t/sign） */
+  queryBlacklist?: string[]
   /** SRI 签名清单（url -> integrity 哈希；§8.1 就位 seam，deps 加载接线在后续票） */
   integrityManifest?: Record<string, string>
   /** HTML 净化配置（§3.3 真 sanitize）：不良标签/属性黑名单（真实传入 DOMPurify FORBID_*） */
   sanitize?: { dangerousTags?: string[]; dangerousAttributes?: string[] }
-  /** KillSwitch 指令验签（§十：签名通道，deny-by-default——未配置验签器时一切急停指令拒绝） */
-  verifyKillCommand?: (appId: string, action: 'disable' | 'enable', signature: string) => boolean
   /** CSRF token cookie 名（§七 double-submit：服务端登录下发，默认 __Host-csrf；宿主侧配置——测试环境因 __Host- 前缀要求 Secure 而注入替名） */
   csrfCookieName?: string
 }
+
+/**
+ * 协议策略子 config（security §8 违规限流 + §十 急停签名通道）。
+ * C14-A 拆分：违规限流窗口 + 急停签名验证。
+ */
+export interface SecurityProtocolConfig {
+  /** 网络违规 (appId, rule) 限流窗口 ms（默认 5000；非网络类全量，security §8） */
+  violationThrottleMs?: number
+  /** KillSwitch 指令验签（§十：签名通道，deny-by-default——未配置验签器时一切急停指令拒绝） */
+  verifyKillCommand?: (appId: string, action: 'disable' | 'enable', signature: string) => boolean
+}
+
+/**
+ * 安全服务配置（C14-A 拆分后聚合 3 子 config）。
+ * 向后兼容：顶层仍可平铺所有字段（现有 createCordis({ security: {...} }) 调用点零破坏）；
+ * 内部聚合为 permissions / sanitizers / protocol 3 子 config（structural 拆分）。
+ */
+export interface SecurityConfig extends SecurityPermissionsConfig, SecuritySanitizerConfig, SecurityProtocolConfig {}
 
 /** 网络违规类规则前缀（security §8 采样与限流：仅此类按 (appId, rule) 去重） */
 const NETWORK_RULE_PREFIX = 'net:'
@@ -51,6 +77,10 @@ const NETWORK_RULE_PREFIX = 'net:'
  * - deny-by-default：无规则命中即拒绝（含"未注册类型"——不因未注册默认放行）
  * - 违规上报经 security/violation 事件（由 monitor 旁听，不 inject monitor，ADR-0054）；
  *   网络违规类按 (appId, rule) 限流去重（§8）
+ *
+ * **C14-A 拆分**：SecurityConfig 8 字段拆为 3 子 config（permissions / sanitizers / protocol）；
+ *   本服务提供 3 个 getter 返回分组视图（permissions / sanitizers / protocol），
+ *   内部字段访问不变（this.cfg.rules 等向后兼容）。
  */
 export class SecurityService extends Service {
   static provide = 'security'
@@ -65,6 +95,33 @@ export class SecurityService extends Service {
     this.rules = config.rules ?? []
     this.cfg = config
     this.restoreDisabled() // KillSwitch 会话恢复（§十：刷新仍生效）
+  }
+
+  /** 权限策略子 config 分组视图（C14-A：rules + allowInsecure + adjudicationTimeoutMs） */
+  get permissions(): SecurityPermissionsConfig {
+    return {
+      rules: this.cfg.rules,
+      allowInsecure: this.cfg.allowInsecure,
+      adjudicationTimeoutMs: this.cfg.adjudicationTimeoutMs,
+    }
+  }
+
+  /** 净化策略子 config 分组视图（C14-A：queryBlacklist + integrityManifest + sanitize + csrfCookieName） */
+  get sanitizers(): SecuritySanitizerConfig {
+    return {
+      queryBlacklist: this.cfg.queryBlacklist,
+      integrityManifest: this.cfg.integrityManifest,
+      sanitize: this.cfg.sanitize,
+      csrfCookieName: this.cfg.csrfCookieName,
+    }
+  }
+
+  /** 协议策略子 config 分组视图（C14-A：violationThrottleMs + verifyKillCommand） */
+  get protocol(): SecurityProtocolConfig {
+    return {
+      violationThrottleMs: this.cfg.violationThrottleMs,
+      verifyKillCommand: this.cfg.verifyKillCommand,
+    }
   }
 
   /** 权限裁决：单点查询（基线 §2.4.1），本地可判定、不缓存（ADR-0039/0051）；deny 一票否决（§五，顺序无关） */
