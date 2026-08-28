@@ -7,6 +7,9 @@
  * - span 缓冲有界（默认 500，环形覆盖）；`spans()` 查询（DevTools/上报出站源）
  * - 通知族上报：span 结束经 monitor/report 派发轻量 metric（不 inject bus——零依赖方向）
  * - 第三方域请求不注入 header（外泄边界）——由 scopedFetch 消费方遵守，本服务只产 span
+ *
+ * **C6-A 抽离**：原 bus.ts 顶部重复定义的 W3C trace helpers + `nextFrame` + `linkSpan`
+ * 全部下移到本文件统一 source of truth。
  */
 import { Service, type Context } from 'cordis'
 import '../events'
@@ -37,6 +40,16 @@ function randomHex(n: number): string {
   return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
+/** CSPRNG traceId（16 字节 hex，禁止全零——W3C 要求） */
+export function generateTraceId(): string {
+  return randomHex(16)
+}
+
+/** CSPRNG spanId（8 字节 hex；禁止全零） */
+export function generateSpanId(): string {
+  return randomHex(8)
+}
+
 export function parseTraceparent(tp: string): { traceId: string; spanId: string } | null {
   const m = tp.match(/^[0-9a-f]{2}-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$/)
   return m ? { traceId: m[1] as string, spanId: m[2] as string } : null
@@ -44,6 +57,29 @@ export function parseTraceparent(tp: string): { traceId: string; spanId: string 
 
 export function formatTraceparent(traceId: string, spanId: string): string {
   return `00-${traceId}-${spanId}-01`
+}
+
+/**
+ * 每帧分批回放（ADR-0015：50/帧避免长任务）；无 rAF 环境（jsdom）退化为 setTimeout(0)
+ * ——与 span duration 计时的"避免长任务"语义同源，下移到 tracing.ts。
+ */
+export function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve())
+    else setTimeout(resolve, 0)
+  })
+}
+
+/**
+ * Span link（ADR-0030）：有原 traceparent 则保持原 traceId + 换新 spanId
+ * （不计队列滞留时长）；无/不可解析时**原样透传**——非 OTel 兼容降级为如实
+ * 长 span（span 时长诚实包含队列滞留），不伪造新 trace 切断关联。
+ */
+export function linkSpan(message: { traceparent?: string }): { traceparent?: string } {
+  if (message.traceparent === undefined) return message
+  const trace = parseTraceparent(message.traceparent)
+  if (!trace) return message // 不可解析：诚实长 span（§七-5 降级路径）
+  return { traceparent: formatTraceparent(trace.traceId, generateSpanId()) }
 }
 
 export class TracingService extends Service<TracingConfig> {
@@ -59,12 +95,12 @@ export class TracingService extends Service<TracingConfig> {
 
   /**
    * 开 span：无 parent 则新 traceId（CSPRNG）；有 parent（W3C traceparent）则同 traceId 延续。
-   * end() 显式收口（duration 只计真实处理时间——回放 span link 语义与 bus.linkSpan 一致）。
+   * end() 显式收口（duration 只计真实处理时间——回放 span link 语义与 linkSpan 一致）。
    */
   startSpan(name: string, parentTraceparent?: string): Span {
     const parent = parentTraceparent ? parseTraceparent(parentTraceparent) : null
-    const traceId = parent?.traceId ?? randomHex(16)
-    const spanId = randomHex(8)
+    const traceId = parent?.traceId ?? generateTraceId()
+    const spanId = generateSpanId()
     const at = Date.now()
     const record: SpanRecord = { name, traceId, spanId, parentId: parent?.spanId, at }
     return {

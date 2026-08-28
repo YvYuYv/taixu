@@ -17,9 +17,18 @@ import { Service, Context, type Context as Ctx } from 'cordis'
 import '../events'
 import type { CordisMessage, Reply } from '../events'
 import { suspendRegistry } from '../suspend'
+import {
+  generateTraceId,
+  generateSpanId,
+  formatTraceparent,
+  parseTraceparent,
+  linkSpan,
+  nextFrame,
+} from './tracing'
 
 export type { Reply }
 export type { SuspendSource, SuspendReason } from '../events'
+export { parseTraceparent } from './tracing' // C6-A：原 bus.ts 重复定义，tracing.ts 为唯一 source of truth
 
 /** bus 配置：队列上限与回放批大小（测试注小值；生产默认 1000 / 每帧 50，§5.5） */
 export interface BusConfig {
@@ -50,48 +59,6 @@ const GLOBAL_ONLY: Ctx = {
   [Context.filter]: () => false,
 } as unknown as Ctx
 
-/** CSPRNG hex 字节串（n 字节；禁止全零——W3C 对 trace-id/span-id 的要求，§七） */
-function randomHex(n: number): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(n))
-  if (bytes.every((b) => b === 0)) return randomHex(n)
-  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')
-}
-
-/** CSPRNG trace-id（16 字节 hex，禁止全零——W3C 要求；§七） */
-function generateTraceId(): string {
-  return randomHex(16)
-}
-
-/** CSPRNG span-id（8 字节 hex；禁止全零） */
-function generateSpanId(): string {
-  return randomHex(8)
-}
-
-/** 每帧分批回放（ADR-0015：50/帧避免长任务）；无 rAF 环境（jsdom）退化为 setTimeout(0) */
-function nextFrame(): Promise<void> {
-  return new Promise((resolve) => {
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve())
-    else setTimeout(resolve, 0)
-  })
-}
-
-/**
- * 回放 span link（ADR-0030）：有原 traceparent 则保持原 traceId、换新 spanId
- * （不计队列滞留时长）；无/不可解析时**原样透传**——非 OTel 兼容降级为如实长 span
- * （span 时长诚实包含队列滞留），不伪造新 trace 切断关联。
- */
-function linkSpan(m: CordisMessage): CordisMessage {
-  if (m.traceparent === undefined) return m
-  const trace = parseTraceparent(m.traceparent)
-  if (!trace) return m // 不可解析：诚实长 span（§七-5 降级路径）
-  return { ...m, traceparent: formatTraceparent(trace.traceId, generateSpanId()) }
-}
-
-/** W3C Trace Context 格式化（版本 00；采样标志 01） */
-function formatTraceparent(traceId: string, spanId: string): string {
-  return `00-${traceId}-${spanId}-01`
-}
-
 /** listenerCtx 是否位于 ancestorCtx 的子树内（含自身；fiber 父链上溯，root 自环即止） */
 function isWithin(listenerCtx: Ctx, ancestorCtx: Ctx): boolean {
   let fiber = listenerCtx.fiber
@@ -105,11 +72,7 @@ function isWithin(listenerCtx: Ctx, ancestorCtx: Ctx): boolean {
   return false
 }
 
-/** traceparent 解析（§七：版本字段解析而非字面量匹配；不合法返回 null） */
-export function parseTraceparent(traceparent: string): { traceId: string; spanId: string } | null {
-  const m = traceparent.match(/^[0-9a-f]{2}-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$/)
-  return m ? { traceId: m[1] as string, spanId: m[2] as string } : null
-}
+/** traceparent 解析（§七：版本字段解析而非字面量匹配；不合法返回 null）—— C6-A：实现迁出至 ./tracing */
 
 export interface SendMessageInput {
   type: string
@@ -427,7 +390,7 @@ export class BusService extends Service<BusConfig> {
           target.touch?.() // LRU 键刷新（§5.4）
           // span link（ADR-0030，§七-5）：以原 traceparent 的 traceId 开新 span——
           // traceId 关联保持（挂起前后链路可关联），span 时长只计真实处理时间
-          const linked = linkSpan(m)
+          const linked = { ...m, ...linkSpan(m) }
           target.ctx.events.emit(target.ctx, 'message/receive', {
             message: linked,
             targetCtx: target.ctx,
