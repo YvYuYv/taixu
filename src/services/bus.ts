@@ -25,10 +25,13 @@ import {
   linkSpan,
   nextFrame,
 } from './tracing'
+import { createQueueLedger, type QueueLedgerHandle } from './bus/queue'
+import { createDlqLedger, type DlqLedgerHandle, type DeadLetterRecord } from './bus/dlq'
 
 export type { Reply }
 export type { SuspendSource, SuspendReason } from '../events'
 export { parseTraceparent } from './tracing' // C6-A：原 bus.ts 重复定义，tracing.ts 为唯一 source of truth
+export type { DeadLetterRecord }
 
 /** bus 配置：队列上限与回放批大小（测试注小值；生产默认 1000 / 每帧 50，§5.5） */
 export interface BusConfig {
@@ -36,13 +39,6 @@ export interface BusConfig {
   replayBatch?: number
   /** DLQ 容量（默认 100，§5.2 有界；溢出丢最旧） */
   dlqLimit?: number
-}
-
-/** 死信记录（§5.4：不可达目标不静默丢弃，可审计可重放） */
-export interface DeadLetterRecord {
-  message: CordisMessage
-  error: string
-  at: number
 }
 
 /** 应用实例登记（lifecycle 挂载成功后注入；销毁时注销） */
@@ -118,14 +114,16 @@ export class BusService extends Service<BusConfig> {
     this.queueLimit = config.queueLimit ?? 1000
     this.replayBatchSize = config.replayBatch ?? 50
     this.dlqLimit = config.dlqLimit ?? 100
+    // C14-C：挂起队列 + DLQ 抽离到 bus/queue.ts + bus/dlq.ts；bus 改持两个 ledger 引用
+    this.queueLedger = createQueueLedger()
+    this.dlqLedger = createDlqLedger()
     // 挂起队列联动（§5.5，09 号票统一时序）：lifecycle 在 app/resume（state/sync）与
     // router/replay 之后派发 bus/replay 触发回放；dispose 清队列（root + global，不 inject lifecycle）
     ctx.on('bus/replay', (e) => {
       void this.replay(e.instanceId)
     }, { global: true })
     ctx.on('app/disposed', (e) => {
-      this.queues.delete(e.instanceId)
-      this.replaying.delete(e.instanceId)
+      this.queueLedger.delete(e.instanceId)
       this.networkMiddlewares.delete(e.appId) // 拦截链随应用销毁清理（§6.2 disposer 生命周期语义）
     }, { global: true })
   }
@@ -133,13 +131,13 @@ export class BusService extends Service<BusConfig> {
   /** 已注册实例（appId -> 多实例；同 appId 取最新） */
   private instances = new Map<string, BusInstance[]>()
 
-  // ---- 挂起队列（§5.5，ADR-0008/0015/0021）----
-  private queues = new Map<string, { items: CordisMessage[]; coalesced: Set<string>; dropped: number }>()
-  /** 回放中标记：期间新消息入队尾保持全序（ADR-0015） */
-  private replaying = new Set<string>()
+  /** 挂起队列账本（C14-C）：queues Map + replaying Set + enqueue 状态机已抽离到 bus/queue.ts；
+   *   bus 改持 queueLedger 引用。 */
+  private queueLedger: QueueLedgerHandle
 
-  // ---- DLQ 死信（§5.4/§5.2：不可达不静默丢弃；有界 + 可审计可重放）----
-  private dlq: DeadLetterRecord[] = []
+  /** DLQ 死信账本（C14-C）：dlq Array + deadLetter + deadLetters 账本已抽离到 bus/dlq.ts；
+   *   bus 改持 dlqLedger 引用。 */
+  private dlqLedger: DlqLedgerHandle
 
   // ---- 网络拦截链（§6.2）----
   private networkMiddlewares = new Map<string, NetworkMiddleware[]>()
@@ -204,29 +202,30 @@ export class BusService extends Service<BusConfig> {
     }
   }
 
-  /** 死信入队：有界（默认 100，溢出丢最旧）+ QUEUE_DEAD_LETTER 告警（monitor 旁听） */
+  /** 死信入队：有界（默认 100，溢出丢最旧）+ QUEUE_DEAD_LETTER 告警（monitor 旁听）——
+   * C14-C：thin delegate 到 dlqLedger.push。 */
   private deadLetter(message: CordisMessage, error: string): void {
-    this.dlq.push({ message, error, at: Date.now() })
-    if (this.dlq.length > this.dlqLimit) this.dlq.shift() // 有界：丢最旧（§5.2）
+    this.dlqLedger.push(message, error, this.dlqLimit)
     this.ctx.emit('monitor/alert', {
       alert: { level: 'error', message: 'QUEUE_DEAD_LETTER', appId: message.source },
     })
   }
 
-  /** DLQ 只读视图（devtools/宿主审计用） */
+  /** DLQ 只读视图（devtools/宿主审计用）——C14-C：thin delegate 到 dlqLedger.entries。 */
   deadLetters(): readonly DeadLetterRecord[] {
-    return this.dlq
+    return this.dlqLedger.entries()
   }
 
   /**
    * 死信重放（§5.2 "devtools 可查看/重放"）：重走 send 管线（裁决/TTL/定向全复用）；
    * 目标仍不可达会再进 DLQ（新记录）——重放不绕过任何校验。成功投递则从 DLQ 移除原记录。
+   * C14-C：dlqLedger.at / dlqLedger.removeAt 消费账本；dispatch 保留在 bus。
    */
   replayDeadLetter(index: number): boolean {
-    const record = this.dlq[index]
+    const record = this.dlqLedger.at(index)
     if (!record) return false
     const delivered = this.dispatch(record.message)
-    if (delivered) this.dlq.splice(index, 1)
+    if (delivered) this.dlqLedger.removeAt(index)
     return delivered
   }
 
@@ -321,7 +320,7 @@ export class BusService extends Service<BusConfig> {
       this.deadLetter(message, `unreachable target "${message.target}" (not mounted)`)
       return false
     }
-    if (suspendRegistry.isSuspended(target.appId) || this.replaying.has(target.instanceId)) {
+    if (suspendRegistry.isSuspended(target.appId) || this.queueLedger.isReplaying(target.instanceId)) {
       this.enqueue(target.instanceId, message) // 挂起队列（ADR-0008）：冻结态不处理消息
       return true
     }
@@ -330,35 +329,20 @@ export class BusService extends Service<BusConfig> {
     return true
   }
 
-  /** 入队（§5.5）：上限 FIFO 丢最旧 + 同键合并（旧值移除、最新值入队尾） */
+  /** 入队（§5.5）：上限 FIFO 丢最旧 + 同键合并（旧值移除、最新值入队尾）——
+   * C14-C：thin delegate 到 queueLedger.enqueue。 */
   private enqueue(instanceId: string, message: CordisMessage): void {
-    const q = this.queues.get(instanceId) ?? { items: [], coalesced: new Set<string>(), dropped: 0 }
-    if (q.items.length >= this.queueLimit) {
-      q.items.shift() // FIFO 丢最旧
-      q.dropped++
-    }
-    const key = message.metadata?.coalesceKey
-    if (key) {
-      // 同键合并（§5.5）：移除旧值后 push（入队序 = 时间序）；findLastIndex 需 ES2023，手写等价
-      let prev = -1
-      q.items.forEach((m, idx) => {
-        if (m.metadata?.coalesceKey === key) prev = idx
-      })
-      if (prev >= 0) {
-        q.items.splice(prev, 1)
-        q.coalesced.add(key)
-      }
-    }
-    q.items.push(message)
-    this.queues.set(instanceId, q)
+    this.queueLedger.enqueue(instanceId, message, this.queueLimit)
   }
 
-  /** 回放（§5.5）：溢出先上报（bus/overflow：契约事件 global + 应用消息双路），每帧 batch 条分批投递 */
+  /** 回放（§5.5）：溢出先上报（bus/overflow：契约事件 global + 应用消息双路），每帧 batch 条分批投递——
+   * C14-C：queueLedger 消费账本；replay 状态机保留在 bus（依赖 findByInstanceId / target.touch /
+   * target.ctx.events.emit）。 */
   private async replay(instanceId: string): Promise<void> {
-    if (this.replaying.has(instanceId)) return
-    const q = this.queues.get(instanceId)
+    if (this.queueLedger.isReplaying(instanceId)) return
+    const q = this.queueLedger.get(instanceId)
     if (!q) return
-    this.replaying.add(instanceId) // 回放期间新消息入队尾保持全序（ADR-0015）
+    this.queueLedger.markReplaying(instanceId) // 回放期间新消息入队尾保持全序（ADR-0015）
     try {
       if (q.dropped || q.coalesced.size) {
         // 溢出显式上报（ADR-0021）：合并键可列举，普通丢弃只给计数
@@ -399,8 +383,8 @@ export class BusService extends Service<BusConfig> {
         await nextFrame()
       }
     } finally {
-      this.replaying.delete(instanceId)
-      if (q.items.length === 0) this.queues.delete(instanceId)
+      this.queueLedger.unmarkReplaying(instanceId)
+      if (q.items.length === 0) this.queueLedger.delete(instanceId)
     }
   }
 
@@ -446,7 +430,7 @@ export class BusService extends Service<BusConfig> {
   private deliverBroadcast(full: CordisMessage): void {
     for (const list of this.instances.values()) {
       const instance = list[list.length - 1] as BusInstance
-      if (suspendRegistry.isSuspended(instance.appId) || this.replaying.has(instance.instanceId)) {
+      if (suspendRegistry.isSuspended(instance.appId) || this.queueLedger.isReplaying(instance.instanceId)) {
         this.enqueue(instance.instanceId, full) // 挂起队列（ADR-0008）
         continue
       }
