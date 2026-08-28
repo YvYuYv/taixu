@@ -26,11 +26,15 @@ interface StoredValue {
 interface WatchRecord {
   appId: string | null // null = root/系统观察者，不受应用挂起影响
   key: string
+  /** C3 wiring Q11：是否短路 self-write 回调（filterSelfWrite 模式） */
+  filterSelfWrite: boolean
 }
 
 export interface WatchOptions {
   /** 归因应用（挂起不推送/恢复 sync 的键集合来源） */
   appId?: string
+  /** C3 wiring Q11：显式 opt-in 自身写短路（adapter helper 默认 false） */
+  filterSelfWrite?: boolean
 }
 
 export interface GetOptions {
@@ -125,6 +129,12 @@ export class StateService extends Service<StateConfig> {
   private watchers = new Map<Context, WatchRecord[]>()
   /** 挂起中的应用 appId 集合（instanceId 前缀解析；ADR-0023） */
   private suspendedApps = new Set<string>()
+  /**
+   * bindLocal 上下文标记（C3 wiring）：自身写引发的 watch 回环不视为"外部"变更。
+   * 仅在 bindLocal 的 set 函数体内短暂为 true（同步），emit → watch listener
+   * 同步分发（cordis emit 同步触发 listener），listener 内同栈帧可见 selfWriting。
+   */
+  private selfWriting = false
 
   constructor(ctx: Context, config: StateConfig = {}) {
     super(ctx, 'state')
@@ -332,6 +342,33 @@ export class StateService extends Service<StateConfig> {
   }
 
   /**
+   * bindLocal（C3 wiring 决策 Q1+Q2+Q3+Q4+Q11）：adapter 公用的 set/get helper，
+   * 把"自身写不重渲染"的差异化策略统一上提到 state 层（adapter 不再各写一套）。
+   *
+   * - 接口（Q1）：`{ get(): T, set(v: T): void }`
+   * - 短路机制（Q2）：set 调用走 commit，state 内 selfWriting 标记开启；
+   *   watch 回调同栈帧检测 source === appId 静默。
+   * - 仅 application（Q3）：host 自写仍视为外部变更（system 不短路）。
+   * - 不挂 ctx（Q11）：adapter 内部 helper，state 公共面仍由 ctx.state.set 主导。
+   *
+   * C3.2 调整：去 prefix 限制——三 adapter（Vue3/Vue2/React）都消费同一 helper；
+   * 应用侧选择 key 范围（shared vs local）即可，`local:` 空间仍走 state.set/get 权限边界。
+   */
+  bindLocal<T>(ctx: Context, key: string, appId: string): { get(): T; set(v: T): void } {
+    return {
+      get: () => this.get(key, { appId }) as T,
+      set: (v: T) => {
+        this.selfWriting = true
+        try {
+          this.set(key, v, { appId })
+        } finally {
+          this.selfWriting = false
+        }
+      },
+    }
+  }
+
+  /**
    * 按键集合快照（lifecycle §5.3 state 模式 / ADR-0023 恢复兜底）：返回 `{value, version}`；
    * 未存储键 version=0、value undefined（如实缺失，不伪装）。系统身份（宿主/编排层用）。
    */
@@ -430,7 +467,12 @@ export class StateService extends Service<StateConfig> {
   watch(ctx: Context, key: string, fn: (value: unknown) => void, options: WatchOptions = {}): () => void {
     // 归因：显式 appId > 调用方 fiber 名（应用插件名）；root ctx（fiber 名 'root'）= 系统观察者不受应用挂起影响
     const fiberName = ctx.fiber.name
-    const record: WatchRecord = { appId: options.appId ?? (fiberName !== 'root' ? fiberName : null), key }
+    const record: WatchRecord = {
+      appId: options.appId ?? (fiberName !== 'root' ? fiberName : null),
+      key,
+      // C3 wiring Q11：短路 self-write 仅在显式 opt-in（adapter helper 默认走框架自身 same-value 短路）
+      filterSelfWrite: options.filterSelfWrite === true,
+    }
     const list = this.watchers.get(ctx) ?? []
     list.push(record)
     this.watchers.set(ctx, list)
@@ -447,6 +489,9 @@ export class StateService extends Service<StateConfig> {
       if (!matchKey(key, payload.key, payload.path)) return // 键过滤（前缀/点分路径，双向）
       if (record.appId && this.suspendedApps.has(record.appId)) return // 挂起不推送（ADR-0023）
       if (record.appId && !this.canRead(payload.key, record.appId)) return // 投递也过读权限（fail-closed）
+      // C3 wiring：bindLocal 上下文（self-writing flag）静默自身写回环
+      // （仅 record.filterSelfWrite true 时启用；公共 watch 默认不过滤以保留框架 same-value 行为）
+      if (record.filterSelfWrite && this.selfWriting && record.appId && payload.source === record.appId) return
       // 子路径观察者取子路径值（根提交整体替换子树，按 watched 键下钻）
       fn(watchedValue(key, payload.key, payload.value))
     })

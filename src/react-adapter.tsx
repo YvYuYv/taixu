@@ -31,9 +31,12 @@ export function useSharedState<T>(key: string): [T, (v: T) => void] {
   const { ctx, appId } = useCordis()
   const [value, setValue] = useState<T>(() => ctx.state.get(key, { appId }) as T) // 首读带归因（与投递检查对齐，fail-closed）
   useEffect(() => {
-    // 组件级订阅（hook 内自管理）：卸载经退订句柄归还（state.watch 返回 off）
-    return ctx.state.watch(ctx, key, (v) => setValue(v as T))
-  }, [ctx, key])
-  const set = useCallback((v: T) => ctx.state.set(key, v, { appId }), [ctx, key, appId])
-  return [value, set]
+    // 组件级订阅（hook 内自管理）：卸载经退订句柄归还（state.watch 返回 off）。
+    // React 与 Vue 不同：React useState setState 自带 diff 短路，所以这里不 opt-in filterSelfWrite——
+    // 这样 bindLocal 的 self-writing flag 检测不到（因为不 opt-in），setValue 同步被调，触发 re-render。
+    return ctx.state.watch(ctx, key, (v) => setValue(v as T), { appId })
+  }, [ctx, key, appId])
+  // C3 wiring：set 经 bindLocal helper（自写短路 + 单一裁决点）
+  const local = ctx.state.bindLocal<T>(ctx, key, appId)
+  return [value, local.set]
 }
