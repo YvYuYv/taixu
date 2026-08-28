@@ -252,6 +252,19 @@ setIfMatch(key: string, expected: number, value: unknown, appId: string): number
 - 旧版 `setWithVersion` 先 set 后推进版本（通知期间读到新值+旧版本）--新版版本与值在 commit 内**原子推进**
 - `ConflictResolver` 四策略（last-write-wins / merge / custom / reject）真正接入写入管线（旧版全文档零调用点）；`merge` 不再用 `new Set` 破坏数组顺序（按业务注册的 merge 函数，默认 concat+去重保序）
 
+**落地形态（F2）**——实现在 `services/state/conflict.ts`（零状态纯策略，无 ctx 依赖）：
+
+- 注入面：`StateConfig.conflict`（`createCordis({ state: { conflict } })`）；缺省 `REJECT_RESOLVER`
+  = 抛 `VERSION_CONFLICT`（**P0 行为不变**，向后兼容）
+- 内置工厂：`lwwResolver()` / `mergeResolver(merge?)`；自定义实现 `ConflictResolver` 接口时
+  `strategy` 标记 `'custom'`；冲突上下文 `{ key, local:{value,version,source}, remote:{...} }` 全量透出
+- `defaultMerge` 语义：数组 = remote ++ local 后去重保序；纯对象 = **递归**逐字段合并
+  （remote 为底、local 覆盖；同名字段继续下探——仅浅合并会让数组字段被 local 整体覆盖、
+  丢失 remote 内容，与"concat+去重保序"意图相悖）；类型不一致 / 深度超限（>8 层，防深层
+  与环引用）= 回退 local（LWW，不做猜测性合并）
+- 消解值经**同一 commit 管线**提交：版本原子推进，通知 / 持久化 / 跨 tab 语义与普通写入一致；
+  权限裁决前置（`assertWritable`）——消解不绕过权限
+
 ## 五、权限与安全（与 security.md 联动）
 
 ```jsonc

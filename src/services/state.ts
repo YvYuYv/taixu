@@ -22,6 +22,7 @@ import {
   watchedValue,
   matchKey,
 } from './state/helpers'
+import { REJECT_RESOLVER, type ConflictResolver } from './state/conflict'
 
 interface StoredValue {
   value: unknown
@@ -77,6 +78,12 @@ export interface StateConfig {
   crossTab?: { channel?: CrossTabChannel; enabled?: boolean }
   /** 敏感键追加模式（永不持久化/跨 tab；默认 token/password/passwd/secret/credential/pii 子串） */
   sensitiveKeys?: string[]
+  /**
+   * 版本冲突消解策略（§4.5，F2）：`setIfMatch` 版本不匹配时调用。
+   * 缺省 `REJECT_RESOLVER` = 抛 VERSION_CONFLICT（P0 行为，向后兼容）；
+   * 宿主可注入 `lwwResolver()` / `mergeResolver()` / 自定义实现。
+   */
+  conflict?: ConflictResolver
 }
 
 /** 跨 tab 同步消息（§7.2：版本仲裁 + 回声过滤的字段基础） */
@@ -93,6 +100,8 @@ export class StateService extends Service<StateConfig> {
   // 基线 §2.3：state inject security（写入/读取裁决）+ monitor；不 inject lifecycle
   static inject = ['security', 'monitor']
 
+  /** 冲突消解器（§4.5）：构造期从 config 固定，运行期不可换（避免策略竞态） */
+  private readonly conflictResolver: ConflictResolver
   private store = new Map<string, StoredValue>()
   /** 深层代理缓存：root key -> { proxy, version }（版本推进换代际，身份稳定 §4.2） */
   private proxyCache = new Map<string, { proxy: unknown; version: number; ownerAppId: string | null }>()
@@ -109,6 +118,7 @@ export class StateService extends Service<StateConfig> {
 
   constructor(ctx: Context, config: StateConfig = {}) {
     super(ctx, 'state')
+    this.conflictResolver = config.conflict ?? REJECT_RESOLVER // §4.5 P0 默认 reject
     // 挂起感知（§4.3）：root 注册 + global 监听，不 inject lifecycle（基线 §2.3）
     ctx.on('app/suspend', (e) => {
       this.suspendedApps.add(instanceIdAppId(e.instanceId))
@@ -390,8 +400,10 @@ export class StateService extends Service<StateConfig> {
 
   /**
    * 乐观并发 CAS（§4.5）：版本匹配走唯一提交管线（版本+值原子推进）；
-   * 不匹配抛 VERSION_CONFLICT（P0 默认 reject 策略——四策略 ConflictResolver 属 P1，
-   * 接入点即此分支）。权限与 set 同一裁决（CAS 不绕过）。
+   * 不匹配则交由 `ConflictResolver`（四策略：reject / last-write-wins / merge / custom）。
+   * P0 默认 `REJECT_RESOLVER` = 抛 VERSION_CONFLICT（与引入策略前的既有行为一致）；
+   * 非 reject 策略的消解值经**同一 commit 管线**提交（版本原子推进，通知/持久化/跨
+   * tab 语义与普通写入一致）。权限与 set 同一裁决（CAS 不绕过，消解也不绕过）。
    */
   setIfMatch(key: string, expected: number, value: unknown, options: SetOptions = {}): number {
     this.assertWritable(key, options.appId)
@@ -401,7 +413,18 @@ export class StateService extends Service<StateConfig> {
     }
     const current = this.store.get(key)
     if (current?.version !== expected) {
-      throw new Error(`state: VERSION_CONFLICT on "${key}" (expected ${expected}, current ${current?.version ?? 0})`)
+      const source = options.appId ?? 'system'
+      const resolution = this.conflictResolver.resolve({
+        key,
+        local: { value, version: expected, source },
+        remote: { value: current?.value, version: current?.version ?? 0, source: current?.updatedBy ?? 'system' },
+      })
+      if (resolution.strategy === 'reject') {
+        throw new Error(
+          `state: VERSION_CONFLICT on "${key}" (expected ${expected}, current ${current?.version ?? 0})`,
+        )
+      }
+      return this.commit(key, resolution.value, { source, path: key })
     }
     return this.commit(key, value, { source: options.appId ?? 'system', path: key })
   }

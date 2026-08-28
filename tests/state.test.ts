@@ -6,7 +6,15 @@
  * §4.3（watch/ADR-0001）、§4.5（版本）、§五（权限联动）；ADR-0003（禁 isolate）。
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createCordis, defineApp, type PermissionRule } from '../src'
+import {
+  createCordis,
+  defineApp,
+  lwwResolver,
+  mergeResolver,
+  defaultMerge,
+  type PermissionRule,
+  type ConflictResolver,
+} from '../src'
 
 async function settle() {
   await Promise.resolve()
@@ -286,5 +294,95 @@ describe('setIfMatch 乐观并发 + batch 真原子（§4.4/4.5，A9）', () => 
     expect(hits).toEqual(['shared:cart', 'global:user']) // 每键一次
     expect(host.state.get('shared:cart')).toEqual({ items: [1, 3] })
     expect(host.state.get('global:user')).toEqual({ name: 'm' })
+  })
+})
+
+/**
+ * 版本冲突消解四策略（F2，state-sharing §4.5）：`setIfMatch` 版本不匹配时
+ * 交由 `StateConfig.conflict` —— P0 默认 reject（抛 VERSION_CONFLICT，向后兼容）；
+ * 宿主可换 LWW / merge / custom。非 reject 的消解值经同一 commit 管线提交。
+ */
+describe('冲突消解四策略（F2，§4.5）', () => {
+  it('默认 reject：版本不匹配抛 VERSION_CONFLICT 且值不变（P0 行为不变）', async () => {
+    const host = createCordis({ permissions: GRANTS })
+    await settle()
+    const v1 = host.state.set('shared:cart', { items: 1 }, { appId: 'app-cart' })
+    host.state.set('shared:cart', { items: 2 }, { appId: 'app-cart' }) // 抢先写入制造冲突
+    expect(() => host.state.setIfMatch('shared:cart', v1, { items: 99 }, { appId: 'app-cart' })).toThrow(
+      /VERSION_CONFLICT/,
+    )
+    expect(host.state.get('shared:cart', { appId: 'app-cart' })).toEqual({ items: 2 }) // 真值未被覆盖
+  })
+
+  it('last-write-wins：冲突时本地值覆盖，版本原子推进（同一 commit 管线）', async () => {
+    const host = createCordis({ permissions: GRANTS, state: { conflict: lwwResolver() } })
+    await settle()
+    const v1 = host.state.set('shared:cart', { items: 1 }, { appId: 'app-cart' })
+    const v2 = host.state.set('shared:cart', { items: 2 }, { appId: 'app-cart' }) // 远程推进到 v2
+
+    const v3 = host.state.setIfMatch('shared:cart', v1, { items: 99 }, { appId: 'app-cart' })
+    expect(v3).toBe(v2 + 1) // 版本在 commit 内原子推进（不是 v1+1）
+    expect(host.state.get('shared:cart', { appId: 'app-cart' })).toEqual({ items: 99 })
+  })
+
+  it('merge 默认：数组 concat + 去重保序（不用 new Set 打乱顺序）', async () => {
+    const host = createCordis({ permissions: GRANTS, state: { conflict: mergeResolver() } })
+    await settle()
+    const v1 = host.state.set('shared:cart', { items: ['a', 'b'] }, { appId: 'app-cart' })
+    host.state.set('shared:cart', { items: ['b', 'c'] }, { appId: 'app-cart' }) // 远程推进
+
+    // local ['a','b'] ++ remote ['b','c']，去重保序：remote 在前
+    host.state.setIfMatch('shared:cart', v1, { items: ['a', 'b'] }, { appId: 'app-cart' })
+    expect(host.state.get('shared:cart', { appId: 'app-cart' })).toEqual({ items: ['b', 'c', 'a'] })
+  })
+
+  it('merge 默认：纯对象 remote 为底、local 覆盖；类型不一致回退 local', async () => {
+    expect(defaultMerge({ b: 2 }, { a: 1, b: 0 })).toEqual({ a: 1, b: 2 }) // 浅层合并
+    expect(defaultMerge({ a: { list: [1, 2] } }, { a: { list: [2, 3] } })).toEqual({ a: { list: [2, 3, 1] } }) // 递归下探
+    expect(defaultMerge('local', { a: 1 })).toBe('local') // 类型不一致：不做猜测性合并
+    expect(defaultMerge([1, 2], [2, 3])).toEqual([2, 3, 1]) // 数组保序去重
+    // 深度超限（>8 层）：回退 local，避免深层/环结构把合并拖成 O(∞)
+    const deep = (n: number): unknown => (n === 0 ? [1] : { k: deep(n - 1) })
+    expect(defaultMerge(deep(12), deep(12))).toEqual(deep(12))
+  })
+
+  it('merge 自定义函数 + custom 策略：业务语义接管（如集合并集/计数器累加）', async () => {
+    // 自定义 merge：数组按元素求和（示意业务语义）
+    const sumMerge: ConflictResolver = {
+      resolve: (c) => {
+        const l = (c.local.value as { items: number[] }).items
+        const r = (c.remote.value as { items: number[] }).items
+        return { strategy: 'merge', value: { items: l.map((n, i) => n + (r[i] ?? 0)) } }
+      },
+    }
+    const host = createCordis({ permissions: GRANTS, state: { conflict: sumMerge } })
+    await settle()
+    const v1 = host.state.set('shared:cart', { items: [1, 2] }, { appId: 'app-cart' })
+    host.state.set('shared:cart', { items: [10, 20] }, { appId: 'app-cart' })
+    host.state.setIfMatch('shared:cart', v1, { items: [1, 2] }, { appId: 'app-cart' })
+    expect(host.state.get('shared:cart', { appId: 'app-cart' })).toEqual({ items: [11, 22] })
+
+    // custom 策略：冲突上下文（key/版本/source）透出，可按键定制
+    const seen: string[] = []
+    const recording: ConflictResolver = {
+      resolve: (c) => {
+        seen.push(`${c.key}:${c.local.version}->${c.remote.version}:${c.remote.source}`)
+        return { strategy: 'custom', value: c.remote.value }
+      },
+    }
+    const host2 = createCordis({ permissions: GRANTS, state: { conflict: recording } })
+    await settle()
+    const w1 = host2.state.set('shared:cart', { items: 1 }, { appId: 'app-cart' })
+    host2.state.set('shared:cart', { items: 2 }, { appId: 'app-cart' })
+    host2.state.setIfMatch('shared:cart', w1, { items: 99 }, { appId: 'app-cart' })
+    expect(seen[0]).toBe('shared:cart:1->2:app-cart') // 上下文完整
+    expect(host2.state.get('shared:cart', { appId: 'app-cart' })).toEqual({ items: 2 }) // custom 取 remote
+  })
+
+  it('消解不绕过权限：无写权应用冲突时仍被拒（CAS 与消解同一裁决）', async () => {
+    const host = createCordis({ permissions: GRANTS, state: { conflict: lwwResolver() } })
+    await settle()
+    const v1 = host.state.set('shared:cart', { items: 1 }, { appId: 'app-cart' })
+    expect(() => host.state.setIfMatch('shared:cart', v1, { items: 9 }, { appId: 'app-other' })).toThrow(/denied/)
   })
 })
