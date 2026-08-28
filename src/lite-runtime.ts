@@ -12,7 +12,7 @@
  * - heartbeat 应答：主框架侧 IframeBridge 周期 ping（service 'heartbeat'），
  *   本运行时应答——双向活性证据；失联由主框架侧清理（js-sandbox §五）
  */
-import type { Envelope } from './iframe-sandbox'
+import type { Envelope } from './services/sandbox'
 
 /** 传输抽象（真实环境 = frame 内 window.postMessage ↔ message 事件） */
 export interface LiteTransport {
