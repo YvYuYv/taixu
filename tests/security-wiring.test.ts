@@ -203,3 +203,49 @@ describe('审计补面（终检覆盖率）', () => {
     }
   })
 })
+
+/**
+ * 网络面覆盖面（F3，security §六 + js-sandbox §3.6）：
+ * XHR / WebSocket / EventSource 与 fetch **共用 `net:fetch:{origin}` 授权面**——
+ * 宿主一套规则覆盖全部网络出口（此前 XHR/ES 只有记账、不裁决，`networkAccess`
+ * 类承诺对 fetch 之外的网络面无法兑现）。
+ */
+describe('网络面覆盖面：XHR/WebSocket 同受 net:fetch 裁决（F3，§3.6）', () => {
+  it('XHR：白名单源正常 open；越源不 open + send 抛错（fail-closed）', async () => {
+    const host = createCordis({
+      permissions: [{ appId: 'x-app', allow: ['net:fetch:https://api.a.com'] }],
+      apps: [defineApp('x-app', () => ({ name: 'x-app', apply() {} }))],
+    })
+    await settle()
+    const inst = await host.lifecycle.mount('x-app', 'main')
+    const XHR = inst.sandbox!.proxy.XMLHttpRequest as new () => XMLHttpRequest
+
+    const allowed = new XHR()
+    allowed.open('GET', 'https://api.a.com/v1')
+    expect(allowed.readyState).toBe(1) // OPENED：白名单源真的 open 了
+
+    const denied = new XHR()
+    denied.open('GET', 'https://evil.com/x')
+    expect(denied.readyState).toBe(0) // UNSENT：越源未 open（fail-closed）
+    expect(() => denied.send()).toThrow(/denied/) // send 阶段抛错，应用侧症状明确
+  })
+
+  it('WebSocket：越源构造即拒（ws/wss 豁免 https-only 协议门，但仍受 origin 授权）', async () => {
+    const host = createCordis({
+      // ws://localhost:1 白名单：验证 ws 协议不被 https 门误杀（放行路径）
+      permissions: [{ appId: 'w-app', allow: ['net:fetch:ws://localhost:1'] }],
+      apps: [defineApp('w-app', () => ({ name: 'w-app', apply() {} }))],
+    })
+    await settle()
+    const inst = await host.lifecycle.mount('w-app', 'main')
+    const WS = inst.sandbox!.proxy.WebSocket as new (u: string) => WebSocket
+
+    // 越源：构造即抛（super 之前，未真实连接）
+    expect(() => new WS('ws://evil.example.com/sock')).toThrow(/denied/)
+
+    // 白名单 ws 源：通过协议门 + 授权（连接失败由 jsdom 异步报错，此处吸收）
+    const ok = new WS('ws://localhost:1/x')
+    ok.onerror = () => {}
+    ok.close()
+  })
+})

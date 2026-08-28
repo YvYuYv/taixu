@@ -281,24 +281,50 @@ export class SecurityService extends Service {
   }
 
   /**
-   * URL 白名单（§3.2）：协议门（https-only，http 需 allowInsecure；data:/blob:/javascript:/file:
-   * 一律拒绝）+ origin 授权（精确源 `net:fetch:{origin}` 同步判定；粗授权 `net:fetch` 经
-   * adjudicate——超时 fail-closed ADR-0024）。`new URL` 解析天然覆盖协议相对 URL（`//evil.com`）。
+   * URL 白名单（§3.2）：协议门 + origin 授权（精确源 `net:fetch:{origin}` 同步判定；
+   * 粗授权 `net:fetch` 经 adjudicate——超时 fail-closed ADR-0024）。
    */
   async sanitizeURL(appId: string, url: string): Promise<string | null> {
+    const parsed = this.safeUrl(url)
+    if (!parsed) return null
+    if (this.check(appId, `net:fetch:${parsed.origin}`).allowed) return parsed.href
+    const coarse = await this.adjudicate(appId, 'net:fetch') // 粗授权放行全部 https 源（受超时约束）
+    return coarse.allowed ? parsed.href : null
+  }
+
+  /**
+   * 网络出口**同步**裁决（js-sandbox §3.6 XHR/EventSource/WebSocket URL 白名单；
+   * security §六 覆盖面 = fetch 之外的网络面同样受裁决）。
+   *
+   * 与 `sanitizeURL` 同源（同一协议门 + 同一 `net:fetch:{origin}` 授权面——宿主一套
+   * 规则覆盖全部网络出口），但**同步**：XHR 的 open/send、EventSource 与 WebSocket 的
+   * 构造都是同步 API，无法 await `sanitizeURL` 的 adjudicate 超时路径（ADR-0024）。
+   * 代价：同步面拿不到粗授权 `net:fetch`（粗授权本质是异步裁决面），只认精确源授权。
+   *
+   * @param allowWs WebSocket 面（`ws:/wss:`）豁免 https-only 协议门——ws 是 WebSocket 的
+   *   合法协议，按 https 门判定会把全部 WebSocket 误杀；其余协议门语义不变。
+   */
+  checkNetUrl(appId: string, url: string, allowWs = false): boolean {
+    const parsed = this.safeUrl(url, allowWs)
+    if (!parsed) return false
+    return this.check(appId, `net:fetch:${parsed.origin}`).allowed
+  }
+
+  /**
+   * URL 安全解析（协议门）：`new URL` 解析天然覆盖协议相对 URL（`//evil.com`）；
+   * data:/blob:/javascript:/file: 与未显式允许的 http: 一律拒绝（fail-closed）。
+   */
+  private safeUrl(url: string, allowWs = false): URL | null {
     let parsed: URL
     try {
       parsed = new URL(url, document.baseURI)
     } catch {
       return null
     }
+    if (allowWs && (parsed.protocol === 'ws:' || parsed.protocol === 'wss:')) return parsed
     const insecureOk = parsed.protocol === 'http:' && this.cfg.allowInsecure === true
-    if (parsed.protocol !== 'https:' && !insecureOk) {
-      return null // data:/blob:/javascript:/file: 及未允许的 http: 一律拒绝
-    }
-    if (this.check(appId, `net:fetch:${parsed.origin}`).allowed) return parsed.href
-    const coarse = await this.adjudicate(appId, 'net:fetch') // 粗授权放行全部 https 源（受超时约束）
-    return coarse.allowed ? parsed.href : null
+    if (parsed.protocol !== 'https:' && !insecureOk) return null
+    return parsed
   }
 
   /**

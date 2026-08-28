@@ -3,7 +3,7 @@
  * 10 项逃逸向量为防呆性质，经主缝构造过于迂回，直测 sandbox 工厂。
  * 语义源：js-sandbox.md §3.1 逃逸向量表 + §3.2 双窗口 trap 语义 + §3.5/3.7。
  */
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { Context } from 'cordis'
 import { createCordis } from '../src'
 import { createSandbox, type Sandbox, type SandboxOptions } from '../src/sandbox'
@@ -444,5 +444,112 @@ describe('网络面记账补面（§3.6 过渡实现）', () => {
         expect(seen).toContain('sandbox-network-EventSource')
       }
     })()
+  })
+})
+
+/**
+ * 网络面 URL 裁决（F3，js-sandbox §3.6）：XHR/EventSource/WebSocket 经
+ * `adjudicateNetworkUrl` 注入位裁决——拒绝 fail-closed（不静默放行）；
+ * tracing 启用时 send 注入 traceparent（ADR-0022）。
+ */
+describe('网络面 URL 裁决（F3，§3.6）', () => {
+  /** 记账 ctx：只收集 violation rule（sandbox 不持有 cordis 服务） */
+  function accountingCtx(seen: string[]): Context {
+    return {
+      emit: (name: string, p: { rule: string }) => {
+        if (name === 'security/violation') seen.push(p.rule)
+      },
+    } as unknown as Context
+  }
+
+  it('XHR 拒绝：open 不生效 + send 抛错 + violation 上报', async () => {
+    const seen: string[] = []
+    const sb = await createSandbox(accountingCtx(seen), 'xhr-app', { adjudicateNetworkUrl: () => false })
+    const XHR = sb.proxy.XMLHttpRequest as new () => XMLHttpRequest
+
+    const xhr = new XHR()
+    xhr.open('GET', 'https://evil.example.com/api')
+    expect(xhr.readyState).toBe(0) // 未 open
+    expect(() => xhr.send()).toThrow(/denied/)
+    expect(seen).toContain('sandbox-network-xhr-denied')
+  })
+
+  it('XHR 放行：裁决位收到 (url, api)；未注入裁决位则放行（向后兼容）', async () => {
+    const calls: Array<[string, string]> = []
+    const sb = await createSandbox(accountingCtx([]), 'xhr-app', {
+      adjudicateNetworkUrl: (url, api) => {
+        calls.push([api, url])
+        return true
+      },
+    })
+    const XHR = sb.proxy.XMLHttpRequest as new () => XMLHttpRequest
+    const xhr = new XHR()
+    xhr.open('GET', 'https://api.example.com/v1')
+    expect(xhr.readyState).toBe(1) // OPENED
+    expect(calls).toEqual([['xhr', 'https://api.example.com/v1']])
+
+    // 未注入裁决位：降级为仅记账不拦截（测试/独立用法不阻断）
+    const plain = await createSandbox(accountingCtx([]), 'xhr-app')
+    const XHR2 = plain.proxy.XMLHttpRequest as new () => XMLHttpRequest
+    const xhr2 = new XHR2()
+    xhr2.open('GET', 'https://any.example.com/v1')
+    expect(xhr2.readyState).toBe(1)
+  })
+
+  it('tracing 启用时 XHR send 注入 traceparent（ADR-0022）；未启用不注入', async () => {
+    const proto = (globalThis.XMLHttpRequest as unknown as { prototype: { send: (b?: unknown) => void } }).prototype
+    const origSend = proto.send
+    proto.send = function () {} // 吸收真实网络（jsdom XHR 会真连）
+    try {
+      const enabled = await createSandbox(
+        { emit: () => {}, tracing: {} } as unknown as Context,
+        'tp-app',
+        { adjudicateNetworkUrl: () => true },
+      )
+      const XHR = enabled.proxy.XMLHttpRequest as new () => XMLHttpRequest
+      const headers: Record<string, string> = {}
+      const xhr = new XHR()
+      xhr.setRequestHeader = ((k: string, v: string) => {
+        headers[k] = v
+      }) as typeof xhr.setRequestHeader
+      xhr.open('GET', 'https://api.example.com/v1')
+      xhr.send()
+      expect(headers.traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/)
+
+      // 未启用 tracing：不注入（不给应用请求平白增加触发 CORS 预检的自定义头）
+      const disabled = await createSandbox({ emit: () => {} } as unknown as Context, 'tp-app', {
+        adjudicateNetworkUrl: () => true,
+      })
+      const XHR2 = disabled.proxy.XMLHttpRequest as new () => XMLHttpRequest
+      const headers2: Record<string, string> = {}
+      const xhr2 = new XHR2()
+      xhr2.setRequestHeader = ((k: string, v: string) => {
+        headers2[k] = v
+      }) as typeof xhr2.setRequestHeader
+      xhr2.open('GET', 'https://api.example.com/v1')
+      xhr2.send()
+      expect(headers2.traceparent).toBeUndefined()
+    } finally {
+      proto.send = origSend
+    }
+  })
+
+  it('EventSource 拒绝：构造抛错 + violation 上报（jsdom 无 ES，注入替身）', async () => {
+    class FakeEventSource {
+      constructor(public url: string) {}
+    }
+    vi.stubGlobal('EventSource', FakeEventSource)
+    try {
+      const seen: string[] = []
+      const sb = await createSandbox(accountingCtx(seen), 'es-app', {
+        adjudicateNetworkUrl: (url) => url.startsWith('https://ok.'),
+      })
+      const ES = sb.proxy.EventSource as new (u: string) => FakeEventSource
+      expect(new ES('https://ok.example.com/sse').url).toBe('https://ok.example.com/sse')
+      expect(() => new ES('https://evil.com/sse')).toThrow(/denied/)
+      expect(seen).toContain('sandbox-network-eventsource-denied')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

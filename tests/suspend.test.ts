@@ -266,7 +266,11 @@ describe('挂起队列（§5.5，ADR-0008/0015/0021）', () => {
 
 describe('WS 重连（§5.2-3，ADR-0017）', () => {
   it('挂起 close(1000) 记描述符；恢复框架自动重建连接（订阅由应用重建）', async () => {
-    const host = createCordis({ apps: [defineApp('w-app', () => ({ name: 'w-app', apply() {} }))] })
+    // F3 起 WebSocket 同受 net:fetch 裁决（security §六 覆盖面）——建连需显式授权
+    const host = createCordis({
+      permissions: [{ appId: 'w-app', allow: ['net:fetch:ws://localhost:1'] }],
+      apps: [defineApp('w-app', () => ({ name: 'w-app', apply() {} }))],
+    })
     await settle()
     const instance = await host.lifecycle.mount('w-app', 'main')
     const WS = instance.sandbox!.proxy.WebSocket as new (url: string) => object

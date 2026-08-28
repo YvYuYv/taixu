@@ -8,8 +8,11 @@
  * §3.7 存储命名空间、§四 生命周期接线（创建挂 fiber effect）。
  *
  * 边界声明：
- * - 网络面记账包装仍是**过渡实现**——§3.6 规定唯一链路是 bus.network 注入
- *   （scopedFetch 由 lifecycle 在 plugin() 前填充注入位），bus 落地（07 号票）后回收本层包装。
+ * - 网络面（XHR/WebSocket/EventSource）是**记账 + 裁决**包装：URL 经
+ *   `options.adjudicateNetworkUrl` 注入位裁决（lifecycle 接线 `security.checkNetUrl`；
+ *   同步面无法 await `sanitizeURL` 的 adjudicate 超时路径 ADR-0024），fetch 的唯一链路
+ *   仍是 bus.network（scopedFetch 注入位，ADR-0005）——两者共用 `net:fetch:{origin}`
+ *   授权面（security §六 覆盖面：一套规则覆盖全部网络出口）。
  * - **硬硬化已迁出** `services/harden.ts`（C2 wiring）：
  *   `harden` / `wrapEvalAccounting` / `controlledConstructor` / `ESCAPE_VECTOR_MATRIX`
  *   独立模块导出；sandbox 工厂仅 import 与消费。
@@ -29,6 +32,7 @@ import {
   isBlacklisted,
   NATIVE_UNBOUND,
 } from './services/harden'
+import { generateTraceId, generateSpanId, formatTraceparent } from './services/tracing'
 
 /** 沙箱配置：路由重定向与销毁回调由 lifecycle 注入（lifecycle 落地在 03 号票） */
 export interface SandboxOptions {
@@ -51,6 +55,16 @@ export interface SandboxOptions {
    *   （仅 lifecycle 路径需真实 reconnect，测试路径不触发也不需要）
    */
   suspendScope?: SuspendScope
+  /**
+   * 网络面 URL 裁决注入位（js-sandbox §3.6，security §六 覆盖面）：
+   * XHR（`open`）/EventSource（构造）/WebSocket（构造）经此回调裁决 URL，
+   * 返回 false = 拒绝（fail-closed：XHR 不 open 且 send 抛错，ES/WS 构造抛错）。
+   *
+   * - lifecycle 路径：接线 `ctx.security.checkNetUrl`（同步裁决——XHR 的 open/send 与
+   *   ES/WS 构造是同步 API，无法 await `sanitizeURL` 的 adjudicate 超时路径 ADR-0024）
+   * - 缺省（测试/独立用法）：降级为"仅记账不拦截"——保持向后兼容，不阻断既有用法
+   */
+  adjudicateNetworkUrl?: (url: string, api: 'xhr' | 'eventsource' | 'websocket') => boolean
 }
 
 /** 沙箱实例：proxy 即注入应用执行环境的 globalThis 替身 */
@@ -141,7 +155,19 @@ export async function createSandbox(
   const gatedObserver = <T extends abstract new (...args: never[]) => object>(raw: T): T =>
     suspendScope.registerObserver(raw)
 
-  /** WebSocket 包装构造器（记账 + SuspendScope.registerSocket 登记） */
+  /** 网络面裁决（§3.6）：未注入裁决位时降级为放行（仅记账，保持向后兼容） */
+  const adjudicateNet = (url: string, api: 'xhr' | 'eventsource' | 'websocket'): boolean =>
+    options.adjudicateNetworkUrl?.(url, api) ?? true
+
+  /**
+   * traceparent 注入源（ADR-0022 §3.6）：tracing 未启用则不注入——与 bus.network 链的
+   * tracing 懒取一致（未启用零开销，且不给应用请求平白增加触发 CORS 预检的自定义头）。
+   */
+  const tracingEnabled = (ctx as Context & { tracing?: unknown }).tracing !== undefined
+  const newTraceparent = (): string | null =>
+    tracingEnabled ? formatTraceparent(generateTraceId(), generateSpanId()) : null
+
+  /** WebSocket 包装构造器（§3.6：URL 裁决 + 记账 + SuspendScope.registerSocket 登记） */
   const wsConstructor = (): new (...args: unknown[]) => object => {
     const raw = Reflect.get(globalThis, 'WebSocket', globalThis) as
       | (new (...a: unknown[]) => object)
@@ -150,6 +176,11 @@ export async function createSandbox(
     const Wrapped = class extends raw {
       constructor(...args: unknown[]) {
         report('sandbox-network-WebSocket', { args: args.map(String).slice(0, 2) })
+        const url = String(args[0] ?? '')
+        if (!adjudicateNet(url, 'websocket')) {
+          report('sandbox-network-websocket-denied', { url })
+          throw new Error(`sandbox: WebSocket denied for "${url}" (origin not allowed)`)
+        }
         super(...(args as never[]))
         const sock = this as unknown as { url: string; readyState: number; close: (code?: number) => void }
         suspendScope.registerSocket({
@@ -158,6 +189,67 @@ export async function createSandbox(
           close: (code) => sock.close(code),
           readyState: () => sock.readyState,
         })
+      }
+    }
+    harden(Wrapped as unknown as Function, report)
+    return Wrapped
+  }
+
+  /**
+   * EventSource 包装构造器（§3.6）：URL 裁决 + 记账。
+   * EventSource 无 open 阶段（URL 只在构造期给定），裁决点只能是构造器——
+   * 拒绝即抛错（fail-closed，不给应用半开的对象）。
+   */
+  const esConstructor = (): new (...args: unknown[]) => object => {
+    const raw = Reflect.get(globalThis, 'EventSource', globalThis) as new (...a: unknown[]) => object
+    const Wrapped = class extends raw {
+      constructor(...args: unknown[]) {
+        report('sandbox-network-EventSource', { args: args.map(String).slice(0, 2) })
+        const url = String(args[0] ?? '')
+        if (!adjudicateNet(url, 'eventsource')) {
+          report('sandbox-network-eventsource-denied', { url })
+          throw new Error(`sandbox: EventSource denied for "${url}" (origin not allowed)`)
+        }
+        super(...(args as never[]))
+      }
+    }
+    harden(Wrapped as unknown as Function, report)
+    return Wrapped
+  }
+
+  /**
+   * XHR 包装构造器（§3.6）：open 裁决 URL（拒绝 → 不 open，send 抛错）、
+   * send 注入 traceparent（tracing 启用时）+ 记账。
+   *
+   * 裁决放在 open 而非构造：URL 在 open 才给定；open 未裁决通过则不真正 open，
+   * send 阶段统一抛错（应用侧症状明确，而非静默无响应）。
+   */
+  const xhrConstructor = (): new (...args: unknown[]) => XMLHttpRequest => {
+    const raw = Reflect.get(globalThis, 'XMLHttpRequest', globalThis) as new (...a: unknown[]) => XMLHttpRequest
+    const Wrapped = class extends raw {
+      #denied: string | null = null
+      override open(method: string, url: string | URL, ...rest: unknown[]): void {
+        const target = String(url)
+        if (!adjudicateNet(target, 'xhr')) {
+          this.#denied = target
+          report('sandbox-network-xhr-denied', { url: target })
+          return // 不 open（fail-closed：send 抛错，应用侧症状明确）
+        }
+        super.open(method, url, ...(rest as []))
+      }
+      override send(body?: Document | XMLHttpRequestBodyInit | null): void {
+        if (this.#denied !== null) {
+          throw new Error(`sandbox: XMLHttpRequest denied for "${this.#denied}" (origin not allowed)`)
+        }
+        const traceparent = newTraceparent()
+        if (traceparent !== null) {
+          try {
+            this.setRequestHeader('traceparent', traceparent) // 非 OPENED 状态抛错则跳过注入
+          } catch {
+            /* 未 open / 已 send：不注入即放行（trace 是增强语义，失败不应阻断业务） */
+          }
+        }
+        super.send(body)
       }
     }
     harden(Wrapped as unknown as Function, report)
@@ -306,19 +398,14 @@ export async function createSandbox(
         return wrapped
       }
       if (key === 'XMLHttpRequest' || key === 'WebSocket' || key === 'EventSource') {
-        // 向量 #8 过渡实现：记账包装（§3.6 规定唯一链路是 bus.network 注入，07 号票后回收）。
-        // WebSocket additionally 进 SuspendScope 断连名单（§5.2 五类注册之五：挂起 close(1000) 记录描述符、恢复重建）
-        if (typeof Reflect.get(globalThis, key, globalThis) !== 'function') return undefined // 宿主无此能力则如实缺失
+        // 网络面（js-sandbox §3.6；security §六 覆盖面 = XHR/WS/ES 与 fetch 同受裁决）：
+        // URL 裁决（拒绝 fail-closed 抛错）+ traceparent 注入 + 记账上报。
+        // WebSocket 另外进 SuspendScope 断连名单（§5.2 五类注册之五：挂起 close(1000)
+        // 记录描述符、恢复重建）。宿主无此能力则如实缺失（不伪造）。
+        if (typeof Reflect.get(globalThis, key, globalThis) !== 'function') return undefined
         if (key === 'WebSocket') return wsConstructor()
-        const raw = Reflect.get(globalThis, key, globalThis) as new (...a: unknown[]) => object
-        const Wrapped = class extends raw {
-          constructor(...args: unknown[]) {
-            report(`sandbox-network-${String(key)}`, { args: args.map(String).slice(0, 2) })
-            super(...(args as never[]))
-          }
-        }
-        harden(Wrapped as unknown as Function, report)
-        return Wrapped
+        if (key === 'EventSource') return esConstructor()
+        return xhrConstructor()
       }
       if (key === 'Worker' || key === 'SharedWorker') {
         // 向量 #7：Worker 构造经安全策略（记账包装；dedicated 默认允许、SharedWorker 告警）

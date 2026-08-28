@@ -287,7 +287,14 @@ export class SandboxService extends Service<Record<never, never>> {
     if (options.trust === 'third-party') {
       return this.createIframeSandbox(appId, options)
     }
-    return createSandbox(this.ctx, appId, options)
+    // 网络面 URL 裁决默认接线（js-sandbox §3.6，security §六 覆盖面）：
+    // XHR/EventSource/WebSocket 与 fetch 共用 `net:fetch:{origin}` 授权面。
+    // 调用方显式提供 adjudicateNetworkUrl 则优先（测试/宿主自定义策略）。
+    const adjudicateNetworkUrl =
+      options.adjudicateNetworkUrl ??
+      ((url: string, api: 'xhr' | 'eventsource' | 'websocket') =>
+        this.ctx.security.checkNetUrl(appId, url, api === 'websocket')) // ws/wss: 豁免 https-only 协议门
+    return createSandbox(this.ctx, appId, { ...options, adjudicateNetworkUrl })
   }
 
   /** iframe 沙箱工厂（C4 双方法独立签名，Q3 决策：保留双方法不合并 mode 开关） */

@@ -233,6 +233,18 @@ injectNetwork(appId: string) {
   this.fakeWindow.EventSource = this.scopedES(appId)
   this.fakeWindow.navigator.sendBeacon = this.scopedBeacon(appId)
 }
+```
+
+> **落地形态（F3）**：fetch 的唯一链路是 `bus.network`（scopedFetch 注入位，ADR-0005）；
+> XHR / EventSource / WebSocket 是**同步 API**，进不了异步链，改由本层包装经
+> `SandboxOptions.adjudicateNetworkUrl` 注入位同步裁决（security §6.2）：
+> - 裁决点：XHR 在 `open`（URL 此时才给定，拒绝 = 不 open 且 `send` 抛错）；
+>   ES / WS 在构造器（无 open 阶段，拒绝 = 构造抛错，不建立连接）
+> - 授权面与 fetch 共用 `net:fetch:{origin}`（宿主一套规则覆盖全部网络出口）；
+>   `ws:/wss:` 豁免 https-only 协议门
+> - traceparent 仅 tracing 启用时注入（未启用不注入：不给应用请求平白增加触发
+>   CORS 预检的自定义头）
+> - 注入位缺省（测试/独立用法）降级为"只记账不拦截"——保持向后兼容
 
 // 定时器：包装函数内部查挂起注册表（ADR-0032/0048）--appId 由沙箱实例创建期闭包捕获，不做运行时推断
 injectTimers(scope: SuspendScopeService, suspendRegistry: SuspendRegistry, appId: string) {

@@ -199,6 +199,12 @@ class NetworkGateway {
 
 - 覆盖面：fetch/XHR/WebSocket/EventSource/sendBeacon 全部经 js-sandbox 的 scoped 包装（旧版只拦 fetch，`networkAccess: 'blocked'` 承诺无法兑现--修复）
 - 落地形式（P1，`bus.network`）：链在 scopedFetch（ADR-0005 唯一链路）内执行——security 裁决前置链外（拒绝路径不进链，fail-closed 第一闸），链内 = tracing span（懒取，未启用无 span）-> 自定义中间件（`bus.network.intercept(appId, mw)` 按注册序，返回 disposer；应用销毁自动清理）-> monitor 计时（net_ms 成功 / net_err 失败 + capture 上报）-> 原生 fetch 终端；CSRF 头附加仍在裁决后链前（§七）
+- **非 fetch 网络面（js-sandbox §3.6，F3 落地）**：XHR / EventSource / WebSocket 是**同步 API**，无法进入 `bus.network` 异步链（也无法 await `sanitizeURL` 的 adjudicate 超时路径 ADR-0024）——改由 js-sandbox 的 scoped 包装经 `SandboxOptions.adjudicateNetworkUrl` 注入位**同步裁决**，授权面与 fetch 共用 `net:fetch:{origin}`（宿主一套规则覆盖全部网络出口）
+  - XHR：裁决点在 `open`（URL 此时才给定）；拒绝 = 不真正 open，`send` 抛错（应用侧症状明确，非静默无响应）
+  - EventSource / WebSocket：无 open 阶段，裁决点在构造器；拒绝 = 构造抛错（未建立连接）
+  - `ws:/wss:` 豁免 https-only 协议门（`security.checkNetUrl(appId, url, allowWs)`），但仍受 origin 授权约束
+  - 记账（`sandbox-network-*`）与裁决（`sandbox-network-*-denied`）分列：前者是可观测面，后者是拒绝面
+  - 代价：同步面拿不到粗授权 `net:fetch`（粗授权本质是异步裁决面），只认精确源授权
 
 ### 6.3 动态脚本加载（nonce + 白名单 + SRI，修复 ReferenceError 与绕过）
 
