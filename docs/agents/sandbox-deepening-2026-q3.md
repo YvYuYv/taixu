@@ -692,3 +692,68 @@ L4：devtools, hmr                            (→ lifecycle, monitor, bus, styl
 | A | F4 sourcemap 还原 | monitor `errors()` 已留接入点（"随宿主管线接入后在此层应用"） |
 | B | F5 SSR 水合 / F6 Angular 适配器 / F7 主题服务 / F8 Trusted Types / F9 PII 管道 / F10 时间旅行 / F11 切换事务 / F12 沙箱硬化 | 规范 P2 清单；F5 是唯一能拉开框架差距的大特性（需单独立项） |
 | C | 测试盲区（deps/lifecycle/monitor/security/scopedFetch 等无同名 test） | 非特性；做 F4 或新增 seam 时顺带补 |
+
+---
+
+## §23. F4 · sourcemap 还原管线（commit `3c68070`）
+
+> A 类候选（代码内已留接入点）收官：F1 / F3 / F2 / F4 全部落地。
+
+**friction**：`monitoring.md` §二 要求 capture 内 `sourcemap.rewrite(error.stack)`，
+§十 契约是「错误清单 sourcemap 已还原」；实现在 capture 直存原始 stack，
+`monitor.errors()` 注释自标「随宿主管线接入后在此层应用」——P1 未落地。
+
+**顺带发现的消费面缺口**：`DevToolsSnapshot.errors[]` 只映射
+`message/appId/phase`——**stack 根本没传给 DevTools**，即使还原了消费面也看不到。
+
+| 层 | 改动 |
+|---|---|
+| monitor | 新增 `SourcemapRewriter` 接口 + `MonitorConfig.sourcemap?` 注入位；capture **入库前**重写 stack |
+| devtools | `snapshot().errors[]` 补出 `stack` 字段（此前丢失，还原不可见） |
+| index | 导出 `SourcemapRewriter` 类型 |
+
+关键设计：
+- 还原点在 **capture 入库前**（§十「已还原」= `errors()` 直出结果，查询面不二次重写，
+  devtools 复用同一注入实例——唯一数据源，无第二套采集）
+- capture 是**同步**入口，故异步 `.map` 加载须由宿主预缓存后同步消费；缓存也归宿主
+  （map 解析结果可长期复用，monitor 不引入新状态——第三轮收敛原则）
+- 管线抛错 / 返回空值 → 降级原始 stack（不阻断错误采集，**不上报**——避免
+  monitor → security → monitor 回环）
+
+**兼容与契约**：未配 sourcemap 时行为完全不变；`DevToolsSnapshot.errors[]` 增加可选
+`stack` 字段（devtools.test.ts 严格断言已同步）。
+
+**测试**：新增 `tests/monitor-sourcemap.test.ts`（5 case，**顺带补 monitor 测试盲区**）——
+未配管线原始直出 / 入库前重写且查询面不二次重写 / `monitor/report` 事件与 `errors()`
+同源（无两套 stack）/ 管线抛错与返回空值均降级 / devtools 复用同管线。
+**负向验证**：rewriteStack 恒返回原始 stack → 3 红；已还原。
+
+### §23.1 A 类候选收官统计
+
+| 票 | 特性 | commit | 新增测试 | 破坏性 |
+|---|---|---|---|---|
+| F1 | bus 多实例精确定向 | `b119b41` | +4 | 否 |
+| F3 | XHR/ES/WS 网络裁决面 | `76f397d` | +6 | **是**（未授权网络面被拦） |
+| F2 | state 冲突消解四策略 | `f4e5ca9` | +6 | 否（默认 reject = 既有行为） |
+| F4 | sourcemap 还原管线 | `3c68070` | +5 | 契约字段新增（snapshot.errors.stack） |
+
+**43 文件 / 297 case 全绿 + typecheck 干净**
+
+### §23.2 剩余候选（B 类，规范 P2 清单——均为中大型，需立项决策）
+
+| # | 特性 | 来源 | 量级 |
+|---|---|---|---|
+| F5 | **SSR 水合** | route-adaptation §P2（router 服务端解析 → 槽位矩阵 hydration payload） | **大**（唯一能拉开框架差距的特性） |
+| F6 | Angular 适配器 | heterogeneous-loading §P2（standalone + AOT） | 中 |
+| F7 | 主题服务 + 冲突检测扫描 | style-isolation §P2 | 中 |
+| F8 | Trusted Types 全量 | security §P2 | 中 |
+| F9 | PII 管道 + 开销自测 | monitoring §P2 | 中 |
+| F10 | 服务端同步 + 时间旅行 | state-sharing §P2 | 大 |
+| F11 | 切换事务 mountHidden + 后台 TTL 补算 | lifecycle §P2 | 中 |
+| F12 | 原型 freeze + customElements 前缀注册 | js-sandbox §P2 | 中 |
+
+### §23.3 C 类（测试盲区，非特性）
+
+无同名 test 的模块：`deps` / `lifecycle` / `security` / `scopedFetch` /
+`document-proxy` / `storage`（`monitor` 已由 F4 补上 `monitor-sourcemap.test.ts`）。
+均为「经其他 test 间接覆盖」——非阻塞，做 B 类特性时顺带补对应 seam。
