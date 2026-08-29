@@ -936,3 +936,26 @@ iframe srcdoc）。负向验证：`toTrustedHTML` 的 `createHTML` 改为恒返�
 
 **49 文件 / 343 case 全绿 + typecheck 干净**。B 类剩余：F10 时间旅行 / F5 SSR 水合
 （已立项，阶段 1 实施中）/ F6 的 Vue2 与 AMD 命名空间子项。
+
+---
+
+## §27. F5 · SSR 水合阶段 1 落地（F5-01 / F5-02 / F5-03）
+
+> 立项（§25）后的实施。阶段 1 = 基础模式（主应用 SSR + 子应用 CSR）的框架侧全部能力。
+
+| 票 | commit | 内容 |
+|---|---|---|
+| 01 | `fd9052b` | `RouterConfig.initialUrl?`：解析源可注入（缺省回落 location，零变化）；注入后为**唯一源**——hydration 与 location 不再并存（无双源竞态 → 应用挂载恰好一次） |
+| 02 | `19e2a69` | `readHydrationPayload`（DOM 读取 + 形态校验，fail-closed null）+ `hydrationMismatch`（**以客户端 URL 为准**）；宿主接入 = \`initialUrl: mismatch ?? payload.url\` 一行 |
+| 03 | 核对 | **已天然满足，无需实现**——\`watch()\` 本是 reactive coeffect（ADR-0047 首跑同步取值），水合态下注册即拿到位置 |
+
+**关键设计修正（相对立项票 02 的原设想）**：**不做 initialOutlets 矩阵直注**——
+payload.outlets 仅供服务端/诊断对账，客户端矩阵仍从 initialUrl 单一源解析（否则重新
+引入 01 要消灭的双源竞态）；mismatch 新事件族需求随之消解（不新增契约）。
+
+**验收对照（spec §六）**：注入 payload 意图恰好一次 ✅ / 未注入行为不变 ✅（348 case
+全绿含全部既有用例）/ mismatch 以 URL 为准 + 端到端用例 ✅ / 首次 watch 直取 ✅（既有
+ADR-0047 语义）/ 解析单一来源 ✅（parsers.ts，无第二套）。
+
+**剩余**：04 同构 adopt（依赖应用侧生态推动，需先出适配指南）/ 05 文档同步已完成
+（route-adaptation §六/§七已标注）。

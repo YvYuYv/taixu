@@ -268,7 +268,7 @@ location / { try_files $uri $uri/ /index.html; }
 | CDN 失败重试 | deps 服务多源退避（heterogeneous-loading.md §十） |
 | base path 运行时可配 | `cordis.routes.json` 的 basePath 支持 `${env.BASE}` 占位，运行时由宿主注入 |
 | i18n 路由 | basePath 支持 locale 前缀模式（`/:locale/app1`），router 解析时剥离 |
-| SSR 水合 | router 服务端解析 URL -> 初始槽位矩阵注入 hydration payload；CSR 端首次 watch 直取（P2，与 heterogeneous-loading §SSR 衔接） |
+| SSR 水合 | router 服务端解析 URL -> 初始槽位矩阵注入 hydration payload；CSR 端首次 watch 直取（P2，与 heterogeneous-loading §SSR 衔接）<br>**阶段 1 已落地（F5-01/02/03）**：\`RouterConfig.initialUrl\`（解析源可注入，单一源无竞态）+ \`readHydrationPayload\`/\`hydrationMismatch\`（payload 读取 + 以客户端 URL 为准）；首次 watch 直取由 ADR-0047 首跑同步取值天然满足。阶段 2（同构 adopt）待应用侧生态推动 |
 
 ## 七、实施计划
 
@@ -278,7 +278,7 @@ location / { try_files $uri $uri/ /index.html; }
 | P0 | popstate 全链路 + history.state 快照恢复 |
 | P1 | 守卫 serial 管线 + 重定向上限 + Vue Router 4/3 桥接 |
 | P1 | 懒 outlet、scroll restoration、敏感 query 过滤 |
-| P2 | SSR 水合、i18n、base path 占位符 |
+| P2 | ~~SSR 水合阶段 1~~（F5 已落地）、i18n、base path 占位符 |
 
 ## 八、与旧文档差异一览
 
