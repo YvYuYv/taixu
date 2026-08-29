@@ -959,3 +959,52 @@ ADR-0047 语义）/ 解析单一来源 ✅（parsers.ts，无第二套）。
 
 **剩余**：04 同构 adopt（依赖应用侧生态推动，需先出适配指南）/ 05 文档同步已完成
 （route-adaptation §六/§七已标注）。
+
+---
+
+## §28. 收官批次（F6 子项 / F10 / F5-04）
+
+### §28.1 F6 子项 · Vue2 适配器 + AMD 命名空间（commit `ec34e64`）
+
+- **Vue2 适配器**（`vue2-adapter.ts`）：经 `deps.negotiate('vue', '^2')` 共享依赖仲裁
+  （框架不硬 import vue2——`^2` 与 Vue3 应用的 `^3` 互不重叠正是 §八 多版本共存核心）；
+  Vue 2 API 形态（`new Vue().$mount/$destroy`）；`$destroy` 不移除 `$el`（Vue 2 语义）
+  -> 适配器清空校验兑现重跑防双挂载义务
+- **AMD per-app 命名空间**（`amd-namespace.ts`）：`createAmdNamespace(appId)` 零状态
+  工厂——同名模块按命名空间隔离（两应用各 `define('vue')` 不撞单例）；重复注册与依赖
+  缺失**显式抛错**（fail-closed）；匿名模块不入 registry
+- **顺带修复 semver 简写盲区**（Vue2 适配器曝出）：`^2`/`~2.1` 缺省次修版本恒不匹配
+  -> 支持 npm 语义（`^M` -> `>=M.0.0 <M+1.0.0`；`~M.m` -> `<M.(m+1).0.0`；`~M` -> `<M+1.0.0`）
+
+### §28.2 F10 · 时间旅行（commit `684aa6e`）
+
+- `state/timeTravel.ts` 闭包工厂（第 10 个推广点）：环形缓冲默认 500 条，记录粒度 =
+  单键提交 `{ key, version, source, ts, value }`（**全量值快照非 diff**——回滚 O(1)）
+- 接线 commit 钩子（唯一数据源）；未启用零记账开销；`state.history()` 只读 +
+  `state.travelTo(version)` 经**同一 commit 管线**（回滚本身也入账，可再旅行回未来）
+- **默认禁用**（规范"仅开发模式"）；未启用 travelTo 抛错而非静默 no-op
+
+### §28.3 F5-04 · SSR 同构 adopt（commit `3a72b77`）
+
+**实现中发现的结构性问题**：lifecycle.mount 总是**新建空容器**——SSR 内容留在外层、
+应用挂进空容器，hydration 无从绑定。adopt 的本质不是"跳过渲染"，而是**容器复用**：
+
+| 层 | 落点 |
+|---|---|
+| lifecycle | `createOutletContainer` 检测宿主元素内已有 `data-tx-ssr="1"` 容器 -> **复用**（shadow 应用不做 adopt：shadowRoot 无法服务端预渲染） |
+| vue3 适配器 | 容器带标记 -> `createSSRApp`（hydration 绑定，复用 SSR 节点）；无标记 -> `createApp`（CSR 重建，既有行为） |
+| 降级 | 无标记 = 完整 CSR 挂载；任何一步不满足自然回落，不抛错不阻断 |
+
+容器标记约定 `data-tx-ssr="1"`（与 F11 `data-tx-mount-hidden` 同一标记约定族）。
+
+### §28.4 收官统计
+
+| 票 | commit | 新增文件 | +case | 特别产出 |
+|---|---|---|---|---|
+| F6 子项 | `ec34e64` | `vue2-adapter.ts` + `amd-namespace.ts` | 6 | **semver 简写盲区修复** |
+| F10 | `684aa6e` | `state/timeTravel.ts` | 4 | 闭包工厂第 10 个推广点 |
+| F5-04 | `3a72b77` | — | 2 | **容器复用 = adopt 的本质** |
+
+**52 文件 / 360 case 全绿 + typecheck 干净**。特性批次全部收口：
+A 类 4 票 + B 类 8 票 + F5 全部阶段。剩余均为生态推动项（应用侧同构改造、Svelte 适配、
+边缘 ESI P3）。
