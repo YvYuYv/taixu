@@ -57,3 +57,60 @@ describe('hydration 阶段 1：解析源可注入（F5-01）', () => {
     expect(intents).toEqual([expect.objectContaining({ appId: 'app-a', outlet: 'main' })])
   })
 })
+
+/**
+ * F5-02 · payload 读取与一致性校验：框架提供 `readHydrationPayload` /
+ * `hydrationMismatch` 纯 helper（只读不接——宿主把 payload.url 传给 initialUrl，
+ * 保持 F5-01 的单一源原则）；payload 形态不符 / 非法 JSON 一律 null（fail-closed
+ * 回落 location，启动不阻断）。
+ */
+import { readHydrationPayload, hydrationMismatch } from '../src'
+
+describe('hydration payload 读取（F5-02）', () => {
+  it('合法 payload：读出 url/outlets；形态不符 / 非法 JSON / 缺元素 -> null（fail-closed）', () => {
+    const script = document.createElement('script')
+    script.type = 'application/json'
+    script.id = 'tx-hydration'
+    script.textContent = JSON.stringify({ url: 'https://h.com/a', outlets: { main: '/a' } })
+    document.body.appendChild(script)
+    expect(readHydrationPayload()).toEqual({ url: 'https://h.com/a', outlets: { main: '/a' } })
+
+    script.textContent = '{"outlets":{}}' // 缺 url（形态不符）
+    expect(readHydrationPayload()).toBeNull()
+    script.textContent = 'not-json' // 非法 JSON（含 CSP 拦截等异常路径）
+    expect(readHydrationPayload()).toBeNull()
+    script.remove()
+    expect(readHydrationPayload()).toBeNull() // 元素缺失
+  })
+
+  it('mismatch：payload.url 与 location 不一致 -> 以客户端 URL 为准；一致 -> null', () => {
+    const payload = { url: 'https://h.com/stale' }
+    const fake = { href: 'https://h.com/fresh' }
+    expect(hydrationMismatch(payload, fake)).toBe('https://h.com/fresh') // 客户端为准
+    expect(hydrationMismatch(payload, { href: 'https://h.com/stale' })).toBeNull()
+  })
+
+  it('端到端：宿主读 payload -> mismatch 以客户端为准 -> 传 initialUrl，意图恰好一次', async () => {
+    const script = document.createElement('script')
+    script.type = 'application/json'
+    script.id = 'tx-hydration'
+    script.textContent = JSON.stringify({ url: 'https://h.com/app-a' })
+    document.body.appendChild(script)
+    window.history.replaceState(null, '', '/app-a') // 客户端实际地址
+
+    const payload = readHydrationPayload()!
+    const mismatch = hydrationMismatch(payload, window.location)
+    const intents: MountIntent[] = []
+    createCordis({
+      // mismatch -> 以客户端 URL 为准（而非 payload.url）
+      router: { initialUrl: mismatch ?? payload.url },
+      routes: [{ basePath: '/app-a', appId: 'app-a' }],
+      apps: [defineApp('app-a', () => ({ name: 'app-a', apply() {} }))],
+      onResolve: (intent) => intents.push(intent),
+    })
+    await settle()
+    script.remove()
+    expect(mismatch).toBe(window.location.href) // 不一致被捕获
+    expect(intents).toEqual([expect.objectContaining({ appId: 'app-a', outlet: 'main' })]) // 恰好一次
+  })
+})

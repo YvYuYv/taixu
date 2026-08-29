@@ -49,6 +49,8 @@ export { RouterService } from './services/router'
 export type { RouteRule, RouterConfig, GuardResult, MountIntent, IntersectionObserverLike } from './services/router'
 export { ThemeService } from './services/theme'
 export { freezePrototypes, DEFAULT_FREEZE_TARGETS } from './services/harden'
+/** SSR 水合（route-adaptation §六，F5 阶段 1）：宿主读 payload -> initialUrl 单一源接入 */
+export { readHydrationPayload, hydrationMismatch, type HydrationPayload } from './services/router/hydration'
 export type { ThemeConfig, ThemeTokens } from './services/theme'
 export { StateService } from './services/state'
 export type { StateConfig, PersistConfig, CrossTabChannel } from './services/state'
