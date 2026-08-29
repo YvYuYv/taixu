@@ -57,6 +57,12 @@ export interface AppInstance {
 export interface MountOptions {
   signal?: AbortSignal
   config?: unknown
+  /**
+   * 隐藏挂载（§3.3 切换事务，F11）：容器先以 `display:none` 入 DOM，目标应用挂载
+   * 完成后由 `lifecycle.reveal(instanceId)` 显示——消除"卸 A 挂 B"期间的闪烁与
+   * 中间态（B 失败也不留悬空窗口）。宿主/普通 mount 缺省 false（行为不变）。
+   */
+  mountHidden?: boolean
 }
 
 export interface RecoveryConfig {
@@ -174,7 +180,11 @@ export class LifecycleService extends Service<LifecycleConfig> {
     // 容器在事务开头（首个 await 前）创建：async 函数体第一个 await 即让出，
     // 后续步骤均在微任务批次恢复；容器在 sandbox.create 前就位即不再触发
     // sandbox-missing-container 降级（js-sandbox §3.5 scoped 查询边界 = 容器）
-    const container = this.createOutletContainer(outlet, this.ctx.deps.manifest(appId)?.shadow === true)
+    const container = this.createOutletContainer(
+      outlet,
+      this.ctx.deps.manifest(appId)?.shadow === true,
+      options.mountHidden === true, // §3.3 切换事务：隐藏入 DOM，reveal 后显示（F11）
+    )
     this.ctx.emit('app/loading', { appId, instanceId, signal })
 
     let stage: 'load' | 'activate' = 'load' // 阶段跟踪：loadApp 之前 = load（资源期）；之后 = activate（激活期）
@@ -336,19 +346,39 @@ export class LifecycleService extends Service<LifecycleConfig> {
     el.appendChild(retry)
   }
 
-  /** 容器创建唯一路径（heterogeneous §4.3）：宿主节点先入 DOM 再返回容器。
+  /**
+   * 容器创建唯一路径（heterogeneous §4.3）：宿主节点先入 DOM 再返回容器。
    * shadow = true（style-isolation §4.1 Shadow DOM 路线）：宿主挂 open shadowRoot，
-   * 返回 shadow 内的渲染容器（天然样式边界——挂起随宿主摘除，scoped 样式一并缓存） */
-  createOutletContainer(outlet: string, shadow = false): HTMLElement {
+   * 返回 shadow 内的渲染容器（天然样式边界——挂起随宿主摘除，scoped 样式一并缓存）
+   *
+   * @param hidden 隐藏入 DOM（§3.3 切换事务，F11）：容器以 `display:none` 挂载，
+   *   待切换事务收尾由 `reveal()` 显示——避免"卸 A 挂 B"期间的闪烁与中间态。
+   */
+  createOutletContainer(outlet: string, shadow = false, hidden = false): HTMLElement {
     const host = document.createElement('div')
     host.id = `tx-${outlet}`
     if (shadow) host.dataset.txShadow = '1'
+    if (hidden) setMountHidden(host, true)
     this.resolveOutletHost(outlet).appendChild(host)
     if (!shadow) return host
     const root = host.attachShadow({ mode: 'open' })
     const inner = document.createElement('div')
     root.appendChild(inner)
     return inner
+  }
+
+  /**
+   * 显示（§3.3 切换事务末步，F11）：`mountHidden` 挂载的应用在切换事务收尾后调用——
+   * 挂载完成后再显示，避免闪烁；**retire 失败也照常 reveal**（宁可旧应用残留，
+   * 不留空白悬空窗口——§3.3 要消除的正是这个）。
+   * @returns 实例是否存在（不存在返回 false，不抛）
+   */
+  reveal(instanceId: string): boolean {
+    const instance = this.instances.get(instanceId)
+    if (!instance) return false
+    const root = instance.container.getRootNode()
+    setMountHidden(root instanceof ShadowRoot ? (root.host as HTMLElement) : instance.container, false)
+    return true
   }
 
   private resolveOutletHost(outlet: string): HTMLElement {
@@ -471,9 +501,20 @@ export class LifecycleService extends Service<LifecycleConfig> {
       }
       return suspended
     }
-    const next = await this.mount(appId, outlet, options) // 新事务先行（§2.2 槽位串行）
-    if (current && current.instanceId !== next.instanceId) {
+    // 切换事务（§3.3，F11）：目标先**隐藏挂载** —— mountHidden 容器在 mount 期间不可见，
+    // 挂载成功后才处置当前应用、末步 reveal。由此消除"卸 A 挂 B"期间的闪烁与中间态，
+    // 且 B 挂载失败时当前应用仍在原位（不留悬空窗口）。
+    const next = await this.mount(appId, outlet, { ...options, mountHidden: true })
+    if (!current || current.instanceId === next.instanceId) {
+      this.reveal(next.instanceId) // 无让位方（空槽位切同应用）：直接显示
+      return next
+    }
+    try {
       await this.retireCurrent(current)
+    } finally {
+      // 无论如何新应用必须可见：retire 失败也照常 reveal（宁可旧应用残留，
+      // 不留空白悬空窗口——§3.3 要消除的正是这个）。错误照常上抛给调用方。
+      this.reveal(next.instanceId)
     }
     return next
   }
@@ -607,4 +648,15 @@ declare module 'cordis' {
   interface Context {
     lifecycle: LifecycleService
   }
+}
+
+/**
+ * 容器显隐（§3.3 切换事务，F11）：隐藏用 `display:none`，复位用 `''`
+ * ——置空即交还宿主样式表，不覆盖宿主 CSS。
+ * `data-tx-mount-hidden` 标记仅供诊断与测试断言，不参与布局。
+ */
+function setMountHidden(el: HTMLElement, hidden: boolean): void {
+  el.style.display = hidden ? 'none' : ''
+  if (hidden) el.dataset.txMountHidden = '1'
+  else delete el.dataset.txMountHidden
 }

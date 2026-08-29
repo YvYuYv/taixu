@@ -443,7 +443,22 @@ interface LifecycleConfig {
 | P0 | 事件契约接入（基线 §2.4）+ app/loading/ready/error |
 | P1 | SuspendScope（五类全局包装）+ 三模式保活 + LRU/内存水位 |
 | P1 | 分级挂起裁决（§5.1.1）+ 驱逐快照（§5.5）+ 错误恢复策略 |
-| P2 | 切换事务 mountHidden 优化、后台标签页 TTL 补算、DEADLOCK_SUSPECT 告警 |
+| P2 | ~~切换事务 mountHidden 优化~~（F11 已落地）、~~后台标签页 TTL 补算~~（已落地）、DEADLOCK_SUSPECT 告警 |
+
+**切换事务落地形态（F11）**：`MountOptions.mountHidden?` + `lifecycle.reveal(instanceId)`
+
+- `switch()` 三步：目标先 `mountHidden` 挂隐藏容器 → 挂载成功后才 `retireCurrent` →
+  末步 `reveal` 显示（消除"卸 A 挂 B"期间的闪烁与中间态，B 失败时 A 仍在原位不悬空）
+- `reveal` 置于 `finally`：**retire 失败也照常 reveal**（宁可旧应用残留，不留空白悬空窗口），
+  错误照常上抛调用方
+- 显隐目标 = shadow 宿主（shadowRoot.host）或容器本身；复位用 `display: ''`
+  （置空交还宿主样式表，不覆盖宿主 CSS）；`data-tx-mount-hidden` 标记仅供诊断
+- 普通 `mount` 不受影响（缺省 `mountHidden: false`）；宿主显式 `mountHidden: true`
+  时需自行 `reveal`（切换事务之外的用法）
+
+**后台标签页 TTL 补算（已落地）**：keepAlive 记录 `hiddenAt` / `hiddenTotal`，
+visibilitychange 驱动记账，`ttlElapsed()` 扣除后台隐藏时长（浏览器节流 setTimeout
+不可靠，故改记账补算而非计时暂停）。
 
 ## 十、与旧文档差异一览
 
