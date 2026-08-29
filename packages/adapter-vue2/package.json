@@ -1,0 +1,25 @@
+{
+  "name": "@taixu/adapter-vue2",
+  "version": "0.1.0",
+  "description": "Taixu Vue 2 适配器（经共享依赖 vue@^2 仲裁，与 Vue 3 多版本共存）",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/vue2-adapter.js",
+  "module": "./dist/vue2-adapter.js",
+  "types": "./dist/vue2-adapter.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/vue2-adapter.d.ts",
+      "import": "./dist/vue2-adapter.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup && tsc -p tsconfig.dts.json"
+  },
+  "dependencies": {
+    "@taixu/core": "^0.1.0"
+  }
+}

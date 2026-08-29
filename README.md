@@ -9,14 +9,18 @@
 
 ## 快速开始
 
+框架按包拆分发布（scope `@taixu`）——核心与适配器独立安装，按需取用：
+
 ```bash
-npm install @cordis-mf/taixu cordis
+npm install @taixu/core @taixu/adapter-vue3 cordis
+# 其他适配器：@taixu/adapter-react / adapter-vue2 / adapter-angular（实验性）
 ```
 
 ### 宿主接入（一行创建运行时）
 
 ```typescript
-import { createCordis, defineApp } from '@cordis-mf/taixu'
+import { createCordis, defineApp } from '@taixu/core'
+import { defineCordisApp } from '@taixu/adapter-vue3'
 
 const host = createCordis({
   outlets: { main: '#app-main', side: '#app-side' },
@@ -34,7 +38,8 @@ await host.lifecycle.switch('main', 'pay-app') // 切换事务：先挂 B（隐�
 ### Vue 3 应用接入（一行声明）
 
 ```typescript
-import { defineApp, defineCordisApp } from '@cordis-mf/taixu'
+import { defineApp } from '@taixu/core'
+import { defineCordisApp } from '@taixu/adapter-vue3'
 import App from './App.vue'
 
 export default defineApp('cart-app', () => defineCordisApp({ appId: 'cart-app', rootComponent: App }))
@@ -56,6 +61,18 @@ React / Angular / Vue 2 / legacy UMD 见[适配器指南](https://yvyuv.github.i
 | 🔒 **安全** | 权限裁决 fail-closed、URL 白名单、DOMPurify 真 sanitize + Trusted Types 纵深、KillSwitch 签名通道 |
 | ⏸️ **保活** | SuspendScope 五类全局包装（定时器/WS/rAF/RAF/事件）、LRU + 内存水位驱逐、驱逐快照暖启动 |
 | 🧊 **SSR 同构** | 容器复用 adopt + `createSSRApp` hydration 绑定，SSR 内容零闪烁接管 |
+
+## 包结构（npm 发布物）
+
+| 包 | 说明 | peer |
+|---|---|---|
+| [`@taixu/core`](./packages/core) | 8 服务 + 沙箱 + 主题/水合/PII/时间旅行 + AMD 命名空间 | — |
+| [`@taixu/adapter-vue3`](./packages/adapter-vue3) | Vue 3 适配器（含 SSR adopt） | vue ^3.2 |
+| [`@taixu/adapter-react`](./packages/adapter-react) | React 适配器（CordisProvider 注入） | react 17/18/19 |
+| [`@taixu/adapter-vue2`](./packages/adapter-vue2) | Vue 2 适配器（共享依赖仲裁，零框架依赖） | — |
+| [`@taixu/adapter-angular`](./packages/adapter-angular) | Angular 适配器（实验性，零框架依赖） | — |
+
+发布流程（changesets）：`npm run changeset` 记录变更 → `npm run version-packages` 消费版本 → `npm run release`（build + publish，需 npm 登录且已加入 @taixu org）。
 
 ## 目录结构
 

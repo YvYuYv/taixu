@@ -1,0 +1,28 @@
+{
+  "name": "@taixu/adapter-vue3",
+  "version": "0.1.0",
+  "description": "Taixu Vue 3 适配器（含 SSR adopt：容器 data-tx-ssr 标记自动走 createSSRApp hydration）",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/vue3-adapter.js",
+  "module": "./dist/vue3-adapter.js",
+  "types": "./dist/vue3-adapter.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/vue3-adapter.d.ts",
+      "import": "./dist/vue3-adapter.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup && tsc -p tsconfig.dts.json"
+  },
+  "dependencies": {
+    "@taixu/core": "^0.1.0"
+  },
+  "peerDependencies": {
+    "vue": "^3.2.0"
+  }
+}

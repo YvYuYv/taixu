@@ -6,3 +6,9 @@ coverage/
 .workbuddy/
 # 本地 issue tracker（per AGENTS.md："Issues 以本地 Markdown 文件形式追踪于 .scratch/<feature>/"）
 .scratch/
+
+# workspace 构建产物（发布时由 npm run build 生成）
+packages/*/dist
+
+# workspace 构建产物（发布时由 npm run build 生成）
+packages/*/dist

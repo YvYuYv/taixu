@@ -10,6 +10,20 @@ npm test            # 全量测试（vitest，360 case）
 npm run verify      # typecheck + 测试——任何代码改动后必跑，红灯不交差
 ```
 
+```bash
+npm run build       # 构建 5 个发布包（tsup + tsc dts 镜像 -> packages/*/dist）
+npm run changeset   # 记录变更（changesets）
+```
+
+**Monorepo 事实**：npm workspaces（packages/*）；发布物 = `@taixu/core` + 4 适配器包（scope `@taixu`，无 cordis 字样）；根包 `@taixu/monorepo` 为 private 不发布；`src/core.ts` 是 core 打包入口（全量聚合入口 `src/index.ts` 供开发/测试）；适配器 dts 用 tsc 全量镜像（tsup dts 看不到分散的 `declare module 'cordis'` 增强）；lz-string/dompurify 是 CJS，core 打包时内联（noExternal）。
+
+```bash
+npm run build       # 构建 5 个发布包（tsup + tsc dts 镜像 -> packages/*/dist）
+npm run changeset   # 记录变更（changesets）
+```
+
+**Monorepo 事实**：npm workspaces（packages/*）；发布物 = `@taixu/core` + 4 适配器包（scope `@taixu`，无 cordis 字样）；根包 `@taixu/monorepo` 为 private 不发布；`src/core.ts` 是 core 打包入口（全量聚合入口 `src/index.ts` 供开发/测试）；适配器 dts 用 tsc 全量镜像（tsup dts 看不到分散的 `declare module 'cordis'` 增强）；lz-string/dompurify 是 CJS，core 打包时内联（noExternal）。
+
 ## 工程事实（先读再动手）
 
 - **测试是语义源**：360 个 case 覆盖全部公开面；改行为前先看对应测试文件顶部的注释块（标注语义源 = 哪份规范的哪一节）

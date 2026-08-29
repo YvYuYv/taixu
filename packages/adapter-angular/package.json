@@ -1,0 +1,25 @@
+{
+  "name": "@taixu/adapter-angular",
+  "version": "0.1.0",
+  "description": "Taixu Angular 适配器（实验性）：standalone + AOT，每应用独立 ApplicationRef；@angular/core 经共享依赖仲裁获取",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/angular-adapter.js",
+  "module": "./dist/angular-adapter.js",
+  "types": "./dist/angular-adapter.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/angular-adapter.d.ts",
+      "import": "./dist/angular-adapter.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup && tsc -p tsconfig.dts.json"
+  },
+  "dependencies": {
+    "@taixu/core": "^0.1.0"
+  }
+}
