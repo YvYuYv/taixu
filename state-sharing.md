@@ -396,6 +396,20 @@ class CrossTabSync {
 ## 八、DevTools 联动
 
 - 时间旅行：history 环形缓冲（默认 500 条，含 version/source/ts），devtools 经 `monitor` 暴露的只读接口消费；`travelTo(version)` 仅在开发模式提供（生产禁用）
+
+**落地形态（F10，`services/state/timeTravel.ts` + `StateConfig.timeTravel?`）**：
+
+- 闭包工厂 \`createTimeTravel(capacity)\`（第 10 个推广点）：环形缓冲默认 500 条，
+  溢出覆盖最旧；记录粒度 = 单键提交 \`{ key, version, source, ts, value }\`
+  （**全量值快照非 diff**——回滚 O(1) 无需重放）
+- 接线：commit 钩子入账（唯一数据源，无第二套采集）；未启用 = 零记账开销
+- 查询面 \`state.history()\`（只读快照）+ \`state.travelTo(version)\`：恢复该 version
+  的键值，经**同一 commit 管线**（source='time-travel'，通知/持久化/跨 tab 语义一致；
+  回滚本身也入账，可再旅行回未来）
+- **默认禁用**（\`enabled\` 缺省 false）——规范"仅开发模式提供（生产禁用）"；
+  未启用时 travelTo 抛错而非静默 no-op（静默会让宿主误以为回滚成功）
+- 粒度说明：单键回滚已覆盖"误写回滚"主场景；整树快照回滚需全量克隆账本
+  （内存翻倍），不在本票
 - 状态树面板：按三层键空间分组渲染；敏感键掩码；变更流与 `state/changed` 一一对应
 
 ## 九、实施计划

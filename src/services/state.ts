@@ -23,6 +23,7 @@ import {
   matchKey,
 } from './state/helpers'
 import { REJECT_RESOLVER, type ConflictResolver } from './state/conflict'
+import { createTimeTravel, type TimeTravelHandle } from './state/timeTravel'
 
 interface StoredValue {
   value: unknown
@@ -84,6 +85,12 @@ export interface StateConfig {
    * 宿主可注入 `lwwResolver()` / `mergeResolver()` / 自定义实现。
    */
   conflict?: ConflictResolver
+  /**
+   * 时间旅行（state-sharing §八，F10）：history 环形缓冲 + `travelTo(version)`。
+   * **默认关闭（生产安全默认）**——规范明示 travelTo 仅开发模式提供；宿主开发环境
+   * 显式开启。capacity 默认 500。
+   */
+  timeTravel?: { enabled?: boolean; capacity?: number }
 }
 
 /** 跨 tab 同步消息（§7.2：版本仲裁 + 回声过滤的字段基础） */
@@ -102,6 +109,8 @@ export class StateService extends Service<StateConfig> {
 
   /** 冲突消解器（§4.5）：构造期从 config 固定，运行期不可换（避免策略竞态） */
   private readonly conflictResolver: ConflictResolver
+  /** 时间旅行账本（§八，F10）：null = 未启用（生产默认，commit 零记账开销） */
+  private readonly timeTravel: TimeTravelHandle | null
   private store = new Map<string, StoredValue>()
   /** 深层代理缓存：root key -> { proxy, version }（版本推进换代际，身份稳定 §4.2） */
   private proxyCache = new Map<string, { proxy: unknown; version: number; ownerAppId: string | null }>()
@@ -119,6 +128,10 @@ export class StateService extends Service<StateConfig> {
   constructor(ctx: Context, config: StateConfig = {}) {
     super(ctx, 'state')
     this.conflictResolver = config.conflict ?? REJECT_RESOLVER // §4.5 P0 默认 reject
+    this.timeTravel =
+      config.timeTravel?.enabled === true
+        ? createTimeTravel(config.timeTravel.capacity ?? 500) // §八：默认 500 条
+        : null
     // 挂起感知（§4.3）：root 注册 + global 监听，不 inject lifecycle（基线 §2.3）
     ctx.on('app/suspend', (e) => {
       this.suspendedApps.add(instanceIdAppId(e.instanceId))
@@ -399,6 +412,32 @@ export class StateService extends Service<StateConfig> {
   }
 
   /**
+   * 时间旅行查询面（§八，F10）：history 环形缓冲只读快照（时间序，最旧在前）。
+   * 未启用返回空数组。devtools/宿主经此消费——不新增采集循环（唯一数据源是 commit 钩子）。
+   */
+  history(): { key: string; version: number; source: string; ts: number; value: unknown }[] {
+    return this.timeTravel?.entries().slice() ?? []
+  }
+
+  /**
+   * 时间旅行回滚（§八，F10）：把 `version` 对应的键恢复为其当时值——经**同一 commit
+   * 管线**提交（source = 'time-travel'，通知/持久化/跨 tab 语义与普通写入一致；
+   * 回滚本身也入账，可"再旅行回未来"）。
+   *
+   * **生产禁用**（规范明示"仅开发模式"）：未启用 `timeTravel` 即抛错——不是静默
+   * no-op（静默会让宿主误以为回滚成功）。
+   * @returns 回滚后的新版本号
+   */
+  travelTo(version: number): number {
+    if (!this.timeTravel) {
+      throw new Error('state: travelTo requires timeTravel.enabled (dev-only feature, disabled in production by default)')
+    }
+    const entry = this.timeTravel.find(version)
+    if (!entry) throw new Error(`state: no history entry for version ${version}`)
+    return this.commit(entry.key, entry.value, { source: 'time-travel', path: entry.key })
+  }
+
+  /**
    * 乐观并发 CAS（§4.5）：版本匹配走唯一提交管线（版本+值原子推进）；
    * 不匹配则交由 `ConflictResolver`（四策略：reject / last-write-wins / merge / custom）。
    * P0 默认 `REJECT_RESOLVER` = 抛 VERSION_CONFLICT（与引入策略前的既有行为一致）；
@@ -513,6 +552,7 @@ export class StateService extends Service<StateConfig> {
       version,
     })
     this.onCommitHook(key, value, version, meta.source) // 持久化/跨 tab 钩子（§七）
+    this.timeTravel?.record(key, version, meta.source, value) // §八 时间旅行入账（F10）
     return version
   }
 

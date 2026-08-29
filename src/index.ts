@@ -56,6 +56,7 @@ export { StateService } from './services/state'
 export type { StateConfig, PersistConfig, CrossTabChannel } from './services/state'
 /** 版本冲突消解（state-sharing §4.5）：注入 StateConfig.conflict 替换默认 reject 策略 */
 export { lwwResolver, mergeResolver, defaultMerge, REJECT_RESOLVER } from './services/state/conflict'
+export type { TimeTravelEntry } from './services/state/timeTravel'
 export type { ConflictResolver, ConflictResolution, StateConflict } from './services/state/conflict'
 export type { WatchOptions as StateWatchOptions, GetOptions as StateGetOptions, SetOptions as StateSetOptions } from './services/state'
 export { BusService, parseTraceparent } from './services/bus'
