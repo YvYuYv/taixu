@@ -110,11 +110,17 @@ export async function createSandbox(
   // C2 wiring：report channel 走闭包（不再经 installHardenReport 模块单例 — race 修复）
   const container = options.container ?? null
   const tracker = new InjectedNodesTracker(report)
-    const sanitizeHTML = (html: string): string => {
-    // 真 sanitize（security §3.3）：security 就绪走 DOMPurify；未就绪 fail-closed 全量转义（默认参数兜底）
-    const security = (ctx as unknown as { security?: { sanitizeHTML?: (h: string) => string } }).security
-    return security?.sanitizeHTML ? security.sanitizeHTML(html) : html.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] as string)
-  }
+    const sanitizeHTML = (html: string): unknown => {
+      // 真 sanitize（security §3.3）：security 就绪走 DOMPurify；未就绪 fail-closed 全量转义（默认参数兜底）
+      // F8：Trusted Types 可用时，净化结果经 policy 包装为 TrustedHTML 再落 sink
+      //（`require-trusted-types-for 'script'` 下 sink 赋 string 会抛 TypeError）
+      const security = (ctx as unknown as {
+        security?: { sanitizeToTrustedHTML?: (h: string) => unknown; sanitizeHTML?: (h: string) => string }
+      }).security
+      if (security?.sanitizeToTrustedHTML) return security.sanitizeToTrustedHTML(html) // 净化 + TT 包装
+      if (security?.sanitizeHTML) return security.sanitizeHTML(html)
+      return html.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] as string)
+    }
   const docProxy = new DocumentProxy(container, tracker, () => proxy, report, sanitizeHTML)
   // 受控视图缓存：保证 document/head/body/localStorage 等访问的身份稳定（§3.5 单例原则）
   const stableViews = new Map<string, unknown>()

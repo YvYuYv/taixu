@@ -15,6 +15,7 @@ import { Service, type Context } from 'cordis'
 import '../events'
 import { createSandbox, type Sandbox, type SandboxOptions } from '../sandbox'
 import { createProbeApp } from '../probe'
+import { toTrustedHTML } from './security/trustedTypes'
 
 /**
  * 桥信封（communication-protocol §八 信封校验/nonce 防重放的最小面）
@@ -214,7 +215,10 @@ export async function createIframeSandbox(
   frame.setAttribute('referrerpolicy', 'no-referrer')
   if (options.csp) frame.setAttribute('csp', options.csp)
   frame.style.display = 'none'
-  frame.srcdoc = options.srcdoc ?? '<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>'
+  // F8（security §3.1 Trusted Types 纵深）：srcdoc 是 HTML sink——TT 可用时常量文档
+  // 也须经 policy 包装（内容无用户数据，但 sink 不接受裸 string）
+  const srcdoc = options.srcdoc ?? '<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>'
+  frame.srcdoc = toTrustedHTML(srcdoc) as string
 
   const loaded = new Promise<void>((resolve) => {
     frame.addEventListener('load', () => resolve(), { once: true })

@@ -2,6 +2,7 @@ import { Service, type Context } from 'cordis'
 import createDOMPurify from 'dompurify'
 import '../events'
 import { isIsolateAllowed, matchAction, readCookie } from './security/sanitizers'
+import { toTrustedHTML } from './security/trustedTypes'
 
 /** 权限规则：本地可判定（ADR-0051），deny-by-default */
 export interface PermissionRule {
@@ -46,6 +47,12 @@ export interface SecuritySanitizerConfig {
   sanitize?: { dangerousTags?: string[]; dangerousAttributes?: string[] }
   /** CSRF token cookie 名（§七 double-submit：服务端登录下发，默认 __Host-csrf；宿主侧配置——测试环境因 __Host- 前缀要求 Secure 而注入替名） */
   csrfCookieName?: string
+  /**
+   * Trusted Types 纵深（§3.1，F8）：`require-trusted-types-for 'script'` 下 HTML sink
+   * 只接受 TrustedHTML——净化结果需经 policy 包装才能落 sink。
+   * 能力缺失（Firefox/Safari/jsdom 无 `window.trustedTypes`）自动降级为纯 string。
+   */
+  trustedTypes?: { policyName?: string }
 }
 
 /**
@@ -339,6 +346,28 @@ export class SecurityService extends Service {
       FORBID_TAGS: [...(this.cfg.sanitize?.dangerousTags ?? [])],
       FORBID_ATTR: [...(this.cfg.sanitize?.dangerousAttributes ?? [])],
     }) as string
+  }
+
+  /**
+   * 净化 **并** 包装为 TrustedHTML（§3.1 Trusted Types 纵深，F8）：
+   * `require-trusted-types-for 'script'` 下 HTML sink 只接受 `TrustedHTML`，
+   * 直接赋净化后的 string 会抛 TypeError——故落 sink 前应走本方法而非 `sanitizeHTML`。
+   *
+   * - TT 可用：返回 `TrustedHTML`（净化在前、包装在后，顺序不可颠倒——policy 的
+   *   `createHTML` 是恒等函数，净化仍是 `sanitizeHTML` 的职责）
+   * - TT 不可用 / 策略创建失败：返回净化后的 string（行为与启用 TT 前一致）
+   *
+   * **DOMPurify 已内建 TT 支持**：`window.trustedTypes` 存在时它自建 `dompurify`
+   * 策略并直接返回 `TrustedHTML`——此时**不再二次包装**（否则会把 TrustedHTML 当
+   * string 再喂给 `createHTML`）。本方法的包装是兜底面：覆盖 DOMPurify 未返回
+   * TrustedHTML（版本/配置差异）与安全降级转义路径。
+   *
+   * @returns `TrustedHTML | string`——两种返回值都可直接落 HTML sink
+   */
+  sanitizeToTrustedHTML(html: string): TrustedHTML | string {
+    const clean = this.sanitizeHTML(html) as unknown
+    if (typeof clean !== 'string') return clean as TrustedHTML // 已是 TrustedHTML（DOMPurify 产物）
+    return toTrustedHTML(clean, this.cfg.trustedTypes?.policyName) as TrustedHTML | string
   }
 
   /** query 敏感参数过滤（route-adaptation §3.2）：黑名单键剥离（默认 token/_t/sign + 配置追加） */

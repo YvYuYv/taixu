@@ -28,8 +28,13 @@ export class DocumentProxy {
     private tracker: InjectedNodesTracker,
     private getSandboxProxy: () => unknown,
     private report: ReportFn,
-    /** HTML 净化钩子（security §3.3 真 sanitize）：应用经沙箱 document 的 HTML 写点全过净化 */
-    private sanitizeHTML: (html: string) => string = (html) => html.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] as string),
+    /**
+     * HTML 净化钩子（security §3.3 真 sanitize）：应用经沙箱 document 的 HTML 写点全过净化。
+     * F8：返回值可能是 `TrustedHTML`（宿主启用 Trusted Types 时）——两种形态都可直接落
+     * HTML sink，故类型是 `unknown` 而非 `string`。
+     */
+    private sanitizeHTML: (html: string) => unknown = (html) =>
+      html.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] as string),
   ) {}
 
   get proxy(): Document {
@@ -108,7 +113,8 @@ export class DocumentProxy {
             }
           }
           if (prop === 'insertAdjacentHTML') {
-            const raw = Reflect.get(target, prop, target) as (pos: never, html: string) => unknown
+            // F8：入参形态是 `string | TrustedHTML`（TT 可用时经 policy 包装），故按 unknown 透传
+            const raw = Reflect.get(target, prop, target) as (pos: never, html: unknown) => unknown
             return (pos: string, html: string) => {
               const result = raw.call(target, pos as never, sanitize(html))
               tracker.harvest(target as unknown as HTMLElement)

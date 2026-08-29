@@ -348,7 +348,26 @@ interface SecurityConfig {
 | P0 | URL/HTML 净化（默认拒绝）+ CSP nonce 注入链 |
 | P1 | SRI 签名清单 + NetworkGateway 挂 bus 链 + CSRF 服务端协议 |
 | P1 | KillSwitch（签名指令）+ 审计批量签名上报 + 敏感数据通道 |
-| P2 | Trusted Types 全量、iframe csp 属性、供应链 CI 集成 |
+| P2 | ~~Trusted Types 全量~~（F8 已落地）、iframe csp 属性、供应链 CI 集成 |
+
+**Trusted Types 落地形态（F8）**：`require-trusted-types-for 'script'` 下 HTML sink
+（`innerHTML` / `outerHTML` / `insertAdjacentHTML` / `srcdoc` 等）只接受 `TrustedHTML`，
+赋 string 抛 TypeError——故框架净化结果必须经 policy 包装才能落 sink。
+
+- 适配模块 `services/security/trustedTypes.ts`（零依赖纯模块 + 策略单例缓存）：
+  `trustedTypesAvailable()` / `htmlPolicy(name?)` / `toTrustedHTML(html, name?)`
+- 服务面 `security.sanitizeToTrustedHTML(html)`：**净化在前、包装在后**（顺序不可颠倒——
+  policy 的 `createHTML` 是恒等函数，净化仍是 `sanitizeHTML` 的职责）
+- **DOMPurify 已内建 TT 支持**：`window.trustedTypes` 存在时它自建 `dompurify` 策略并
+  直接返回 `TrustedHTML`——此时框架**不再二次包装**（否则把 TrustedHTML 当 string 再喂
+  `createHTML`）。框架侧包装是**兜底面**：覆盖 DOMPurify 未返回 TrustedHTML 的情形
+  （版本/配置差异）与安全降级转义路径
+- 接线点：沙箱 document 的 HTML sink trap（`sanitize` 回调）+ iframe `srcdoc`
+  （框架自身唯一真写点，常量文档也走包装）
+- 能力缺失降级（Firefox/Safari/jsdom 无 `window.trustedTypes`）：一律返回 string，
+  行为与启用 TT 前完全一致——TT 是纵深，不是必需依赖
+- 配置：`SecurityConfig.trustedTypes?: { policyName?: string }`（默认策略名 `taixu#html`；
+  策略创建失败（CSP 未允许该名）降级为不包装，不抛）
 
 ## 十四、与旧文档差异一览
 
