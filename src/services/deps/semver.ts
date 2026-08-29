@@ -10,6 +10,7 @@
  *
  * **已知盲区**（§七允许不引 node-semver）：
  * - 预发布之间不逐标识符比较（alpha/beta 判等）
+ * - 支持 `*`/`x` 通配符（任意版本；F6 曝出：此前 range:'*' 恒不匹配）
  * - OR（`||`）组合不支持
  */
 
@@ -41,6 +42,9 @@ function compareVersions(a: string, b: string): number {
 export function satisfies(version: string, range: string): boolean {
   return range.split(/\s+/).filter(Boolean).every((part) => {
     const pv = parseVersion(version)
+    // 通配符（任意版本）：deps §七 未列出，但 `*` 是共享依赖 range 的最常见写法——
+    // 此前落到精确比较恒 false，导致 `range: '*'` 的仲裁永远无匹配（F6 曝出）
+    if (part === '*' || part === 'x' || part === 'X') return true
     const caret = part.match(/^\^(\d+)\.(\d+)\.(\d+)$/)
     if (caret) {
       return pv[0] === Number(caret[1]) && compareVersions(version, part.slice(1)) >= 0

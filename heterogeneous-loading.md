@@ -91,6 +91,21 @@ export const reactAdapter: AdapterFactory<ReactRoot> = {
 ```
 
 - **Angular（可行性诚实化）**：要求子应用以 **standalone components + AOT** 构建产出，经 `createApplication()`（每应用独立 ApplicationRef，规避"每页面仅一个 platform"限制）；运行时 `@NgModule` JIT 方案废除（旧版方案依赖 JIT 装饰器 + reflect-metadata + 单 platform，实际不可行）。Angular 路线为 P2，对比表从"支持"改为"实验性"
+
+**落地形态（F6，`src/angular-adapter.ts`）**：`defineCordisAngularApp({ appId, rootComponent })`
+与 Vue/React 适配器同构（mount/unmount 包成**一次** effect、错误转发、重跑防双挂载），
+差异在 Angular 自身的两条约束：
+
+- **零硬依赖**：`@angular/core` 经 `deps.negotiate('@angular/core', range, { singleton: true, strict: true })`
+  共享依赖仲裁获取——框架不 import Angular（实验性路线不应让全体宿主承担其体积与版本约束）
+- **错误边界走 DI**：Angular 的错误出口是 `ErrorHandler` DI token，故在 `createApplication({ providers })`
+  阶段注入 -> `monitor.capture`（基线 §三 唯一错误入口）；不在 bootstrap 之后临时挂
+- **async effect 的静默失败必须显式化**：cordis 对 async effect 的错误是 `task.catch(logger.error)`
+  （宿主与监控都看不到）——适配器内 try/catch 先 `monitor.capture(phase:'activate')` 再上抛
+
+**顺带修复（F6 曝出）**：`deps/semver.ts` 的 `satisfies` 此前**不支持 `*` 通配符**
+（落到精确比较恒 false）——共享依赖声明"任意版本"时仲裁永远无匹配，strict 模式下宿主
+看到的是"依赖缺失"而非真正的版本问题。现支持 `*`/`x`/`X`。
 - **jQuery/原生**：直接 apply 内操作 DOM，全部写点经 ctx.effect
 
 ### 4.3 容器（修复 Shadow 分支不进 DOM）
@@ -299,7 +314,7 @@ iframe 沙箱（third-party 与版本分裂场景）的 `window` 是真实的另
 |------|--------|---------|-------|
 | 隔离 | Proxy（first-party）/ iframe（third-party + 版本分裂，ADR-0038） | Proxy+Snapshot | iframe |
 | 共享依赖 | importmap + SemVer 仲裁（分裂强制 iframe） | externals 约定 | iframe 天然隔离+proxy 注入 |
-| Angular | **实验性（standalone+AOT 路线，P2）** | 有限 | 支持 |
+| Angular | **实验性（standalone+AOT 路线，F6 已落地适配器）** | 有限 | 支持 |
 | 零改动 | **约定式近零改动**（一行 defineCordisApp 或 externals 重定向） | 接近零改动 | 接近零改动 |
 
 ## 十三、实施计划
@@ -311,7 +326,7 @@ iframe 沙箱（third-party 与版本分裂场景）的 `window` 是真实的另
 | P1 | 共享依赖 release/冲突硬失败/私有副本白名单、预加载、容灾重试 |
 | P1 | qiankun/wujie 兼容适配 |
 | P1 | iframe 精简运行时 + 代理 ctx 桥 + heartbeat 清理（§十一） |
-| P2 | Vue2/Angular standalone 路线、AMD 命名空间、SSR 同构 |
+| P2 | ~~Vue2/Angular standalone 路线~~（F6 已落地 Angular）、AMD 命名空间、~~SSR 同构~~（F5 已立项） |
 
 ## 十四、与旧文档差异一览
 
