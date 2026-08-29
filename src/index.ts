@@ -9,6 +9,7 @@ import { LifecycleService, type RecoveryConfig } from './services/lifecycle'
 import { KeepAliveService, type KeepAliveConfig, type KeepAliveHost } from './services/keepAlive'
 import { StyleService, type StyleConfig } from './services/style'
 import { ThemeService, type ThemeConfig, type ThemeTokens } from './services/theme'
+import { freezePrototypes } from './services/harden'
 import { RouterService, type RouteRule, type RouterConfig } from './services/router'
 import { StateService, type StateConfig } from './services/state'
 import type { TracingConfig } from './services/tracing'
@@ -47,6 +48,7 @@ export type { StyleAsset, StyleConfig, CSSStyleSheetLike } from './services/styl
 export { RouterService } from './services/router'
 export type { RouteRule, RouterConfig, GuardResult, MountIntent, IntersectionObserverLike } from './services/router'
 export { ThemeService } from './services/theme'
+export { freezePrototypes, DEFAULT_FREEZE_TARGETS } from './services/harden'
 export type { ThemeConfig, ThemeTokens } from './services/theme'
 export { StateService } from './services/state'
 export type { StateConfig, PersistConfig, CrossTabChannel } from './services/state'
@@ -101,6 +103,15 @@ export interface CreateCordisOptions {
   monitor?: MonitorConfig
   /** 主题配置（style-isolation §五，F7）：配置即初始主题 —— `--tx-*` 变量写点 */
   theme?: ThemeConfig
+  /**
+   * 原型守护（js-sandbox §3.3，F12）：createCordis 启动期冻结内建原型（默认集
+   * DEFAULT_FREEZE_TARGETS），阻断「应用侧 monkey-patch 原型影响所有应用」的污染向量。
+   *
+   * **默认关闭（与规范"默认冻结"的偏差）**：实测全量冻结与 cordis 运行时自身不兼容
+   * （cordis 内部存在对对象 constructor 的写点，属外部依赖不可修——81/343 用例失败）。
+   * 宿主显式开启前须完成自有兼容性验证（实验性，可用性优先）。
+   */
+  prototypeGuard?: { enabled?: boolean; targets?: readonly object[] }
   /** state 配置（持久化/跨 tab/敏感键，§七） */
   state?: StateConfig
   /** tracing 配置（span 缓冲容量，§八） */
@@ -200,6 +211,11 @@ function installCoreGuard(ctx: Context): void {
  */
 export function createCordis(options: CreateCordisOptions = {}): Context {
   const ctx = new Context()
+  // 原型守护（js-sandbox §3.3，F12）：**opt-in**（默认关闭，见 options 注释）——
+  // freeze 先于一切服务与应用加载（时序明确）
+  if (options.prototypeGuard?.enabled === true) {
+    freezePrototypes(options.prototypeGuard.targets)
+  }
   ctx.plugin(MonitorService, options.monitor)
   // isolate 白名单守卫（ADR-0010"仅允许两处"）：装在框架入口的 root ctx 上——
   // 非白名单标签（router-view/monitor 之外）拦截抛错 + violation 上报（fail-closed）

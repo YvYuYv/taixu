@@ -153,6 +153,21 @@ setupPrototypeGuard(ctx: Context) {
 }
 ```
 
+**落地形态（F12，`services/harden.ts` 的 `freezePrototypes` + `prototypeGuard`）**：
+
+- `DEFAULT_FREEZE_TARGETS`：Object/Array/Function/String/Number/Boolean/Date/RegExp/
+  Promise/Map/Set 共 11 个内建原型（"常见污染点"）
+- `freezePrototypes(targets?)`：幂等、进程级不可逆（规范明示页面即卸载无需恢复）、
+  须在应用加载前调用（createCordis 启动期，时序明确）
+- 接线：`createCordis({ prototypeGuard: { enabled, targets } })`
+
+> **⚠️ 与规范"默认冻结"的偏差（F12 实测）**：默认改为 **opt-in（关闭）**。
+> 实测全量冻结与 cordis 运行时自身不兼容——cordis 内部存在对对象 `constructor`
+> 的写点（外部依赖不可修），默认开启时 81/343 用例失败。按本节标题"可用性优先"
+> 收敛为：宿主显式开启前须完成自有兼容性验证（实验性）。
+> 另：customElements 前缀注册（向量 #9）此前已落地并有测试
+> （`tests/sandbox.test.ts:200`），本票不重复实现。
+
 - 以 `Object.freeze` 为主（静默失败模式抛 TypeError 且归因），**不再**复制 Object 造成 API 丢失
 - 类名混淆导致的 descriptor 键碰撞问题不存在（不再以 constructor.name 做键）
 - 需要猴子补丁的宿主（如 mock 场景）配置 `prototypeGuard: 'off'`

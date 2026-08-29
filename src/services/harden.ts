@@ -229,3 +229,38 @@ declare module 'cordis' {
     harden: HardenService
   }
 }
+
+// ============== 原型守护（js-sandbox §3.3，F12）==============
+
+/**
+ * 默认冻结目标（§3.3「常见污染点」）：应用侧最常被 monkey-patch 的内建原型。
+ * 宿主可用 `prototypeGuard.targets` 自定义（如需放过某原型——polyfill 兼容场景）。
+ */
+export const DEFAULT_FREEZE_TARGETS: readonly object[] = [
+  Object.prototype,
+  Array.prototype,
+  Function.prototype,
+  String.prototype,
+  Number.prototype,
+  Boolean.prototype,
+  Date.prototype,
+  RegExp.prototype,
+  Promise.prototype,
+  Map.prototype,
+  Set.prototype,
+]
+
+/**
+ * 原型冻结（js-sandbox §3.3「可用性优先的正确实现」）：**不复制 Object**——
+ * 旧版 `{ ...Object }` 展开只拷可枚举属性，`Object.keys` 直接变 undefined（子应用必挂）；
+ * 正确落法是直接**冻结原型本体**：freeze 后任何 `defineProperty` / 赋值（strict mode）
+ * 即抛错，错误可归因到触发应用（经 monitor capture）。
+ *
+ * - **幂等**：重复冻结无副作用（多 host / fiber 重跑安全）
+ * - **进程级策略**：freeze 不可逆（无 unfreeze）——规范明示「宿主销毁时无需恢复
+ *   （页面即卸载）」
+ * - **时序**：须在应用加载前调用（宿主启动期，createCordis 内）——先冻结再加载
+ */
+export function freezePrototypes(targets: readonly object[] = DEFAULT_FREEZE_TARGETS): void {
+  for (const proto of targets) Object.freeze(proto)
+}
