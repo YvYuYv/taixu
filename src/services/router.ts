@@ -58,6 +58,12 @@ export interface RouterConfig {
   lazyOutlets?: string[]
   /** IntersectionObserver 注入口（测试/宿主注入；缺省取 globalThis，能力缺失降级立即派发） */
   ioFactory?: new (callback: (entries: { isIntersecting: boolean; target: Element }[], observer: IntersectionObserverLike) => void, options?: unknown) => IntersectionObserverLike
+  /**
+   * 初始解析 URL 源（F5-01，route-adaptation §六 SSR 水合）：缺省取
+   * `window.location.href`（既有行为）；宿主/服务端水合管线注入后**替代** location
+   * 成为矩阵初始化的唯一源——杜绝 hydration 与 location 双源竞态（应用挂载两次）。
+   */
+  initialUrl?: string
 }
 
 /** IntersectionObserver 结构最小面（jsdom 无此 API；测试假件实现同一形状） */
@@ -97,6 +103,8 @@ export class RouterService extends Service<RouterConfig> {
   private widgetOutlets: Set<string>
   private onResolve: RouterConfig['onResolve']
   private outletSelectors: Record<string, string>
+  /** F5-01：初始解析 URL 源（缺省 undefined = 回落 window.location，既有行为） */
+  private initialUrl?: string
   /** Lazy outlet 账本（C14-B）：5 字段 + 3 方法自洽状态机已抽离到 router/lazyOutlet.ts；
    *   router 改持 ledger 引用，dispatchIntent / flushLazy 改 thin delegate。 */
   private lazyOutletLedger: LazyOutletLedgerHandle
@@ -107,6 +115,7 @@ export class RouterService extends Service<RouterConfig> {
     this.widgetOutlets = new Set(config.widgetOutlets ?? [])
     this.onResolve = config.onResolve
     this.outletSelectors = config.outlets ?? {}
+    this.initialUrl = config.initialUrl // F5-01：水合注入的解析源（缺省回落 location）
     // C14-B：lazy outlet 状态机抽离到 router/lazyOutlet.ts；router 改持 ledger 引用
     this.lazyOutletLedger = createLazyOutletLedger(
       config.ioFactory ?? (globalThis as unknown as { IntersectionObserver?: typeof config.ioFactory }).IntersectionObserver ?? null,
@@ -189,7 +198,7 @@ export class RouterService extends Service<RouterConfig> {
 
   /** 启动时从 URL 恢复全量矩阵（深链直达的读侧；挂载侧由宿主/lifecycle 驱动） */
   private initFromLocation(): void {
-    const url = new URL(window.location.href)
+    const url = new URL(this.initialUrl ?? window.location.href) // F5-01：源可注入，缺省 location
     this.outlets.set(MAIN_CHANNEL, { path: url.pathname, query: stripReserved(url.search) })
     for (const [key, value] of url.searchParams) {
       if (key.startsWith(RESERVED_PREFIX) && key !== MAIN_RESERVED_KEY) {
