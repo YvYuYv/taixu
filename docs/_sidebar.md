@@ -1,0 +1,33 @@
+- [首页](/)
+- **快速开始**
+  - [介绍](guide/intro.md)
+  - [快速开始](guide/getting-started.md)
+  - [异构应用接入](guide/adapters.md)
+- **核心指南**
+  - [生命周期与保活](guide/lifecycle.md)
+  - [路由矩阵与守卫](guide/router.md)
+  - [状态管理与时间旅行](guide/state.md)
+  - [通信总线](guide/bus.md)
+  - [JS 沙箱与安全](guide/sandbox.md)
+  - [样式隔离与主题](guide/style-theme.md)
+  - [可观测性](guide/observability.md)
+  - [SSR 水合与同构](guide/ssr.md)
+- **API**
+  - [createCordis 配置](api/create-cordis.md)
+  - [应用侧 API](api/app-side.md)
+- **深入**
+  - [架构总览](architecture.md)
+  - [常见问题](guide/faq.md)
+- **设计规范**（领域契约全文）
+  - [设计基线](specs/cordis-alignment.md)
+  - [生命周期管理](specs/lifecycle-management.md)
+  - [路由适配](specs/route-adaptation.md)
+  - [状态共享](specs/state-sharing.md)
+  - [通信协议](specs/communication-protocol.md)
+  - [JS 沙箱](specs/js-sandbox.md)
+  - [样式隔离](specs/style-isolation.md)
+  - [异构加载](specs/heterogeneous-loading.md)
+  - [监控](specs/monitoring.md)
+  - [安全](specs/security.md)
+  - [DevTools](specs/devtools.md)
+  - [模块交互](specs/module-interaction.md)

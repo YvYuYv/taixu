@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Taixu - 基于 Cordis 的微前端框架</title>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <meta name="description" content="Taixu：基于 Cordis IoC 的微前端框架——沙箱、样式隔离、保活、路由矩阵、共享依赖仲裁、SSR 水合">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
+  <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify@4/lib/themes/vue.css">
+  <style>
+    :root {
+      --theme-color: #4a6cf7;
+    }
+    .markdown-section h1 { font-weight: 600; }
+    .markdown-section h2 { border-bottom: 1px solid #eee; padding-bottom: .3rem; }
+    .sidebar > h1 { font-size: 1.4rem; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; background: #eef1ff; color: #4a6cf7; margin-right: 6px; }
+  </style>
+</head>
+<body>
+  <div id="app">加载中…</div>
+  <script>
+    window.$docsify = {
+      name: 'Taixu',
+      repo: 'YvYuYv/taixu',
+      loadSidebar: true,
+      loadNavbar: true,
+      subMaxLevel: 3,
+      maxLevel: 4,
+      auto2top: true,
+      search: {
+        placeholder: '搜索文档…',
+        noData: '没有找到相关结果',
+        depth: 3,
+      },
+      alias: {
+        '/specs/(.*)': 'https://raw.githubusercontent.com/YvYuYv/taixu/main/docs/specs/$1',
+      },
+    }
+  </script>
+  <script src="//cdn.jsdelivr.net/npm/docsify@4"></script>
+  <script src="//cdn.jsdelivr.net/npm/docsify/lib/plugins/search.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-typescript.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-json.min.js"></script>
+</body>
+</html>
