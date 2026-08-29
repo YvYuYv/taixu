@@ -27,3 +27,14 @@ describe('satisfies 通配符（F6 曝出）', () => {
     expect(satisfies('1.2.4', '1.2.3')).toBe(false)
   })
 })
+
+describe('satisfies 简写（F6 子项曝出）', () => {
+  it("'^2' / '~2.1' 缺省次修版本的写法（npm 语义）", () => {
+    expect(satisfies('2.7.16', '^2')).toBe(true) // >=2.0.0 <3.0.0
+    expect(satisfies('3.0.0', '^2')).toBe(false)
+    expect(satisfies('2.1.5', '~2.1')).toBe(true) // >=2.1.0 <2.2.0
+    expect(satisfies('2.2.0', '~2.1')).toBe(false)
+    expect(satisfies('2.7.16', '~2')).toBe(true) // ~M -> <(M+1).0.0
+    expect(satisfies('3.0.0', '~2')).toBe(false)
+  })
+})

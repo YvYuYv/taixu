@@ -45,17 +45,20 @@ export function satisfies(version: string, range: string): boolean {
     // 通配符（任意版本）：deps §七 未列出，但 `*` 是共享依赖 range 的最常见写法——
     // 此前落到精确比较恒 false，导致 `range: '*'` 的仲裁永远无匹配（F6 曝出）
     if (part === '*' || part === 'x' || part === 'X') return true
-    const caret = part.match(/^\^(\d+)\.(\d+)\.(\d+)$/)
+    // 简写支持（F6 子项曝出）：`^2` / `~2.1` 等缺省次修版本的写法——此前正则要求
+    // 完整三段，缺省即不匹配、落到精确比较恒 false
+    const caret = part.match(/^\^(\d+)(?:\.(\d+))?(?:\.(\d+))?$/)
     if (caret) {
-      return pv[0] === Number(caret[1]) && compareVersions(version, part.slice(1)) >= 0
+      const major = Number(caret[1])
+      return pv[0] === major && compareVersions(version, `${major}.${Number(caret[2] ?? 0)}.0`) >= 0
     }
-    const tilde = part.match(/^~(\d+)\.(\d+)\.(\d+)$/)
+    const tilde = part.match(/^~(\d+)(?:\.(\d+))?(?:\.(\d+))?$/)
     if (tilde) {
-      return (
-        pv[0] === Number(tilde[1]) &&
-        pv[1] === Number(tilde[2]) &&
-        compareVersions(version, part.slice(1)) >= 0
-      )
+      const major = Number(tilde[1])
+      const minor = Number(tilde[2] ?? 0)
+      // ~M.m -> <M.(m+1).0；~M（无次版本）-> <(M+1).0.0（npm 语义）
+      const upper = tilde[2] !== undefined ? `${major}.${minor + 1}.0` : `${major + 1}.0.0`
+      return compareVersions(version, `${major}.${minor}.0`) >= 0 && compareVersions(upper, version) > 0
     }
     const gte = part.match(/^>=(\d+\.\d+\.\d+)$/)
     if (gte) return compareVersions(version, gte[1]!) >= 0

@@ -70,6 +70,11 @@ export { defineCordisApp } from './vue3-adapter'
 export type { CordisAppOptions } from './vue3-adapter'
 /** Angular 适配器（heterogeneous-loading §4.2，P2 **实验性**：standalone + AOT 路线，F6） */
 export { defineCordisAngularApp } from './angular-adapter'
+/** Vue 2 适配器（heterogeneous-loading §4.2/§八 多版本共存，F6 子项）：经共享依赖 vue@^2 */
+export { defineCordisVue2App } from './vue2-adapter'
+export type { CordisVue2AppOptions, Vue2Module, Vue2Ctor, Vue2Instance } from './vue2-adapter'
+/** AMD per-app 命名空间（heterogeneous-loading §7.1，F6 子项）：legacy 路线同名模块按 appId 隔离 */
+export { createAmdNamespace, type AmdNamespace } from './amd-namespace'
 export type { CordisAngularAppOptions, AngularCoreModule, AngularApplicationRef } from './angular-adapter'
 export { useSharedState, defineSharedState } from './state-adapters'
 export { CordisProvider, useCordis, useSharedState as useReactSharedState } from './react-adapter'

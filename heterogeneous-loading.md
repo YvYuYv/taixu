@@ -90,6 +90,16 @@ export const reactAdapter: AdapterFactory<ReactRoot> = {
 }
 ```
 
+**Vue 2 落地形态（F6 子项，`src/vue2-adapter.ts`）**：`defineCordisVue2App({ appId, render, vueRange? })`
+与 Vue 3 / Angular 适配器同构（一次 effect、错误转发、重跑防双挂载），差异在：
+
+- **经共享依赖仲裁获取**：`deps.negotiate('vue', '^2')`——Vue 2 与 Vue 3 是 registry
+  两个条目（§八），框架不硬 import vue2（不让全体宿主承担体积；`^2` 与 Vue 3 应用的
+  `^3` 互不重叠正是多版本共存的核心）
+- **Vue 2 API 形态**：`new Vue({ render }).$mount(container)` / `$destroy()`（无
+  createApp）；错误边界经 `Vue.config.errorHandler`（实例创建前设置）
+- **$destroy 不移除 $el（Vue 2 语义）**——适配器清空校验确保重跑防双挂载义务兑现
+
 - **Angular（可行性诚实化）**：要求子应用以 **standalone components + AOT** 构建产出，经 `createApplication()`（每应用独立 ApplicationRef，规避"每页面仅一个 platform"限制）；运行时 `@NgModule` JIT 方案废除（旧版方案依赖 JIT 装饰器 + reflect-metadata + 单 platform，实际不可行）。Angular 路线为 P2，对比表从"支持"改为"实验性"
 
 **落地形态（F6，`src/angular-adapter.ts`）**：`defineCordisAngularApp({ appId, rootComponent })`
@@ -254,6 +264,12 @@ class DepsService extends Service {
 - **importmap 优先**；宿主已有 MF remote：适配层将 MF 共享模块注册为 registry 条目（`negotiate` 结果一致）
 - AMD/UMD 全局 `define('vue')` 撞名：legacy 路线中 AMD loader 经沙箱 per-app 命名空间包装（`__cordis_define__`），同名模块按 appId 隔离（P2）
 
+**落地形态（F6 子项，`src/amd-namespace.ts`）**：`createAmdNamespace(appId)` 零状态
+工厂——per-app 的 `define/require/registry` 三件套（AMD 常用子集：具名/匿名、依赖声明、
+参数重载归一）。同名模块按命名空间隔离（两应用各 `define('vue')` 不撞单例）；同命名
+空间重复注册与依赖缺失**显式抛错**（fail-closed 可观测，不静默覆盖）；匿名模块不入
+registry（与 AMD 语义一致）。注册面由沙箱 legacy exec 路线接线（`fakeWindow.define = ns.define`）。
+
 ## 八、多版本共存（Vue2 + Vue3 案例）
 
 - 共享声明互不重叠（`vue@^2` 与 `vue@^3` 是 registry 两个条目，importmap 双映射 `vue2`/`vue3` 别名）
@@ -326,7 +342,7 @@ iframe 沙箱（third-party 与版本分裂场景）的 `window` 是真实的另
 | P1 | 共享依赖 release/冲突硬失败/私有副本白名单、预加载、容灾重试 |
 | P1 | qiankun/wujie 兼容适配 |
 | P1 | iframe 精简运行时 + 代理 ctx 桥 + heartbeat 清理（§十一） |
-| P2 | ~~Vue2/Angular standalone 路线~~（F6 已落地 Angular）、AMD 命名空间、~~SSR 同构~~（F5 已立项） |
+| P2 | ~~Vue2/Angular standalone 路线~~（F6 全落地：Angular + Vue2）、~~AMD 命名空间~~（F6 子项）、~~SSR 同构~~（F5 已立项） |
 
 ## 十四、与旧文档差异一览
 
