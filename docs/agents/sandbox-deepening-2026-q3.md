@@ -821,3 +821,54 @@ iframe srcdoc）。负向验证：`toTrustedHTML` 的 `createHTML` 改为恒返�
 | F8 | `2f291b4` | `security/trustedTypes.ts` | `trusted-types.test.ts`（补 security 盲区） | 8 |
 
 **45 文件 / 313 case 全绿 + typecheck 干净**
+
+---
+
+## §25. F5 · SSR 水合立项（方案先行，未实现）
+
+> 大特性按用户节奏「可收口单票先行，SSR 水合最后立项」——本轮只出**方案**，不实现。
+> 完整规格与票拆分在**本地 issue tracker** `.scratch/ssr-hydration/`（按 AGENTS.md 约定，
+> `.scratch/` 受 .gitignore 保护、不进版本控制）；本节记录立项的**关键结论**以便追溯。
+
+### §25.1 现状调研（实测，非推测）
+
+| 项 | 状态 | 位置 | 对 SSR 的意义 |
+|---|---|---|---|
+| URL 解析 helpers | ✅ 纯函数、零 DOM 依赖 | `router/parsers.ts` | 服务端可直接复用——**杜绝双实现 drift** |
+| `__tx_outlets` 矩阵形态 | ✅ 已存在 | `router.ts:221-222`（popstate 快照恢复） | hydration payload **复用同形**，零新契约 |
+| 矩阵初始化 | ❌ **硬依赖 `window.location`** | `router.ts:119 initFromLocation()` | 核心障碍：需改造为**源可注入** |
+| 槽位消费面 | ✅ 已存在 | `router.watch()` + `outlet/changed:{outlet}` | 需补「首次 watch 直取」 |
+| 子应用服务端渲染 | ❌ 依赖应用侧 ESM + 无浏览器依赖 | 应用侧 | 阶段 2 前置，框架无法强制 |
+
+### §25.2 设计要点
+
+- **payload 形态**：`<script type="application/json" id="tx-hydration">`（JSON script 而非
+  全局变量——便于 CSP nonce）；`{ url, outlets }`，`outlets` 与 `__tx_outlets` 同形
+- **query 不进 payload**：query 由客户端从 URL 现取——避免敏感 query 落进 HTML
+  （security §3.2 `sanitizeQuery` 同源顾虑）
+- **CSR 单一入口**：hydration 与 location 只能有一个初始化入口，杜绝双源竞态（应用挂载两次）
+- **水合不一致 → 以客户端 URL 为准**（页面实际地址不可违背）+ violation 留痕，不阻断启动
+- **首次 watch 直取**：水合态下槽位已就绪，watch 注册即回调——否则应用「等首次
+  outlet/changed 再渲染」的写法永远等不到（首屏不挂载，SSR 白干）
+- **同构模式 adopt**：容器已有 SSR 内容（`data-tx-ssr="1"`）时走接管而非重建，避免
+  首屏闪烁（标记约定与 F11 的 `data-tx-mount-hidden` 同源）
+
+### §25.3 分期票（`.scratch/ssr-hydration/issues/`）
+
+| 票 | 内容 | 量级 | 前置 |
+|---|---|---|---|
+| 01 | router 解析源可注入（hydration 入口 + 回落 location） | 小 | — |
+| 02 | payload 读取 + 形态校验 + 一致性 mismatch 处理 | 中 | 01 |
+| 03 | 首次 watch 直取（水合态立即回调） | 小 | 02 |
+| 04 | 同构模式：SSR 内容 adopt 而非重建 | **大**（依赖应用侧改造） | 03 |
+| 05 | 测试（水合命中/回落/mismatch/首次 watch）+ 文档同步 | 中 | 01-04 |
+
+**建议节奏**：先做阶段 1（01+02+03+05），落地后出应用适配指南，再评估 04
+（同构模式依赖生态推动，非纯框架工作）。
+
+### §25.4 验收底线
+
+1. 注入 payload → 应用 `mount` 恰好一次（零双重挂载）
+2. **未注入 payload → 行为与改动前完全一致**（既有 313 case 全绿是底线）
+3. mismatch → 以 URL 为准 + 留痕，不阻断
+4. deletion test：服务端解析无第二套实现（`parsers.ts` 单一来源）
