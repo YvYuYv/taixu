@@ -757,3 +757,67 @@ L4：devtools, hmr                            (→ lifecycle, monitor, bus, styl
 无同名 test 的模块：`deps` / `lifecycle` / `security` / `scopedFetch` /
 `document-proxy` / `storage`（`monitor` 已由 F4 补上 `monitor-sourcemap.test.ts`）。
 均为「经其他 test 间接覆盖」——非阻塞，做 B 类特性时顺带补对应 seam。
+
+---
+
+## §24. F11 / F8 · 可收口单票（B 类前两票）
+
+### §24.1 F11 · 切换事务 mountHidden + reveal（commit `6c38081`）
+
+**friction**：`lifecycle-management.md` §3.3 的切换事务要求「先挂载目标（不可见容器/
+占位），成功后再处置当前应用，末步 reveal」——消除「卸 A 挂 B，B 失败页面悬空」与切换
+期间的闪烁/中间态。实现里 switch 虽已是「先 mount 后 retire」序，但目标应用**挂在同一
+可见容器**上：挂载期与让位期之间存在并排显示/闪烁的中间态。
+
+| 改动 | 内容 |
+|---|---|
+| `MountOptions.mountHidden?` | 容器以 `display:none` 入 DOM（缺省 false，普通 mount 不变） |
+| `createOutletContainer(outlet, shadow, hidden?)` | 第三参透传（public 签名向后兼容） |
+| `lifecycle.reveal(instanceId)`（新公开面） | 取消隐藏；未知 id 返回 false 不抛 |
+| switch 三步收口 | mountHidden 挂载 → retireCurrent → **finally 内 reveal** |
+
+- `reveal` 置于 `finally`：**retire 失败也照常 reveal**（宁可旧应用残留，不留空白悬空
+  窗口），错误照常上抛调用方
+- 显隐目标 = shadow 宿主（`shadowRoot.host`）或容器本身；复位用 `display: ''`
+  （置空交还宿主样式表，不覆盖宿主 CSS）；`data-tx-mount-hidden` 标记仅供诊断
+
+**顺带核对**：§3.3 同条的「后台标签页 TTL 补算」**已落地**（keepAlive `hiddenAt`/
+`hiddenTotal` 记账 + visibilitychange 驱动 + `ttlElapsed` 扣除，
+`tests/keepAlive.test.ts:266` 已覆盖）——本票不重复实现。
+
+**测试**：新增 `tests/switch-transaction.test.ts`（8 case，**顺带补 lifecycle 测试盲区**）。
+负向验证两组（去掉 mountHidden → 1 红；去掉两处 reveal → 4 红）。
+
+### §24.2 F8 · Trusted Types 纵深（commit `2f291b4`）
+
+**friction**：`security.md` §3.1 要求 TT 作为纵深（DOM XSS sink 拦截）且「框架自身的
+innerHTML 写点全部改为安全 API」。此前框架净化结果（DOMPurify 产物）是裸 string：
+宿主一旦启用 `require-trusted-types-for 'script'`，所有 HTML sink 赋值（应用 innerHTML /
+iframe srcdoc）都会抛 TypeError——**TT 纵深等于不可用**。
+
+| 层 | 改动 |
+|---|---|
+| 新模块 | `services/security/trustedTypes.ts`（零依赖纯模块 + 策略单例缓存） |
+| config | `SecurityConfig.trustedTypes?: { policyName? }`（默认 `taixu#html`） |
+| 服务面 | `security.sanitizeToTrustedHTML(html)`：净化在前、包装在后 |
+| 接线 | 沙箱 document 的 HTML sink trap + iframe `srcdoc`（框架自身唯一真写点） |
+
+**关键发现**：**DOMPurify 已内建 TT 支持**——检测到 `window.trustedTypes` 时它自建
+`dompurify` 策略并直接返回 `TrustedHTML`。故框架**不再二次包装**（否则把 TrustedHTML
+当 string 再喂 `createHTML`）；框架侧包装是**兜底面**，覆盖 DOMPurify 未返回
+TrustedHTML 的情形（版本/配置差异）与安全降级转义路径。
+
+**降级**：TT 不可用（Firefox/Safari/jsdom）或策略创建失败（CSP 未允许该名）→ 返回
+string，行为与启用 TT 前完全一致；不抛、不削弱净化。
+
+**测试**：新增 `tests/trusted-types.test.ts`（8 case：适配器直测 + 服务面 + 应用写点 +
+iframe srcdoc）。负向验证：`toTrustedHTML` 的 `createHTML` 改为恒返回入参 → 3 红。
+
+### §24.3 两票统计
+
+| 票 | commit | 新增模块 | 新测试文件 | +case |
+|---|---|---|---|---|
+| F11 | `6c38081` | — | `switch-transaction.test.ts`（补 lifecycle 盲区） | 8 |
+| F8 | `2f291b4` | `security/trustedTypes.ts` | `trusted-types.test.ts`（补 security 盲区） | 8 |
+
+**45 文件 / 313 case 全绿 + typecheck 干净**
