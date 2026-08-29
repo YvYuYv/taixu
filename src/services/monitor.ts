@@ -4,6 +4,8 @@ import type { AppPhase, ErrorMetric, Metric, Alert } from '../events'
 import type { Span, TracingService } from './tracing'
 import { createLeakDetector, type LeakDetectorHandle } from './leakDetector'
 import { createErrorLedger, type ErrorLedgerHandle } from './monitor/errorLedger'
+import { redactText, type PrivacyConfig } from './monitor/pii'
+export type { PrivacyConfig } from './monitor/pii'
 
 /** 告警规则（§七 AlertEngine）：condition 真实执行 + 冷却按 (appId, type) 维度 */
 export interface AlertRule {
@@ -30,6 +32,28 @@ export interface MonitorConfig {
    * 故异步的 map 加载须由宿主预缓存后同步消费。缺省 = 不还原（原始 stack，既有行为）。
    */
   sourcemap?: SourcemapRewriter
+  /**
+   * PII 脱敏（monitoring §六，F9）：错误 message/stack 入库前经脱敏管道
+   * （敏感键联动掩码；与 state `sensitiveKeys` 同族规则）。缺省 = 不脱敏（既有行为）。
+   */
+  privacy?: PrivacyConfig
+  /**
+   * 开销自测（monitoring §九，F9"观测者效应自测"）：按 `sampleEvery` 抽样测量
+   * 单事件处理耗时，超 `budgetMs` 的样本累计，按 `reportEveryMs` 周期上报
+   * `MONITOR_OVERHEAD` 告警（deny-by-default：宿主需在 alertRules 注册该类型）。
+   * 缺省 = 不自测（零开销）。
+   */
+  overhead?: OverheadBudget
+}
+
+/** 开销预算（§九：CPU < 1%、单事件处理 < 0.1ms） */
+export interface OverheadBudget {
+  /** 每 N 次采集采样一次（默认 100） */
+  sampleEvery?: number
+  /** 单事件处理预算 ms（默认 0.1） */
+  budgetMs?: number
+  /** 上报周期 ms（默认 30_000） */
+  reportEveryMs?: number
 }
 
 /**
@@ -123,12 +147,30 @@ export class MonitorService extends Service<MonitorConfig> {
   /** Error ledger 账本（C14-E）：errorTimes Map + errorLedger Array + JS_ERROR_RATE
    *   子系统已抽离到 monitor/errorLedger.ts；monitor 改持 errorLedger 引用。 */
   private errorLedger: ErrorLedgerHandle
+  /** PII 脱敏配置（§六，F9）：null = 不脱敏（既有行为） */
+  private privacy: PrivacyConfig | null
+  /** 开销自测（§九，F9）：null = 不自测（零开销） */
+  private overhead: Required<OverheadBudget> | null
+  /** 自测采样计数（每 sampleEvery 次采一次） */
+  private sampleTick = 0
+  /** 超预算样本数（周期内累计，上报后清零） */
+  private overBudget = 0
+  /** 最近一次上报时刻（0 = 未上报过） */
+  private overheadReportedAt = 0
 
   constructor(ctx: Context, config: MonitorConfig = {}) {
     super(ctx, 'monitor')
     this.rules = config.alertRules ?? {}
     this.bufferCap = config.metricsBuffer ?? 1024
     this.sourcemap = config.sourcemap ?? null // §二 sourcemap 还原管线（缺省不还原）
+    this.privacy = config.privacy ?? null // §六 PII 脱敏（缺省不脱敏）
+    this.overhead = config.overhead
+      ? {
+          sampleEvery: config.overhead.sampleEvery ?? 100,
+          budgetMs: config.overhead.budgetMs ?? 0.1,
+          reportEveryMs: config.overhead.reportEveryMs ?? 30_000,
+        }
+      : null // §九 开销自测（缺省不自测）
     this.leakDetector = createLeakDetector(config.leak)
     // C14-E：errorLedger 子系统抽离到 monitor/errorLedger.ts；monitor 改持 errorLedger 引用
     this.errorLedger = createErrorLedger({
@@ -246,12 +288,14 @@ export class MonitorService extends Service<MonitorConfig> {
   /** 唯一错误入口：appId 归因 + monitor/report 通知（fire-and-forget）+ 错误率计数——
    * C14-E：errorLedger.capture 消费账本；JS_ERROR_RATE 触发逻辑保留在 monitor（告警副作用）。 */
   capture(error: unknown, meta: { appId?: string; phase: AppPhase } = { phase: 'runtime' }): void {
+    const startedAt = this.overhead ? now() : 0 // §九 开销自测采样（未启用时零开销）
     const normalized = error instanceof Error ? error : new Error(String(error))
     const metric: ErrorMetric = {
       kind: 'error',
-      message: normalized.message,
+      // §六 PII 脱敏（F9）：入库前掩码敏感键值（脱敏失败不影响采集）
+      message: this.redact(normalized.message),
       // §二 sourcemap 还原（F4）：入库前重写，使 errors() 返回已还原堆栈（§十）
-      stack: normalized.stack === undefined ? undefined : this.rewriteStack(normalized.stack),
+      stack: normalized.stack === undefined ? undefined : this.redact(this.rewriteStack(normalized.stack)),
       appId: meta.appId,
       phase: meta.phase,
     }
@@ -261,6 +305,36 @@ export class MonitorService extends Service<MonitorConfig> {
     if (shouldAlert) {
       this.trigger({ type: 'JS_ERROR_RATE', appId: meta.appId, detail: { count, windowMs } })
     }
+    if (this.overhead) this.sampleOverhead(now() - startedAt)
+  }
+
+  /**
+   * PII 脱敏（§六，F9）：未配置则原样返回；脱敏管线抛错静默降级——
+   * 采集不被脱敏阻断（同样不上报，避免 monitor → security → monitor 回环）。
+   */
+  private redact(text: string): string {
+    if (!this.privacy) return text
+    try {
+      return redactText(text, this.privacy)
+    } catch {
+      return text
+    }
+  }
+
+  /** 开销采样（§九）：按 sampleEvery 抽样，超预算累计；到周期上报 MONITOR_OVERHEAD */
+  private sampleOverhead(elapsedMs: number): void {
+    const cfg = this.overhead
+    if (!cfg) return
+    if (++this.sampleTick % cfg.sampleEvery !== 0) return
+    if (elapsedMs > cfg.budgetMs) this.overBudget++
+    const nowMs = Date.now()
+    if (this.overheadReportedAt !== 0 && nowMs - this.overheadReportedAt < cfg.reportEveryMs) return
+    this.overheadReportedAt = nowMs
+    if (this.overBudget === 0) return
+    const over = this.overBudget
+    this.overBudget = 0
+    // deny-by-default：宿主需在 alertRules 注册 MONITOR_OVERHEAD 才会派发
+    this.trigger({ type: 'MONITOR_OVERHEAD', level: 'warning', detail: { over, budgetMs: cfg.budgetMs } })
   }
 
   /**
@@ -305,4 +379,10 @@ declare module 'cordis' {
   interface Context {
     monitor: MonitorService
   }
+}
+
+/** 单调时钟（§九 开销自测）：`performance.now` 不可用时回落 Date.now（精度下降但不失败） */
+function now(): number {
+  const perf = (globalThis as unknown as { performance?: { now?: () => number } }).performance
+  return typeof perf?.now === 'function' ? perf.now() : Date.now()
 }

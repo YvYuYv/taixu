@@ -172,6 +172,23 @@ class PersistentEventQueue {
 - 用户标识：会话随机 ID（不指纹）；合规：采集清单 + 关闭开关（DNT 尊重）写入宿主配置
 - 敏感键（state sensitiveKeys）联动掩码
 
+**落地形态（F9，`services/monitor/pii.ts`）**：零状态纯模块 + monitor 接线
+
+- `redactUrl(url, cfg)`：query 敏感键掩码（与 `security.sanitizeQuery` 同规则：token 类
+  键名子串命中即掩码，非敏感键保留——排障价值优先）；**相对路径同样脱敏**（错误日志里
+  的常见形态），前缀保持原样仅 query 掩码
+- `redactText(text, cfg)`：`key=value` / JSON `"k":"v"` / `k: v` 三种形态掩码——
+  只处理"键名命中 + 紧跟值"的结构化片段，**不做整段猜测性替换**（过度脱敏毁掉排障价值）
+- `newSessionId()`：会话随机 ID（CSPRNG，不指纹）；`dntEnabled()`：DNT 尊重，
+  探测失败按未开启处理（不因探测失败而停采集）
+- 接线：`MonitorConfig.privacy?` -> capture **入库前**对 message/stack 脱敏
+  （与 sourcemap 还原同点：errors() 直出已脱敏结果）；管线抛错静默降级（不阻断采集、
+  不上报——避免 monitor -> security -> monitor 回环）
+- 默认掩码 `REDACTED`：**不含 URL 需编码字符**（`[REDACTED]` 会被 URLSearchParams
+  编码成 `%5B..%5D` 污染 query 形态）
+- 默认敏感键族与 state `sensitiveKeys` 同族（token/password/passwd/secret/credential/
+  pii/authorization/cookie）
+
 ## 七、告警引擎
 
 ```typescript
@@ -212,6 +229,12 @@ class AlertEngine {
 - 预算：监控自身 CPU < 1% 、内存 < 5MB、单事件处理 < 0.1ms（抽样 profiler 自测并周期上报 `MONITOR_OVERHEAD`）
 - 实现纪律：采集批量化、避免每事件 JSON.stringify（体积用字节数估算器）、`recordMessage` 频率统计改为环形计数桶（修复旧版每消息 O(n) 扫描 5000 条历史）
 
+**落地形态（F9，`MonitorConfig.overhead?`）**：`sampleEvery`（默认 100）抽样测量
+单事件 capture 耗时，超 `budgetMs`（默认 0.1ms）的样本累计，按 `reportEveryMs`
+（默认 30s）周期上报 `MONITOR_OVERHEAD` 告警——**deny-by-default**：宿主需在
+`alertRules` 注册该类型才会派发（未配置 overhead = 零自测开销）。
+未启用时 capture 首行不做时钟读取（`performance.now` 不可用回落 `Date.now`）。
+
 ## 十、DevTools 联动
 
 - devtools **复用** monitor 采集（唯一数据源；不重复注册 PerformanceObserver/rAF 循环--旧版双份常驻采集废除）
@@ -238,7 +261,7 @@ class AlertEngine {
 | P0 | Sampler 会话粘性 + BatchReporter（含错误批量）+ 持久队列 recover |
 | P1 | 指标采集（buffered/分位数/后台暂停）+ AlertEngine（condition/appId 维度） |
 | P1 | LeakDetector（FinalizationRegistry + 特性降级）+ Tracing span 上报 |
-| P2 | PII 管道、开销自测、行为采集 |
+| P2 | ~~PII 管道~~（F9 已落地）、~~开销自测~~（F9 已落地）、行为采集 |
 
 ## 十二、与旧文档差异一览
 
