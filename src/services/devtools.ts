@@ -15,6 +15,16 @@ import { Service, type Context } from 'cordis'
 import '../events'
 
 /** 只读聚合快照（§十：指标/错误/泄漏嫌疑/实例/DLQ/字体 registry） */
+/** 样式冲突条目（style-isolation §八 冲突检测，F7）：同一选择器命中多个应用的 DOM */
+export interface StyleConflict {
+  /** 命中的选择器文本 */
+  selector: string
+  /** 命中元素归属的应用 appId（去重，>1 即跨应用冲突） */
+  apps: string[]
+  /** 命中元素总数 */
+  hitCount: number
+}
+
 export interface DevToolsSnapshot {
   instances: { appId: string; instanceId: string; state: string }[]
   metrics: Record<string, { count: number; p50: number; p75: number; p95: number; max: number }>
@@ -62,6 +72,67 @@ export class DevToolsService extends Service<DevToolsConfig> {
         .map((e) => ({ message: e.message, appId: e.appId, phase: e.phase, stack: e.stack })),
       leakSuspects: this.ctx.monitor.leakSuspects(),
       fonts: this.ctx.style.fontRegistryEntries().map((e) => ({ family: e.family, refs: e.refs })),
+    }
+  }
+
+  /**
+   * 样式冲突检测（style-isolation §八，F7）：**开发模式**扫描文档级样式规则，
+   * 统计每个选择器命中元素归属的应用——同一选择器命中 ≥2 个应用 = 跨应用样式泄漏
+   * （无 Shadow 隔离的文档级样式的典型症状）。
+   *
+   * - 只读、无副作用；O(规则数 × 命中元素数)，**只在开发/诊断路径调用**（不进运行时热路径）
+   * - 跨源 stylesheet（`cssRules` 抛 SecurityError）跳过——不因不可读而整体失败
+   * - `@media`/`@supports`/`@layer` 等分组规则**递归下探**（组内规则才是命中来源）
+   */
+  scanStyleConflicts(): StyleConflict[] {
+    const instances = this.ctx.lifecycle
+      .getInstances()
+      .map((i) => ({ appId: i.appId, container: i.container }))
+      .filter((i): i is { appId: string; container: HTMLElement } => i.container instanceof HTMLElement)
+    if (instances.length === 0) return []
+
+    const out: StyleConflict[] = []
+    for (const sheet of Array.from(document.styleSheets)) {
+      let rules: CSSRuleList
+      try {
+        rules = sheet.cssRules // 跨源 sheet 不可读（SecurityError）——跳过
+      } catch {
+        continue
+      }
+      for (const rule of Array.from(rules)) this.collectConflicts(rule, instances, out)
+    }
+    return out
+  }
+
+  /** 规则递归（分组规则下探；普通样式规则做命中归属统计） */
+  private collectConflicts(
+    rule: CSSRule,
+    instances: { appId: string; container: HTMLElement }[],
+    out: StyleConflict[],
+  ): void {
+    const grouping = rule as CSSGroupingRule
+    if (typeof grouping.cssRules === 'object' && grouping.cssRules !== null && 'conditionText' in rule) {
+      for (const child of Array.from(grouping.cssRules)) this.collectConflicts(child, instances, out)
+      return
+    }
+    const styleRule = rule as CSSStyleRule
+    if (typeof styleRule.selectorText !== 'string' || styleRule.selectorText === '') return
+
+    let nodes: NodeListOf<Element>
+    try {
+      nodes = document.querySelectorAll(styleRule.selectorText)
+    } catch {
+      return // 非法选择器（宿主未知语法/浏览器不支持）：跳过，不阻断扫描
+    }
+    if (nodes.length === 0) return
+
+    const apps = new Set<string>()
+    for (const el of Array.from(nodes)) {
+      const owner = instances.find((i) => i.container.contains(el))
+      if (owner) apps.add(owner.appId)
+    }
+    if (apps.size > 1) {
+      out.push({ selector: styleRule.selectorText, apps: [...apps].sort(), hitCount: nodes.length })
     }
   }
 

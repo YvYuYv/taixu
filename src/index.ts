@@ -8,6 +8,7 @@ import { DepsService, type AppManifestEntry } from './services/deps'
 import { LifecycleService, type RecoveryConfig } from './services/lifecycle'
 import { KeepAliveService, type KeepAliveConfig, type KeepAliveHost } from './services/keepAlive'
 import { StyleService, type StyleConfig } from './services/style'
+import { ThemeService, type ThemeConfig, type ThemeTokens } from './services/theme'
 import { RouterService, type RouteRule, type RouterConfig } from './services/router'
 import { StateService, type StateConfig } from './services/state'
 import type { TracingConfig } from './services/tracing'
@@ -44,6 +45,8 @@ export { StyleService } from './services/style'
 export type { StyleAsset, StyleConfig, CSSStyleSheetLike } from './services/style'
 export { RouterService } from './services/router'
 export type { RouteRule, RouterConfig, GuardResult, MountIntent, IntersectionObserverLike } from './services/router'
+export { ThemeService } from './services/theme'
+export type { ThemeConfig, ThemeTokens } from './services/theme'
 export { StateService } from './services/state'
 export type { StateConfig, PersistConfig, CrossTabChannel } from './services/state'
 /** 版本冲突消解（state-sharing §4.5）：注入 StateConfig.conflict 替换默认 reject 策略 */
@@ -95,6 +98,8 @@ export interface CreateCordisOptions {
   bus?: BusConfig
   /** monitor 配置（告警规则/冷却/错误率阈值，§七；测试注小窗口） */
   monitor?: MonitorConfig
+  /** 主题配置（style-isolation §五，F7）：配置即初始主题 —— `--tx-*` 变量写点 */
+  theme?: ThemeConfig
   /** state 配置（持久化/跨 tab/敏感键，§七） */
   state?: StateConfig
   /** tracing 配置（span 缓冲容量，§八） */
@@ -205,6 +210,8 @@ export function createCordis(options: CreateCordisOptions = {}): Context {
   ctx.plugin(SandboxService)
   ctx.plugin(DepsService, { apps: options.apps, retryBackoffMs: options.deps?.retryBackoffMs, shared: options.deps?.shared })
   ctx.plugin(StyleService, options.style)
+  // 主题服务（style-isolation §五，F7）：配置即初始主题；:root 的 --tx-* 唯一写点
+  ctx.plugin(ThemeService, options.theme)
   ctx.plugin(RouterService, {
     ...options.router,
     // 懒 outlet 宿主选择器：router 扩展未指定处回落顶层 outlets（同一约定，免重复声明）

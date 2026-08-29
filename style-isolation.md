@@ -143,6 +143,18 @@ class ThemeService extends Service {
 ```
 
 - 运行时 `ctx.on('theme/change')`（旧版）与静态 `cordis.styles.json` 的 `theme.variables`（旧版 §10）两套并存 -> 统一为 ThemeService（配置即初始主题）
+
+**落地形态（F7，`src/services/theme.ts`）**：`ThemeService`（provide = `theme`，零服务依赖）
+
+- 配置即初始主题：`createCordis({ theme: { tokens, dark, light, followSystem } })`——
+  构造期写入，宿主启动即可用（应用无需等待）
+- 写点唯一：文档级 `:root` 的 `--tx-*`；主题变更应用**自动响应**（CSS 自定义属性特性，
+  **无事件广播**——这正是旧版 `theme/change` 事件与静态配置两套并存被统一掉的原因）
+- API：`setTheme`（全量替换）/ `patchTheme`（增量覆盖）/ `current()`（只读副本）/
+  `reset()`（回到配置初始态）
+- `prefers-color-scheme` 内聚：`followSystem` 时 dark/light token 集**叠加在 base 之上**，
+  matchMedia 变更自动重算；默认不跟随（不引第二机制）
+- 能力缺失降级：无 `matchMedia`（jsdom/SSR）时主题照常工作，只是不跟随系统
 - 应用消费 `var(--tx-primary)`；主题变更应用自动响应（CSS 变量特性）
 - prefers-color-scheme：ThemeService 内聚处理（dark/light token 集切换），不再有第二机制
 
@@ -181,6 +193,12 @@ hmr.on('update', ({ appId, file, css }) => {
 ## 八、验证与 DevTools
 
 - 冲突检测：开发模式扫描文档级规则的选择器命中数（跨应用同名类命中 -> 告警）
+  - **落地形态（F7，`devtools.scanStyleConflicts()`）**：扫描 `document.styleSheets`，
+    统计每个选择器命中元素**归属的应用容器**——同一选择器命中 ≥2 个应用即上报
+    `{ selector, apps, hitCount }`（无 Shadow 隔离的文档级样式的典型症状）
+  - 只读无副作用；O(规则 × 命中元素)，**只在开发/诊断路径调用**（不进运行时热路径）；
+    跨源 sheet（`cssRules` 抛 SecurityError）与非法选择器跳过；`@media`/`@supports`
+    等分组规则**递归下探**
 - DevTools 样式面板：每应用注入规则数、文档级例外清单、字体 registry
 
 ## 九、实施计划
@@ -191,7 +209,7 @@ hmr.on('update', ({ appId, file, css }) => {
 | P0 | 注入记账 + ctx.effect 生命周期（dispose 移除/保活保留） |
 | P1 | Shadow DOM 路线（Constructable Stylesheets + Portal 重定向 + React 事件补丁） |
 | P1 | @font-face 提升 + 字体 registry、运行时 CSS-in-JS 补丁 |
-| P2 | 主题服务、HMR css-only、冲突检测扫描 |
+| P2 | ~~主题服务~~（F7 已落地）、HMR css-only、~~冲突检测扫描~~（F7 已落地） |
 
 ## 十、与旧文档差异一览
 
