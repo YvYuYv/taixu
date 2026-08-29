@@ -872,3 +872,67 @@ iframe srcdoc）。负向验证：`toTrustedHTML` 的 `createHTML` 改为恒返�
 2. **未注入 payload → 行为与改动前完全一致**（既有 313 case 全绿是底线）
 3. mismatch → 以 URL 为准 + 留痕，不阻断
 4. deletion test：服务端解析无第二套实现（`parsers.ts` 单一来源）
+
+---
+
+## §26. B 类单票收官（F6 / F7 / F9 / F12）
+
+### §26.1 F6 · Angular 适配器（commit `4fe18c2`）
+
+**friction**：heterogeneous-loading §4.2 的 Angular 路线（P2 实验性）只有「可行性
+诚实化」结论，无实现——宿主无从接入。
+
+| 设计点 | 内容 |
+|---|---|
+| 零硬依赖 | `@angular/core` 经 `deps.negotiate(range, { singleton, strict })` 仲裁获取（框架不 import Angular） |
+| 错误边界走 DI | `createApplication({ providers })` 阶段注入 `ErrorHandler` -> `monitor.capture` |
+| async effect 静默失败显式化 | cordis 对 async effect 错误是 `task.catch(logger.error)`——适配器 try/catch 先上报再上抛 |
+
+**顺带修复（F6 曝出）**：`deps/semver.ts` 的 `satisfies` **不支持 `*` 通配符**
+（落到精确比较恒 false）——共享依赖声明「任意版本」时仲裁永远无匹配，strict 模式下
+宿主看到的是「依赖缺失」而非真正的版本问题。现支持 `*`/`x`/`X`。
+
+### §26.2 F7 · 主题服务 + 冲突检测扫描（commit `d9980f8`）
+
+- **ThemeService**（provide='theme'，零服务依赖 L0）：配置即初始主题；`:root` 的
+  `--tx-*` **唯一写点**；主题变更应用自动响应（CSS 自定义属性特性，**无事件广播**——
+  正是旧版 `theme/change` 事件与静态配置两套并存被统一掉的原因）；prefers-color-scheme
+  内聚（followSystem 时 dark/light 叠加 base，默认不跟随）
+- **冲突检测扫描**（`devtools.scanStyleConflicts()`，§八）：扫描 styleSheets，选择器
+  命中元素归属 ≥2 应用即上报 `{ selector, apps, hitCount }`；跨源 sheet 与非法选择器
+  跳过；分组规则递归下探；只读、仅开发/诊断路径
+
+### §26.3 F9 · PII 管道 + 开销自测（commit `2e4ef81`）
+
+- **PII 管道**（`monitor/pii.ts` 零状态纯模块）：`redactUrl`（query 敏感键掩码，
+  相对路径同脱敏）/ `redactText`（key=value / JSON / `k: v` 三形态，**不做整段猜测性
+  替换**——过度脱敏毁掉排障价值）/ `newSessionId`（CSPRNG 不指纹）/ `dntEnabled`
+- 接线：`MonitorConfig.privacy?` -> capture **入库前**脱敏（errors() 直出已脱敏结果）
+- **开销自测**（§九）：`MonitorConfig.overhead?` 抽样测量单事件 capture 耗时，超预算
+  周期上报 `MONITOR_OVERHEAD`（deny-by-default，需注册 alertRules）；未配置零开销
+
+实现中修掉两个自伤 bug：默认掩码 `[REDACTED]` 会被 URLSearchParams 编码成 `%5B..%5D`
+（改 `REDACTED`）；`String.replace` 回调第 4 参是 offset 而非捕获组（误用致掩码后缀
+残留字符）。
+
+### §26.4 F12 · 原型守护（commit `b25157a`）—— **与规范的偏差记录**
+
+- `DEFAULT_FREEZE_TARGETS`（11 个内建原型）+ `freezePrototypes`（幂等、进程级不可逆、
+  先于应用加载）+ `createCordis({ prototypeGuard })` 接线
+- customElements 前缀注册（向量 #9）此前已落地并有测试，不重复实现
+- **⚠️ 与规范「默认冻结」的偏差**：默认改为 **opt-in（关闭）**。实测全量冻结与
+  **cordis 运行时自身不兼容**——cordis 内部存在对对象 `constructor` 的写点（外部依赖
+  不可修），默认开启时 **81/343 用例失败**。按 §3.3「可用性优先」收敛：宿主显式开启
+  前须完成自有兼容性验证（实验性）。规范已同步偏差说明。
+
+### §26.5 四票统计
+
+| 票 | commit | 新增文件 | +case | 特别产出 |
+|---|---|---|---|---|
+| F6 | `4fe18c2` | `angular-adapter.ts` + semver 测试 | 5 | **semver `*` 通配符修复** |
+| F7 | `d9980f8` | `services/theme.ts` | 9 | 新服务（第 20 个） |
+| F9 | `2e4ef81` | `monitor/pii.ts` | 12 | 修 2 个自伤 bug |
+| F12 | `b25157a` | — | 4 | **规范偏差实测记录** |
+
+**49 文件 / 343 case 全绿 + typecheck 干净**。B 类剩余：F10 时间旅行 / F5 SSR 水合
+（已立项，阶段 1 实施中）/ F6 的 Vue2 与 AMD 命名空间子项。
