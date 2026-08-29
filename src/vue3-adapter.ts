@@ -7,8 +7,13 @@
  * - styles 经 ctx.style.inject 显式登记（ADR-0033）
  *
  * 构建插件路径（ESM 工厂包裹 globalThis 注入）不在本票（spec Out of Scope）。
+ *
+ * SSR 同构 adopt（heterogeneous §九 同构模式，F5-04）：容器带 `data-tx-ssr="1"`
+ * 标记（服务端 renderToString 写入）时自动走 `createSSRApp`——Vue 3 在已有内容上
+ * 做 hydration 绑定（复用 SSR 节点，不卸载重建）；无标记走 `createApp`（CSR 重建，
+ * 既有行为）。标记消费后保留（应用/诊断可读）。
  */
-import { createApp, type Component } from 'vue'
+import { createApp, createSSRApp, type Component } from 'vue'
 import type { Context, Plugin } from 'cordis'
 import type { StyleAsset } from './services/style'
 
@@ -40,7 +45,10 @@ export function defineCordisApp(options: CordisAppOptions): Plugin.Object {
           throw new Error(`adapter: no container for app "${appId}" (mount outside lifecycle transaction?)`)
         }
 
-        const app = createApp(rootComponent)
+        // SSR adopt（F5-04）：容器带 data-tx-ssr 标记 = 服务端已渲染，走 hydration
+        // 绑定（复用 SSR 节点）；否则 CSR 重建（既有行为）
+        const ssr = container.dataset.txSsr === '1' // 复用的 SSR 容器自带标记（见 lifecycle.createOutletContainer adopt 分支）
+        const app = ssr ? createSSRApp(rootComponent) : createApp(rootComponent)
         // 渲染错误统一转发 monitor.capture（基线 §三 唯一错误入口）
         app.config.errorHandler = (err) => {
           ctx.monitor.capture(err, { appId, phase: 'runtime' })

@@ -355,6 +355,14 @@ export class LifecycleService extends Service<LifecycleConfig> {
    *   待切换事务收尾由 `reveal()` 显示——避免"卸 A 挂 B"期间的闪烁与中间态。
    */
   createOutletContainer(outlet: string, shadow = false, hidden = false): HTMLElement {
+    // F5-04 SSR adopt（heterogeneous §九 同构模式）：宿主元素内已有服务端写入的
+    // 容器（data-tx-ssr="1"）-> **复用**而非新建——新建会让 SSR 内容留在外层、应用
+    // 挂进空容器，hydration 无从绑定（首屏闪烁的根因）。shadow 应用不做 adopt
+    // （shadowRoot 服务端无法预渲染，回落新建）。
+    if (!shadow) {
+      const existing = this.resolveOutletHost(outlet).querySelector<HTMLElement>(':scope > [data-tx-ssr="1"]')
+      if (existing) return existing
+    }
     const host = document.createElement('div')
     host.id = `tx-${outlet}`
     if (shadow) host.dataset.txShadow = '1'

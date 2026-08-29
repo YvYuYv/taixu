@@ -280,6 +280,21 @@ registry（与 AMD 语义一致）。注册面由沙箱 legacy exec 路线接线
 
 - 基础模式：主应用 SSR + 子应用 CSR（default）
 - 同构模式：子应用产出 ESM 且无浏览器依赖 -> 服务端 `createApplication`/`renderToString` 输出片段，宿主拼装；hydration 经 router 初始槽位矩阵（route-adaptation §六 SSR）
+
+**落地形态（F5-04，lifecycle + vue3 适配器）**：容器标记约定 \`data-tx-ssr="1"\`
+（服务端 renderToString 后由宿主写入拼装容器）
+
+- **lifecycle 侧 adopt**：\`createOutletContainer\` 检测宿主元素内已有
+  \`data-tx-ssr="1"\` 容器 -> **复用**而非新建——新建会让 SSR 内容留在外层、应用挂进
+  空容器，hydration 无从绑定（首屏闪烁的根因）；shadow 应用不做 adopt（shadowRoot
+  服务端无法预渲染，回落新建）
+- **vue3 适配器侧 hydration**：容器带标记 -> \`createSSRApp\`（Vue 3 在已有内容上做
+  hydration 绑定，复用 SSR 节点）；无标记 -> \`createApp\`（CSR 重建，既有行为）。
+  标记消费后保留（应用/诊断可读）
+- **降级**：无标记 = 完整 CSR 挂载（行为与 F5 之前一致）；adopt 链路任何一步不满足
+  即自然回落，不抛错不阻断
+- 服务端同步（§P2 的另一半）：状态服务端快照经 hydration payload 下发的完整管线
+  随应用侧同构改造推进——框架侧（payload 读取 / adopt / hydration）已就绪
 - 边缘 ESI：CDN 层组装（P3）
 
 ## 十、预加载与容灾
