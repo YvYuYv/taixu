@@ -22,6 +22,23 @@ export interface MonitorConfig {
   metricsBuffer?: number
   /** 泄漏探测（§四）：嫌疑 TTL 与轮询（默认 60s/5s）；hasGcActivity 注入 GC 活动证据源（测试/宿主） */
   leak?: { ttlMs?: number; pollMs?: number; hasGcActivity?: () => boolean }
+  /**
+   * sourcemap 还原管线（monitoring §二，F4）：错误 stack **入库前**经此重写，
+   * 使 `errors()` 返回的是已还原堆栈（§十 只读查询面契约）。
+   *
+   * 宿主提供实现（如 Vite 预加载 `.map` + source-map 库）；capture 是同步入口，
+   * 故异步的 map 加载须由宿主预缓存后同步消费。缺省 = 不还原（原始 stack，既有行为）。
+   */
+  sourcemap?: SourcemapRewriter
+}
+
+/**
+ * sourcemap 还原管线（monitoring §二）：`rewrite` 返回重写后的 stack；
+ * 抛错或返回空值 → 降级为原始 stack（不阻断错误采集，也不上报——避免
+ * monitor → security → monitor 回环）。devtools 与 monitor 共用同一注入实例。
+ */
+export interface SourcemapRewriter {
+  rewrite(stack: string): string
 }
 
 /** 指标快照条目：计数 + 分位数（p50/p75/p95，§三分位数而非均值） */
@@ -94,6 +111,8 @@ export class MonitorService extends Service<MonitorConfig> {
   /** 指标缓冲（name -> 环形缓冲） */
   private series = new Map<string, RingBuffer>()
   private bufferCap: number
+  /** sourcemap 还原管线（§二，F4）：null = 不还原（原始 stack，既有行为） */
+  private sourcemap: SourcemapRewriter | null
   /** 挂载计时（app_loading -> app_ready 时长，§三 加载指标）：instanceId -> 起始时刻 */
   private loadingSince = new Map<string, number>()
   /** Leak detector 闭包（C7-A）：源自 services/leakDetector.ts；
@@ -109,6 +128,7 @@ export class MonitorService extends Service<MonitorConfig> {
     super(ctx, 'monitor')
     this.rules = config.alertRules ?? {}
     this.bufferCap = config.metricsBuffer ?? 1024
+    this.sourcemap = config.sourcemap ?? null // §二 sourcemap 还原管线（缺省不还原）
     this.leakDetector = createLeakDetector(config.leak)
     // C14-E：errorLedger 子系统抽离到 monitor/errorLedger.ts；monitor 改持 errorLedger 引用
     this.errorLedger = createErrorLedger({
@@ -200,8 +220,25 @@ export class MonitorService extends Service<MonitorConfig> {
     return this.leakDetector.leakSuspects()
   }
 
-  /** 错误清单（§十 DevTools 只读查询面；sourcemap 还原随宿主管线接入后在此层应用）——
-   * C14-E：thin delegate 到 errorLedger.entries。 */
+  /**
+   * sourcemap 还原（§二，F4）：未配管线则原样返回；管线抛错或返回空值 →
+   * 降级为原始 stack（错误采集不被还原管线阻断，也不上报——避免 monitor →
+   * security → monitor 回环）。缓存交给宿主管线（map 解析结果可长期复用）。
+   */
+  private rewriteStack(stack: string): string {
+    if (!this.sourcemap) return stack
+    try {
+      return this.sourcemap.rewrite(stack) || stack
+    } catch {
+      return stack
+    }
+  }
+
+  /**
+   * 错误清单（§十 DevTools 只读查询面）：stack 已在 capture 入库前经 sourcemap
+   * 管线还原（monitoring §二，F4）—— 此处不再二次重写，devtools 复用同一结果。
+   * C14-E：thin delegate 到 errorLedger.entries。
+   */
   errors(): readonly ErrorMetric[] {
     return this.errorLedger.entries()
   }
@@ -213,7 +250,8 @@ export class MonitorService extends Service<MonitorConfig> {
     const metric: ErrorMetric = {
       kind: 'error',
       message: normalized.message,
-      stack: normalized.stack,
+      // §二 sourcemap 还原（F4）：入库前重写，使 errors() 返回已还原堆栈（§十）
+      stack: normalized.stack === undefined ? undefined : this.rewriteStack(normalized.stack),
       appId: meta.appId,
       phase: meta.phase,
     }

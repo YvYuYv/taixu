@@ -54,7 +54,10 @@ describe('DevTools（§十）', () => {
     expect(snap.metrics['state_change']).toBeTruthy() // 指标（monitor 采集复用）
     expect(snap.deadLetters).toEqual([])
     expect(snap.fonts).toEqual([])
-    expect(snap.errors).toEqual([{ message: 'dt-boom', appId: 'dt-app', phase: 'runtime' }]) // 错误清单（§十）
+    // 错误清单（§十，F4）：stack 直出（capture 入库前已过 sourcemap 管线，未配管线即原始栈）
+    expect(snap.errors).toEqual([
+      { message: 'dt-boom', appId: 'dt-app', phase: 'runtime', stack: expect.stringContaining('dt-boom') },
+    ])
     expect(snap.leakSuspects).toEqual([])
 
     await host.lifecycle.destroy(inst.instanceId, 't')

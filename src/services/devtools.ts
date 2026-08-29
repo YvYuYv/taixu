@@ -20,7 +20,7 @@ export interface DevToolsSnapshot {
   metrics: Record<string, { count: number; p50: number; p75: number; p95: number; max: number }>
   spans: number
   deadLetters: readonly import('./bus').DeadLetterRecord[]
-  errors: { message: string; appId?: string; phase: string }[]
+  errors: { message: string; appId?: string; phase: string; stack?: string }[]
   leakSuspects: { instanceId: string; at: number }[]
   fonts: { family: string; refs: number }[]
 }
@@ -55,7 +55,11 @@ export class DevToolsService extends Service<DevToolsConfig> {
       metrics: this.ctx.monitor.metricsSnapshot(),
       spans: this.spansOf(),
       deadLetters: this.ctx.bus.deadLetters(),
-      errors: this.ctx.monitor.errors().map((e) => ({ message: e.message, appId: e.appId, phase: e.phase })),
+      // stack 直出（monitoring §二 F4）：capture 入库前已过 sourcemap 管线还原，
+      // devtools 复用同一结果（唯一数据源，不二次重写）
+      errors: this.ctx.monitor
+        .errors()
+        .map((e) => ({ message: e.message, appId: e.appId, phase: e.phase, stack: e.stack })),
       leakSuspects: this.ctx.monitor.leakSuspects(),
       fonts: this.ctx.style.fontRegistryEntries().map((e) => ({ family: e.family, refs: e.refs })),
     }

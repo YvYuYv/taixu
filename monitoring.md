@@ -216,7 +216,19 @@ class AlertEngine {
 
 - devtools **复用** monitor 采集（唯一数据源；不重复注册 PerformanceObserver/rAF 循环--旧版双份常驻采集废除）
 - 暴露只读查询：`monitor.snapshot()`（指标环形缓冲快照）、错误清单（sourcemap 已还原）、泄漏嫌疑
-- 落地形式（P1，`devtools` 服务）：`snapshot()` 复用各服务查询面聚合（实例/指标/span 计数/DLQ/字体 registry/错误清单 `monitor.errors()`/泄漏嫌疑 `monitor.leakSuspects()`）；命令通道 `execute()`（destroy/suspend/resume/dlq-replay/killswitch-disable，全部转发既有服务入口，穷举守卫 deny-by-default）。**未落地**：sourcemap 还原管线（错误清单为原始 stack）、面板 UI 与 Vite 集成（运行时之外）；HMR 经 `hmr` 服务（css-only 热替换 style/link/constructable 三路线 + fiber 重跑暖启动——ADR-0037 快照/注水为驱逐 dispose 路径，fiber 重跑不经 dispose 无注水必要）
+- 落地形式（P1，`devtools` 服务）：`snapshot()` 复用各服务查询面聚合（实例/指标/span 计数/DLQ/字体 registry/错误清单 `monitor.errors()`/泄漏嫌疑 `monitor.leakSuspects()`）；命令通道 `execute()`（destroy/suspend/resume/dlq-replay/killswitch-disable，全部转发既有服务入口，穷举守卫 deny-by-default）。**未落地**：面板 UI 与 Vite 集成（运行时之外）；HMR 经 `hmr` 服务（css-only 热替换 style/link/constructable 三路线 + fiber 重跑暖启动——ADR-0037 快照/注水为驱逐 dispose 路径，fiber 重跑不经 dispose 无注水必要）
+
+**sourcemap 还原管线（F4 已落地）**：`MonitorConfig.sourcemap?: SourcemapRewriter`
+（`{ rewrite(stack: string): string }`，宿主注入）
+
+- 还原点在 **capture 入库前**（"错误清单 sourcemap 已还原" = `errors()` 直出结果，
+  查询面不二次重写）；devtools 复用同一注入实例（唯一数据源，无第二套采集）
+- capture 是**同步**入口，故异步的 `.map` 加载须由宿主预缓存后同步消费；
+  缓存也归宿主（map 解析结果可长期复用）
+- 管线抛错 / 返回空值 → 降级为原始 stack（不阻断错误采集，**不上报**——避免
+  monitor → security → monitor 回环）
+- `DevToolsSnapshot.errors[]` 补出 `stack` 字段（此前只映射 message/appId/phase，
+  还原了也看不到）
 
 ## 十一、实施计划
 
