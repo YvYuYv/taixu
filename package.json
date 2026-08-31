@@ -11,12 +11,13 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint:contract": "vitest run tests/contract.test.ts",
-    "verify": "npm run typecheck && npm run test",
+    "verify": "npm run build --workspaces --if-present && npm run typecheck && npm run test",
     "dev": "vite demo",
     "build": "npm run build --workspaces --if-present",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "npm run build && changeset publish"
+    "release": "npm run build && changeset publish",
+    "verify:fast": "npm run typecheck && npm run test"
   },
   "dependencies": {
     "cordis": "^4.0.0-rc.8",
