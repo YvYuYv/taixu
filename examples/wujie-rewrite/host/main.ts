@@ -29,9 +29,9 @@ const remote = (appId: string, url: string): AppDefinition =>
   })
 
 const appDefs: AppDefinition[] = [
-  remote('react17', new URL('./apps/react17/app.mjs', window.location.href).href),
-  remote('vue3', new URL('./apps/vue3/app.mjs', window.location.href).href),
-  remote('vite', new URL('./apps/vite/app.mjs', window.location.href).href),
+  remote('react17', new URL('../apps/react17/app.mjs', window.location.href).href),
+  remote('vue3', new URL('../apps/vue3/app.mjs', window.location.href).href),
+  remote('vite', new URL('../apps/vite/app.mjs', window.location.href).href),
 ]
 
 const host = createCordis({
