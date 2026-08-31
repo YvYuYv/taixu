@@ -32,7 +32,7 @@ function React17App(): ReturnType<typeof h> {
 // 负责把远程 Plugin 包装进应用清单）
 export default {
   name: 'react17',
-  inject: ['state'],
+  inject: ['state', 'lifecycle'],
   apply(ctx: import('cordis').Context) {
     ctx.effect(() => {
       const container = ctx.lifecycle.containerOf(ctx)
