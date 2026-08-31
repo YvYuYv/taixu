@@ -107,11 +107,12 @@ document.querySelectorAll<HTMLButtonElement>('#menu button').forEach((btn) => {
   btn.addEventListener('click', () => void show(btn.dataset.app!))
 })
 
+// 首屏：挂载 React17 子应用（远程 ESM；settle 已在 main 首行完成）
+await show('react17')
 }
 
 // 首屏：挂载 React17 子应用（远程 ESM）；整链兜底，失败在事件流可见
 main()
-  .then(() => show('react17'))
   .then(() => log('宿主就绪：@taixu/core + 3 个远程子应用清单'))
   .catch((e: unknown) => log(`启动失败: ${(e as Error).message}`))
 export type HostCtx = Context
