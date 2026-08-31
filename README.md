@@ -4,7 +4,7 @@
 
 [![tests](https://img.shields.io/badge/tests-360%20passing-brightgreen)]() [![typecheck](https://img.shields.io/badge/typecheck-clean-blue)]() [![license](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
-> 📖 **官方文档**：[文档站](https://yvyuv.github.io/taixu/)（本仓库 `docs/` 目录，docsify 构建）
+> 📖 **官方文档**：[文档站](https://taixu-micro.github.io/taixu/)（本仓库 `docs/` 目录，docsify 构建）
 > 🏛️ **架构深读**：[docs/architecture.md](./docs/architecture.md) · 设计基线与 12 份领域规范见 [docs/specs/](./docs/specs/)
 
 ## 快速开始
@@ -45,7 +45,7 @@ import App from './App.vue'
 export default defineApp('cart-app', () => defineCordisApp({ appId: 'cart-app', rootComponent: App }))
 ```
 
-React / Angular / Vue 2 / legacy UMD 见[适配器指南](https://yvyuv.github.io/taixu/#/guide/adapters)。
+React / Angular / Vue 2 / legacy UMD 见[适配器指南](https://taixu-micro.github.io/taixu/#/guide/adapters)。
 
 ## 核心特性
 

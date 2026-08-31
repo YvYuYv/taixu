@@ -13,7 +13,7 @@
 | 子应用独立构建/独立部署 | 各子应用独立 esbuild 出自包含 ESM（`app.mjs`），宿主运行时动态 import 加载 |
 | 多子应用同屏 | 多槽位共存（main + side） |
 
-**改造差异**：Vue 2 子应用与 Angular 12 子应用未进首发示例——Vue 2 走共享依赖仲裁（`@taixu/adapter-vue2` 已发布），Angular 为实验性适配器（`@taixu/adapter-angular`）；两者接入方式见[适配器指南](https://yvyuv.github.io/taixu/#/guide/adapters)。
+**改造差异**：Vue 2 子应用与 Angular 12 子应用未进首发示例——Vue 2 走共享依赖仲裁（`@taixu/adapter-vue2` 已发布），Angular 为实验性适配器（`@taixu/adapter-angular`）；两者接入方式见[适配器指南](https://taixu-micro.github.io/taixu/#/guide/adapters)。
 
 ## 结构
 

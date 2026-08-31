@@ -10,10 +10,15 @@ import { createCordis, defineApp, type AppDefinition } from '@taixu/core'
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T
 const log = (text: string) => {
+  const list = $('#flow')
+  if (!list) return // 事件流面板缺失时静默（首屏 DOM 未就绪场景）
   const li = document.createElement('li')
   li.textContent = `[${new Date().toLocaleTimeString()}] ${text}`
-  $('#flow').prepend(li)
+  list.prepend(li)
 }
+// 未捕获错误也进事件流（示例的排障面：任何一步失败都可见，而不是静默白屏）
+window.addEventListener('error', (e) => log(`error: ${(e as ErrorEvent).message}`))
+window.addEventListener('unhandledrejection', (e) => log(`unhandled: ${String((e as PromiseRejectionEvent).reason)}`))
 
 /** 远程子应用加载器：独立构建的 ESM（default export = taixu Plugin） */
 const remote = (appId: string, url: string): AppDefinition =>
@@ -33,6 +38,8 @@ const host = createCordis({
   outlets: { main: '#outlet-main', side: '#outlet-side' },
   keepAlive: { maxCount: 3 },
   permissions: [
+    // 宿主侧读 shared 同样需声明（deny-by-default 对宿主不例外）
+    { appId: 'host', allow: ['state:read:shared:cart'] },
     { appId: 'react17', allow: ['state:write:shared:cart', 'state:read:shared:cart'] },
     { appId: 'vue3', allow: ['state:write:shared:cart', 'state:read:shared:cart'] },
     { appId: 'vite', allow: ['state:write:shared:cart', 'state:read:shared:cart'] },
@@ -88,7 +95,8 @@ document.querySelectorAll<HTMLButtonElement>('#menu button').forEach((btn) => {
   btn.addEventListener('click', () => void show(btn.dataset.app!))
 })
 
-// 首屏：挂载 React17 子应用（远程 ESM）
-void show('react17')
-void log('宿主就绪：@taixu/core + 3 个远程子应用清单')
+// 首屏：挂载 React17 子应用（远程 ESM）；整链兜底，失败在事件流可见
+show('react17')
+  .then(() => log('宿主就绪：@taixu/core + 3 个远程子应用清单'))
+  .catch((e: unknown) => log(`首屏挂载失败: ${(e as Error).message}`))
 export type HostCtx = Context
