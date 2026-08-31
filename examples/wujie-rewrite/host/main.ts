@@ -26,8 +26,10 @@ window.addEventListener('unhandledrejection', (e) => log(`unhandled: ${String((e
 /** 远程子应用加载器：独立构建的 ESM（default export = taixu Plugin） */
 const remote = (appId: string, url: string): AppDefinition =>
   defineApp(appId, async () => {
-    log(`加载子应用 ESM: ${url}`)
-    const mod = (await import(/* @vite-ignore */ url)) as { default: unknown }
+    // cache-busting：app.mjs 无内容 hash（独立部署产物），避免 CDN/浏览器拿到旧版
+    const bustUrl = `${url}?v=${Date.now()}`
+    log(`加载子应用 ESM: ${bustUrl}`)
+    const mod = (await import(/* @vite-ignore */ bustUrl)) as { default: unknown }
     return mod.default
   })
 
