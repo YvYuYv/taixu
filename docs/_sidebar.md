@@ -15,6 +15,9 @@
 - **API**
   - [createCordis 配置](api/create-cordis.md)
   - [应用侧 API](api/app-side.md)
+- **示例**
+  - [wujie 示例改造版（在线）](https://yvyuv.github.io/taixu/demo/host/)
+  - [改造说明](https://github.com/YvYuYv/taixu/blob/main/examples/wujie-rewrite/README.md)
 - **深入**
   - [架构总览](architecture.md)
   - [常见问题](guide/faq.md)
