@@ -4,6 +4,9 @@
  * - 子应用 = 独立构建的 ESM（apps 下各子应用的 app.mjs），经动态 import 远程加载（微前端正统语义）
  * - 跨技术栈共享状态：state `shared:cart`（React 子应用写入，宿主与 Vue 子应用消费）
  * - 全链路事件流旁听：app/* · bus/* · security/*
+ *
+ * 时序要点：cordis 服务是**异步激活**的（createCordis 返回后需让出微任务队列），
+ * 故首行 await settle() 再访问 host.state / host.lifecycle（框架主缝测试同纪律）。
  */
 import type { Context } from 'cordis'
 import { createCordis, defineApp, type AppDefinition } from '@taixu/core'
@@ -34,6 +37,18 @@ const appDefs: AppDefinition[] = [
   remote('vite', new URL('../apps/vite/app.mjs', window.location.href).href),
 ]
 
+const settle = async () => {
+  for (let i = 0; i < 10; i++) await Promise.resolve()
+  await new Promise((r) => setTimeout(r, 0))
+  await Promise.resolve()
+}
+
+const settle = async () => {
+  for (let i = 0; i < 10; i++) await Promise.resolve()
+  await new Promise((r) => setTimeout(r, 0))
+  await Promise.resolve()
+}
+
 const host = createCordis({
   outlets: { main: '#outlet-main', side: '#outlet-side' },
   keepAlive: { maxCount: 3 },
@@ -46,6 +61,12 @@ const host = createCordis({
   ],
   apps: appDefs,
 })
+
+async function main() {
+await settle() // 等 cordis 服务激活（lifecycle/state/keepAlive…）
+
+async function main() {
+await settle() // 等 cordis 服务激活（lifecycle/state/keepAlive…）
 
 // —— 全链路事件流旁听（对齐 wujie 示例的可观测诉求）——
 host.on('app/loaded', (e) => log(`app/loaded: ${e.appId}`), { global: true })
@@ -95,8 +116,11 @@ document.querySelectorAll<HTMLButtonElement>('#menu button').forEach((btn) => {
   btn.addEventListener('click', () => void show(btn.dataset.app!))
 })
 
+}
+
 // 首屏：挂载 React17 子应用（远程 ESM）；整链兜底，失败在事件流可见
-show('react17')
+main()
+  .then(() => show('react17'))
   .then(() => log('宿主就绪：@taixu/core + 3 个远程子应用清单'))
-  .catch((e: unknown) => log(`首屏挂载失败: ${(e as Error).message}`))
+  .catch((e: unknown) => log(`启动失败: ${(e as Error).message}`))
 export type HostCtx = Context

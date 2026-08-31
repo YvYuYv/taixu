@@ -13,7 +13,14 @@
  * `SuspendPoolEntry` 传入，销毁/事件经 `KeepAliveHost` 回调由 lifecycle 兑现
  * （lifecycle 是唯一编排者，ADR-0054）。
  */
-import { compressToUTF16, decompressFromUTF16 } from 'lz-string'
+// lz-string 是 CJS：ESM 下 named import 不可靠（Node 的 cjs-module-lexer 无法静态识别），
+// 走 default import 解构（与 dompurify 同一处理方式）
+import lzStringNS from 'lz-string'
+
+const { compressToUTF16, decompressFromUTF16 } = lzStringNS as unknown as {
+  compressToUTF16: (input: string) => string
+  decompressFromUTF16: (input: string) => string
+}
 import { Service, type Context } from 'cordis'
 import type { Snapshot } from './deps'
 
