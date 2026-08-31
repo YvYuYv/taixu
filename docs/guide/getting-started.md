@@ -3,13 +3,13 @@
 ## 安装
 
 ```bash
-npm install @cordis-mf/taixu cordis
+npm install @taixu/core @taixu/adapter-vue3 cordis
 ```
 
 ## 宿主：创建运行时
 
 ```typescript
-import { createCordis, defineApp } from '@cordis-mf/taixu'
+import { createCordis, defineApp } from '@taixu/core'
 
 const host = createCordis({
   // 槽位：CSS 选择器映射（缺省 #{outlet}）
@@ -42,7 +42,8 @@ await host.lifecycle.switch('main', 'pay-app')
 ## 应用侧：声明接入
 
 ```typescript
-import { defineApp, defineCordisApp } from '@cordis-mf/taixu'
+import { defineApp } from '@taixu/core'
+import { defineCordisApp } from '@taixu/adapter-vue3'
 import App from './App.vue'
 
 export default defineApp('cart-app', () =>

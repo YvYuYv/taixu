@@ -4,9 +4,15 @@
  * -> 守卫拦截 -> fail-closed（未授权 send/核心服务替换/isolate 白名单）。
  *
  * 每步结果渲染到页面事件流；全部经主缝 createCordis + lifecycle/router/state/bus。
+ *
+ * **消费方式即发布形态**：直接 import workspace 包 `@taixu/core` / `@taixu/adapter-vue3`
+ * （而非相对源码路径）——demo 跑的就是宿主工程真实安装后的写法。
+ * 首次运行前需 `npm run build`（生成各包的 dist 产物）。
  */
 import type { Context } from 'cordis'
-import { createCordis, defineApp } from '../src'
+import { createCordis, defineApp } from '@taixu/core'
+import { defineCordisApp } from '@taixu/adapter-vue3'
+import { defineComponent, h, ref } from 'vue'
 
 const logEl = document.querySelector<HTMLUListElement>('#flow')!
 
@@ -33,6 +39,20 @@ const appA = defineApp('demo-a', () => ({
   },
 }))
 const appB = defineApp('demo-b', () => ({ name: 'demo-b', apply() {} }))
+
+/**
+ * Vue 3 子应用（@taixu/adapter-vue3）：演示适配器分包的消费形态——
+ * 框架核心不依赖 vue，宿主按需安装适配器包。
+ */
+const Counter = defineComponent({
+  setup() {
+    const count = ref(0)
+    return () => h('button', { onClick: () => count.value++ }, [`vue3 子应用计数: ${count.value}`])
+  },
+})
+const vueApp = defineApp('demo-vue', () =>
+  defineCordisApp({ appId: 'demo-vue', rootComponent: Counter }),
+)
 const naughty = defineApp('naughty', () => ({
   name: 'naughty',
   inject: ['bus'],
@@ -49,7 +69,7 @@ const host = createCordis({
   ],
   routes: [{ basePath: '/home', appId: 'demo-a' }, { basePath: '/shop', appId: 'demo-b' }],
   keepAlive: { maxCount: 1 }, // 池上限 1：挂起两个即触发 LRU 驱逐 -> 暖启动
-  apps: [appA, appB, naughty],
+  apps: [appA, appB, naughty, vueApp],
 })
 
 // 宿主旁听（基线 §2.4，global 注册）
@@ -85,6 +105,11 @@ async function run() {
   await settle()
   const cart = host.state.get('local:demo-a:cart', { appId: 'demo-a' })
   log(`暖启动: 新实例 ${ia2.instanceId.slice(0, 12)}…，快照注水 cart=${JSON.stringify(cart)}`)
+
+  // 4.5 Vue 3 子应用（独立包 @taixu/adapter-vue3）挂载到 side 槽位
+  await host.lifecycle.mount('demo-vue', 'side')
+  await settle()
+  log(`Vue 3 子应用挂载（@taixu/adapter-vue3）: side 槽位按钮已渲染`)
 
   // 5. 守卫拦截（枚举三值）
   host.on('router/navigate', () => ({ type: 'abort' }), { global: true })

@@ -19,7 +19,7 @@
 ### 客户端（宿主接入 = 一行）
 
 ```typescript
-import { readHydrationPayload, hydrationMismatch, createCordis } from '@cordis-mf/taixu'
+import { readHydrationPayload, hydrationMismatch, createCordis } from '@taixu/core'
 
 const payload = readHydrationPayload()                                    // 读 payload（fail-closed：缺失/非法 JSON -> null）
 const mismatch = payload ? hydrationMismatch(payload, window.location) : null

@@ -47,7 +47,7 @@ PENDING -> LOADING -> ACTIVE -> UNLOADING -> DISPOSED
 ### 2.1 应用实例与 Fiber 的一一映射
 
 ```typescript
-// @cordis-mf/lifecycle
+// @taixu/core（lifecycle 服务）
 import { Context, Service, Fiber } from '@cordisjs/core'
 
 interface AppInstance {

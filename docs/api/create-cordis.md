@@ -1,7 +1,7 @@
 # createCordis 配置
 
 ```typescript
-import { createCordis } from '@cordis-mf/taixu'
+import { createCordis } from '@taixu/core'
 
 const host = createCordis(options)
 ```

@@ -3,11 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>太虚 · P0 宿主演示（12 号票：全链路终验）</title>
+    <title>太虚 · P0 宿主演示（全链路终验 · @taixu/core + @taixu/adapter-vue3）</title>
   </head>
   <body>
     <h1>太虚 P0 宿主演示（全链路终验）</h1>
-    <p>链路：挂载 → 请求-应答 → 切换保活（默认挂起）→ 消息回放 → 驱逐暖启动 → 守卫拦截 → fail-closed</p>
+    <p>链路：挂载 → 请求-应答 → 切换保活（默认挂起）→ 消息回放 → 驱逐暖启动 → <b>Vue 3 子应用（adapter-vue3）</b> → 守卫拦截 → fail-closed</p>
+    <p><small>本页直接 import workspace 包：<code>@taixu/core</code> + <code>@taixu/adapter-vue3</code>（发布后即 npm 安装的写法）。首次运行需先执行 <code>npm run build</code>。</small></p>
     <ul id="flow"></ul>
     <script type="module" src="./main.ts"></script>
   </body>

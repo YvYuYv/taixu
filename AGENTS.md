@@ -14,6 +14,10 @@ npm run verify      # typecheck + 测试——任何代码改动后必跑，红�
 npm run build       # 构建 5 个发布包（tsup + tsc dts 镜像 -> packages/*/dist）
 npm run changeset   # 记录变更（changesets）
 ```
+npm run dev         # 启动 demo（消费 @taixu/core + @taixu/adapter-vue3，需先 build）
+```
+
+**demo/ 即消费示例**：直接 import `@taixu/core` / `@taixu/adapter-vue3`（不是相对源码路径），跑的就是宿主工程安装后的写法——新增 API 后应让 demo 同步演示。
 
 **Monorepo 事实**：npm workspaces（packages/*）；发布物 = `@taixu/core` + 4 适配器包（scope `@taixu`，无 cordis 字样）；根包 `@taixu/monorepo` 为 private 不发布；`src/core.ts` 是 core 打包入口（全量聚合入口 `src/index.ts` 供开发/测试）；适配器 dts 用 tsc 全量镜像（tsup dts 看不到分散的 `declare module 'cordis'` 增强）；lz-string/dompurify 是 CJS，core 打包时内联（noExternal）。
 

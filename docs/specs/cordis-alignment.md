@@ -224,7 +224,7 @@ Active（渲染中）⇄ Suspended（DOM 摘除缓存、副作用冻结）→ De
 
 | 规则 | 内容 |
 |------|------|
-| 命名 | 框架名 Cordis；外部框架 wujie（无界）不是 "wujia"；包名 `@cordis-mf/*` |
+| 命名 | 框架名 Cordis；外部框架 wujie（无界）不是 "wujia"；包名 `@taixu/*`（core + adapter-*） |
 | AbortSignal | 加载/激活/导航全链路透传 `signal`（loader→adapter→fetch） |
 | React 渲染 | 统一 `createRoot`（React 18+）；17 以下 legacy 走适配器显式分支 |
 | 容器创建 | 唯一路径 `lifecycle.createOutletContainer()`（style/heterogeneous 引用它） |

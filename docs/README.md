@@ -18,7 +18,7 @@
 ## 30 秒上手
 
 ```typescript
-import { createCordis, defineApp } from '@cordis-mf/taixu'
+import { createCordis, defineApp } from '@taixu/core'
 
 const host = createCordis({
   outlets: { main: '#app-main' },

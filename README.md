@@ -108,6 +108,8 @@ tests/                # 360 主缝测试（事件契约 + 依赖方向双看门�
 npm run typecheck   # 类型检查
 npm test            # 全量测试（360 case）
 npm run verify      # typecheck + 测试（提交前必跑）
+npm run build       # 构建 5 个发布包（demo 与 typecheck 依赖产物，首次运行先执行）
+npm run dev         # 启动 demo（vite，演示全链路：挂载/保活/回放/暖启动/Vue3 子应用/fail-closed）
 ```
 
 提交前跑 `npm run verify`；规范语义变更须同步 `docs/specs/` 对应文档。

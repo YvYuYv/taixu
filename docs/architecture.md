@@ -226,7 +226,7 @@ Cordis 通过**构建插件 + 运行时桥接**实现现有应用的低成本接
 
 ```javascript
 // 子应用入口一行声明（或经构建插件 externals 重定向，零源码改动）
-import { defineCordisApp } from '@cordis-mf/core'
+import { defineCordisApp } from '@taixu/adapter-vue3'
 
 export default defineCordisApp({
   rootComponent: App,           // 框架适配器自动选择 mount/unmount 策略

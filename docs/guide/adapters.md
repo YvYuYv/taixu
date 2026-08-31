@@ -5,7 +5,7 @@ Taixu 为每种技术栈提供「一行声明」适配器，全部遵循同一�
 ## Vue 3
 
 ```typescript
-import { defineCordisApp } from '@cordis-mf/taixu'
+import { defineCordisApp } from '@taixu/adapter-vue3'
 import App from './App.vue'
 
 defineApp('cart-app', () =>
@@ -18,7 +18,7 @@ defineApp('cart-app', () =>
 ## React 18+
 
 ```tsx
-import { CordisProvider, useCordis, useSharedState } from '@cordis-mf/taixu'
+import { CordisProvider, useCordis, useSharedState } from '@taixu/adapter-react'
 
 // React 应用经 CordisProvider 注入 ctx（非全局单例）
 function App() {
@@ -33,7 +33,7 @@ function App() {
 要求子应用以 **standalone components + AOT** 构建（运行时 `@NgModule` JIT 方案已废除）。适配器经 `createApplication()` 建**每应用独立 ApplicationRef**（规避"每页面仅一个 platform"限制）：
 
 ```typescript
-import { defineCordisAngularApp } from '@cordis-mf/taixu'
+import { defineCordisAngularApp } from '@taixu/adapter-angular'
 
 defineApp('ng-app', () =>
   defineCordisAngularApp({ appId: 'ng-app', rootComponent: AppComponent }),
@@ -51,7 +51,7 @@ host.deps.registerShared('@angular/core', { version: '17.0.0', module: await imp
 ## Vue 2（多版本共存）
 
 ```typescript
-import { defineCordisVue2App } from '@cordis-mf/taixu'
+import { defineCordisVue2App } from '@taixu/adapter-vue2'
 
 defineApp('legacy-app', () =>
   defineCordisVue2App({ appId: 'legacy-app', render: (h) => h(LegacyRoot) }),
@@ -65,7 +65,7 @@ defineApp('legacy-app', () =>
 两个 UMD 应用各自 `define('vue', ...)` 会撞全局单例。Taixu 提供 per-app 命名空间：
 
 ```typescript
-import { createAmdNamespace } from '@cordis-mf/taixu'
+import { createAmdNamespace } from '@taixu/core'
 
 const ns = createAmdNamespace('app-a')
 ns.define('vue', [], () => vue2Module)   // 注册到 app-a 的命名空间

@@ -25,7 +25,7 @@ CSS 天然全局共享。三类冲突：
 ### 3.1 PostCSS 前缀（修复 body/html 语义破坏）
 
 ```javascript
-// @cordis-mf/postcss-prefix（宿主/子应用构建共用）
+// @taixu/postcss-prefix（宿主/子应用构建共用）
 module.exports = (opts = {}) => ({
   postcssPlugin: 'cordis-prefix',
   Root(root) {
