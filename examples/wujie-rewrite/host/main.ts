@@ -43,12 +43,6 @@ const settle = async () => {
   await Promise.resolve()
 }
 
-const settle = async () => {
-  for (let i = 0; i < 10; i++) await Promise.resolve()
-  await new Promise((r) => setTimeout(r, 0))
-  await Promise.resolve()
-}
-
 const host = createCordis({
   outlets: { main: '#outlet-main', side: '#outlet-side' },
   keepAlive: { maxCount: 3 },
@@ -63,10 +57,7 @@ const host = createCordis({
 })
 
 async function main() {
-await settle() // 等 cordis 服务激活（lifecycle/state/keepAlive…）
-
-async function main() {
-await settle() // 等 cordis 服务激活（lifecycle/state/keepAlive…）
+  await settle() // 等 cordis 服务激活（lifecycle/state/keepAlive…）
 
 // —— 全链路事件流旁听（对齐 wujie 示例的可观测诉求）——
 host.on('app/loaded', (e) => log(`app/loaded: ${e.appId}`), { global: true })
