@@ -1,3 +1,4 @@
 - [文档](/)
+- [示例](https://taixu-micro.github.io/taixu/demo/host/)
 - [GitHub](https://github.com/YvYuYv/taixu)
 - [架构深读](architecture.md)
