@@ -4,7 +4,6 @@
  * - useSharedState 写 `shared:cart` —— 宿主与 Vue 子应用实时同步（跨技术栈共享状态）
  * - 副作用（createRoot/unmount）包成一次 ctx.effect
  */
-import { defineApp } from '@taixu/core'
 import { CordisProvider, useSharedState } from '@taixu/adapter-react'
 import { createRoot } from 'react-dom/client'
 import { createElement as h, useState } from 'react'
@@ -28,7 +27,10 @@ function React17App(): ReturnType<typeof h> {
   ])
 }
 
-export default defineApp('react17', () => ({
+// 远程子应用导出 **Plugin 对象**（有 apply）——defineApp 是宿主侧的清单声明 API，
+// 不应出现在子应用产物里（宿主侧 defineApp(appId, async () => (await import(url)).default)
+// 负责把远程 Plugin 包装进应用清单）
+export default {
   name: 'react17',
   inject: ['state'],
   apply(ctx: import('cordis').Context) {
@@ -40,4 +42,4 @@ export default defineApp('react17', () => ({
       return () => root.unmount()
     })
   },
-}))
+}
