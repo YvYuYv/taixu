@@ -199,7 +199,9 @@ const Contact: Component = {
     return () =>
       h('div', null, [
         h('h2', null, '通信处理'),
-        h('h3', null, '1. 宿主导航能力（= props.jump）'),
+        h('p', null, '应用可以有三种方式进行通信（对应 wujie 的 props / window.parent / bus）：'),
+        h('h3', null, '1. 宿主注入的导航能力（= wujie props.jump）'),
+        h('p', null, '子应用 broadcast 消息 navigate，宿主监听后跳转对应路由。'),
         h(
           'button',
           {
@@ -208,9 +210,11 @@ const Contact: Component = {
           },
           '点击跳转 react16',
         ),
-        h('h3', null, '2. 调用宿主全局方法'),
+        h('h3', null, '2. 调用宿主全局方法（= wujie window.parent.alert）'),
+        h('p', null, 'taixu 子应用与宿主同窗运行——直接调用 window.alert，无需 window.parent 中转。'),
         h('button', { class: 'txv3-btn', onClick: () => window.alert('子应用直接调用 window.alert') }, '显示 alert'),
-        h('h3', null, '3. bus 去中心化事件'),
+        h('h3', null, '3. bus 去中心化事件（= wujie bus.$emit）'),
+        h('p', null, '子应用 broadcast click 事件，宿主全局旁听后 alert。'),
         h(
           'button',
           {

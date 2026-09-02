@@ -236,19 +236,50 @@ function Nest() {
   )
 }
 
+/**
+ * 官方 Font.js 用 tdesign-icons-react 渲染 IconFont，用来演示「相对地址字体在沙箱内可用」。
+ * 这里不引第三方图标库，直接吃 TDesign icon 的原始 css（同一份 CDN 资源），
+ * 更能说明差别：wujie 需框架把 url('./t.woff') 改写成绝对地址，taixu 靠浏览器原生解析。
+ */
+const ICON_CSS = 'https://tdesign.gtimg.com/icon/0.1.1/fonts/index.css'
+
 function Font() {
+  useEffect(() => {
+    if (document.querySelector(`link[data-tx-icon]`)) return
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = ICON_CSS
+    link.setAttribute('data-tx-icon', '')
+    document.head.appendChild(link)
+  }, [])
   return (
     <div>
       <h2>字体处理</h2>
       <h3>背景</h3>
-      <p>wujie 的子应用 DOM 挂在 shadowRoot 内，字体文件不会加载，需要框架提取 @font-face 到外部。</p>
-      <h3>taixu 的答案：无需处理</h3>
+      <p>wujie 的子应用 DOM 挂在 shadowRoot 内，shadowRoot 内部的字体文件不会加载。</p>
+      <h3>解决</h3>
       <p>
-        taixu 子应用与宿主<strong>同文档渲染</strong>（无 shadowRoot 隔离），
-        @font-face 与相对地址字体原生加载，零框架介入。
+        wujie 的做法：框架加载子应用时将自定义字体样式提取到 shadowRoot 外部，且主应用与子应用的 @font-face
+        font-family 不能重名，否则会互相覆盖。
       </p>
-      <p style={{ fontSize: 28 }}>✅ 🚀 💪 🤞</p>
-      <p>样式注入走 ctx.style.inject 显式登记（样式冲突可经 DevTools scanStyleConflicts 扫描）。</p>
+      <p>
+        taixu 的做法：<strong>无需处理</strong>——子应用与宿主<strong>同文档渲染</strong>（无 shadowRoot
+        隔离），@font-face 与相对地址字体原生加载，零框架介入；样式注入走 <code>ctx.style.inject</code>{' '}
+        显式登记（样式冲突可经 DevTools <code>scanStyleConflicts</code> 扫描）。
+      </p>
+      <h3>IconFont 图标示例</h3>
+      <p>TDesign icon</p>
+      <p style={{ fontSize: '2em', display: 'flex', gap: 12 }}>
+        <i className="t-icon t-icon-loading" />
+        <i className="t-icon t-icon-close" />
+        <i className="t-icon t-icon-check-circle-filled" />
+      </p>
+      <h3>相对地址</h3>
+      <p>浏览器按 css 文件自身的 URL 解析相对地址，无需框架改写。</p>
+      <p>比如 TDesign icon 的 css 文件地址为:</p>
+      <p> {ICON_CSS}</p>
+      <p>index.css 文件中 @font-face 中 url('./t.woff') 最终解析为:</p>
+      <p> https://tdesign.gtimg.com/icon/0.1.1/fonts/t.woff</p>
     </div>
   )
 }

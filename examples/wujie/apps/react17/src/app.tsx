@@ -143,18 +143,22 @@ function Communication() {
   return (
     <div>
       <h2>通信处理</h2>
-      <h3>1. 宿主导航能力（= props.jump）</h3>
+      <p>应用可以有三种方式进行通信（对应 wujie 的 props / window.parent / bus）：</p>
+      <h3>1. 宿主注入的导航能力（= wujie props.jump）</h3>
+      <p>子应用 broadcast 消息 navigate，宿主监听后跳转对应路由。</p>
       <button className="tx17-btn" onClick={() => bridge.ctx?.bus.broadcast(bridge.ctx, { type: 'navigate', payload: { name: 'vue3' } })}>
         点击跳转 vue3
       </button>
       <button className="tx17-btn" style={{ background: '#5a67d8' }} onClick={() => bridge.ctx?.bus.broadcast(bridge.ctx, { type: 'navigate', payload: { name: 'angular12' } })}>
         跳转 angular12
       </button>
-      <h3>2. 调用宿主全局方法</h3>
+      <h3>2. 调用宿主全局方法（= wujie window.parent.alert）</h3>
+      <p>taixu 子应用与宿主同窗运行——直接调用 window.alert，无需 window.parent 中转。</p>
       <button className="tx17-btn" onClick={() => window.alert('子应用直接调用 window.alert')}>
         显示 alert
       </button>
-      <h3>3. bus 去中心化事件</h3>
+      <h3>3. bus 去中心化事件（= wujie bus.$emit）</h3>
+      <p>子应用 broadcast click 事件，宿主全局旁听后 alert。</p>
       <button className="tx17-btn" onClick={() => bridge.ctx?.bus.broadcast(bridge.ctx, { type: 'click', payload: 'react17' })}>
         显示 alert（bus）
       </button>

@@ -38,6 +38,23 @@ const P0_FEATURES = new Set([
   '场景6 多个内联事件',
 ])
 
+/**
+ * 内容量骤降告警。
+ *
+ * 功能点判定是「能力级」的——单条同义正则命中就算覆盖，因此**抓不到"页面被整体简化"**：
+ * 官方一页是三个缺陷回归场景的集合（2028 字），重写版只剩一个裸编辑器（168 字），
+ * 「富文本编辑器可用」照样通过。字数比是补上这个盲区的廉价交叉信号。
+ *
+ * 阈值说明（按实测量级分布定，勿随意调低）：
+ * - MIN_REF_LEN=300：参考侧太短的页（首页、state 页等）字数波动大，不判。
+ * - SHRINK_RATIO=0.5：重写侧不足参考侧一半才报。实测「文案更精炼但内容对齐」的页比值
+ *   在 0.54~0.63（rich-text 补前是 0.08、通信页补前 0.23），0.5 能分开这两类。
+ *
+ * 这是**待人工确认**的信号而非确定缺陷，故判 P1：文案更精炼是合法的。
+ */
+const MIN_REF_LEN = Number(process.env.MIN_REF_LEN ?? 300)
+const SHRINK_RATIO = Number(process.env.SHRINK_RATIO ?? 0.5)
+
 const PAIRS = [
   ['official-vue', 'taixu-vue', 'Vue 宿主'],
   ['official-react', 'taixu-react', 'React 宿主'],
@@ -165,6 +182,7 @@ for (const [offId, txId, label] of PAIRS) {
   say('| --- | --- | --- | --- | --- |')
   let featureMissTotal = 0
   let contentEmpty = 0
+  let shrinkWarn = 0
   for (const c of off.cases.map((id) => CASES.find((x) => x.id === id)).filter(Boolean)) {
     const o = offPages.get(c.id)
     const t = txPages.get(c.id)
@@ -198,15 +216,32 @@ for (const [offId, txId, label] of PAIRS) {
       if (!featureGaps.has(f.name)) featureGaps.set(f.name, { sev, where: new Set() })
       featureGaps.get(f.name).where.add(`${label} \`${c.id}\``)
     }
+    // 内容量骤降交叉告警：功能点全过但字数掉一半以上 → 页面可能被简化，需人工确认
+    const oLen = o?.subText.length ?? 0
+    const tLen = t.subText.length
+    const shrunk = oLen >= MIN_REF_LEN && tLen / oLen < SHRINK_RATIO
+    if (shrunk) {
+      shrinkWarn++
+      totalGaps++
+      bySeverity.P1.push(
+        `${label} 用例 \`${c.id}\`：内容量骤降 ${oLen} → ${tLen} 字（比值 ${(tLen / oLen).toFixed(2)}）` +
+          ` —— 功能点判定已通过，需人工确认是文案精炼还是页面被简化`,
+      )
+    }
     const mark = (n, total) => (total === 0 ? '—' : `${n}/${total}`)
     say(
       `| \`${c.id}\` | ${mark(oHit.length, feats.length)} | ${mark(tHit.length, feats.length)} |` +
-        ` ${o?.subText.length ?? 0} / ${t.subText.length} |` +
-        ` ${miss.length ? miss.map((f) => `\`${f.name}\``).join('、') : '—'} |`,
+        ` ${oLen} / ${tLen}${shrunk ? ' ⚠️' : ''} |` +
+        ` ${miss.length ? miss.map((f) => `\`${f.name}\``).join('、') : shrunk ? '（见内容量告警）' : '—'} |`,
     )
   }
   say()
   say(`功能点缺失合计：**${featureMissTotal}** 项；内容为空用例：**${contentEmpty}** 个`)
+  say(
+    shrinkWarn
+      ? `⚠️ 内容量骤降告警：**${shrinkWarn}** 处（功能点判定已通过，但字数不足参考侧 ${SHRINK_RATIO} 倍，需人工确认）`
+      : `✅ 无内容量骤降告警（无页面在功能点通过的前提下字数不足参考侧 ${SHRINK_RATIO} 倍）`,
+  )
   say()
 
   // ---------- 4. 运行时错误 ----------

@@ -25,10 +25,12 @@ const CASES = [
   ['vue2-sub/rich-text', 'outlet-main-wrap', ['富文本']],
   ['vue3', 'outlet-main-wrap', ['vue3']],
   ['vue3-sub/inline-event', 'outlet-main-wrap', ['行内事件']],
-  // 官方 vue3/vite 子应用的 contact 路由即「通信」页（wujie 原样命名）
-  ['vue3-sub/contact', 'outlet-main-wrap', ['宿主导航能力']],
+  // 官方 vue3/vite 子应用的 contact 路由即「通信」页（wujie 原样命名）。
+  // 断言只取「导航能力」——标题措辞会随对齐官方文案微调（宿主导航能力 / 宿主注入的导航能力），
+  // 写死整句会让一次文案改动就误报 FAIL。
+  ['vue3-sub/contact', 'outlet-main-wrap', ['导航能力']],
   ['vite', 'outlet-main-wrap', ['vite']],
-  ['vite-sub/contact', 'outlet-main-wrap', ['宿主导航能力']],
+  ['vite-sub/contact', 'outlet-main-wrap', ['导航能力']],
   ['angular12', 'outlet-main-wrap', ['angular']],
   ['all', 'all-wrap', ['react16', 'vue2']],
   ['postmessage', 'pm-wrap', ['主应用', '发送消息给vue2子应用']],
