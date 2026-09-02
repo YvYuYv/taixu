@@ -72,11 +72,15 @@ var me=Object.freeze({}),L=Array.isArray;function T(e){return e==null}function g
       <p>\u540C\u7A97\u5E94\u7528\u76F4\u63A5\u8DF3\u8F6C\uFF0C\u65E0 shadow \u5220\u9664 / iframe \u66FF\u6362\u7B49\u964D\u7EA7\u52A8\u4F5C\u3002</p>
     </div>`,methods:{back(){window.history.back()},forward(){window.history.forward()},jump(){window.location.href="https://github.com/taixu-micro"}}},CommPage:{template:`<div>
       <h2>\u901A\u4FE1\u5904\u7406</h2>
-      <h3>1. \u5BBF\u4E3B\u5BFC\u822A\u80FD\u529B\uFF08= props.jump\uFF09</h3>
+      <p>\u5E94\u7528\u53EF\u4EE5\u6709\u4E09\u79CD\u65B9\u5F0F\u8FDB\u884C\u901A\u4FE1\uFF08\u5BF9\u5E94 wujie \u7684 props / window.parent / bus\uFF09\uFF1A</p>
+      <h3>1. \u5BBF\u4E3B\u6CE8\u5165\u7684\u5BFC\u822A\u80FD\u529B\uFF08= wujie props.jump\uFF09</h3>
+      <p>\u5B50\u5E94\u7528 broadcast \u6D88\u606F navigate\uFF0C\u5BBF\u4E3B\u76D1\u542C\u540E\u8DF3\u8F6C\u5BF9\u5E94\u8DEF\u7531\u3002</p>
       <button class="txv2-btn" @click="nav('react17')">\u70B9\u51FB\u8DF3\u8F6C react17</button>
-      <h3>2. \u8C03\u7528\u5BBF\u4E3B\u5168\u5C40\u65B9\u6CD5</h3>
+      <h3>2. \u8C03\u7528\u5BBF\u4E3B\u5168\u5C40\u65B9\u6CD5\uFF08= wujie window.parent.alert\uFF09</h3>
+      <p>taixu \u5B50\u5E94\u7528\u4E0E\u5BBF\u4E3B\u540C\u7A97\u8FD0\u884C\u2014\u2014\u76F4\u63A5\u8C03\u7528 window.alert\uFF0C\u65E0\u9700 window.parent \u4E2D\u8F6C\u3002</p>
       <button class="txv2-btn" @click="alert2()">\u663E\u793A alert</button>
-      <h3>3. bus \u53BB\u4E2D\u5FC3\u5316\u4E8B\u4EF6</h3>
+      <h3>3. bus \u53BB\u4E2D\u5FC3\u5316\u4E8B\u4EF6\uFF08= wujie bus.$emit\uFF09</h3>
+      <p>\u5B50\u5E94\u7528 broadcast click \u4E8B\u4EF6\uFF0C\u5BBF\u4E3B\u5168\u5C40\u65C1\u542C\u540E alert\u3002</p>
       <button class="txv2-btn" @click="emitClick()">\u663E\u793A alert\uFF08bus\uFF09</button>
     </div>`,methods:{nav(e){ve.ctx?.bus.broadcast(ve.ctx,{type:"navigate",payload:{name:e}})},alert2(){window.alert("\u5B50\u5E94\u7528\u76F4\u63A5\u8C03\u7528 window.alert")},emitClick(){ve.ctx?.bus.broadcast(ve.ctx,{type:"click",payload:"vue2"})}}},PmPage:{computed:{received:()=>ve.pm.received},template:`<div>
       <h2>postmessage \u5904\u7406</h2>

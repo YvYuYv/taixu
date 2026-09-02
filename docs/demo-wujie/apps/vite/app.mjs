@@ -4,7 +4,7 @@
 * @license MIT
 **/
 // @__NO_SIDE_EFFECTS__
-function Ae(t) {
+function Se(t) {
   const e = /* @__PURE__ */ Object.create(null);
   for (const s of t.split(",")) e[s] = 1;
   return (s) => s in e;
@@ -14,7 +14,7 @@ const et = {}, Ve = [], Ct = () => {
 (t.charCodeAt(2) > 122 || t.charCodeAt(2) < 97), ys = (t) => t.startsWith("onUpdate:"), pt = Object.assign, an = (t, e) => {
   const s = t.indexOf(e);
   s > -1 && t.splice(s, 1);
-}, Mi = Object.prototype.hasOwnProperty, J = (t, e) => Mi.call(t, e), j = Array.isArray, fe = (t) => Je(t) === "[object Map]", Ys = (t) => Je(t) === "[object Set]", Ln = (t) => Je(t) === "[object Date]", $ = (t) => typeof t == "function", st = (t) => typeof t == "string", se = (t) => typeof t == "symbol", nt = (t) => t !== null && typeof t == "object", mr = (t) => (nt(t) || $(t)) && $(t.then) && $(t.catch), Ii = Object.prototype.toString, Je = (t) => Ii.call(t), Ri = (t) => Je(t).slice(8, -1), Di = (t) => Je(t) === "[object Object]", un = (t) => st(t) && t !== "NaN" && t[0] !== "-" && "" + parseInt(t, 10) === t, ae = /* @__PURE__ */ Ae(
+}, Mi = Object.prototype.hasOwnProperty, J = (t, e) => Mi.call(t, e), j = Array.isArray, fe = (t) => Je(t) === "[object Map]", Ys = (t) => Je(t) === "[object Set]", Ln = (t) => Je(t) === "[object Date]", $ = (t) => typeof t == "function", st = (t) => typeof t == "string", se = (t) => typeof t == "symbol", nt = (t) => t !== null && typeof t == "object", mr = (t) => (nt(t) || $(t)) && $(t.then) && $(t.catch), Ii = Object.prototype.toString, Je = (t) => Ii.call(t), Ri = (t) => Je(t).slice(8, -1), Di = (t) => Je(t) === "[object Object]", un = (t) => st(t) && t !== "NaN" && t[0] !== "-" && "" + parseInt(t, 10) === t, ae = /* @__PURE__ */ Se(
   // the leading comma is intentional so empty string "" is also included
   ",key,ref,ref_for,ref_key,onVnodeBeforeMount,onVnodeMounted,onVnodeBeforeUpdate,onVnodeUpdated,onVnodeBeforeUnmount,onVnodeUnmounted"
 ), xs = (t) => {
@@ -92,15 +92,15 @@ function Ts(t) {
       t[s] && (e += s + " ");
   return e.trim();
 }
-const yr = "itemscope,allowfullscreen,formnovalidate,ismap,nomodule,novalidate,readonly", ki = /* @__PURE__ */ Ae(yr), Nn = /* @__PURE__ */ Ae(
+const yr = "itemscope,allowfullscreen,formnovalidate,ismap,nomodule,novalidate,readonly", ki = /* @__PURE__ */ Se(yr), Nn = /* @__PURE__ */ Se(
   yr + ",async,autofocus,autoplay,controls,default,defer,disabled,inert,loop,open,required,reversed,scoped,seamless,checked,muted,multiple,selected"
 );
 function Es(t) {
   return !!t || t === "";
 }
-const Ki = /* @__PURE__ */ Ae(
+const Ki = /* @__PURE__ */ Se(
   "accept,accept-charset,accesskey,action,align,allow,alt,async,autocapitalize,autocomplete,autofocus,autoplay,background,bgcolor,border,buffered,capture,challenge,charset,checked,cite,class,code,codebase,color,cols,colspan,content,contenteditable,contextmenu,controls,coords,crossorigin,csp,data,datetime,decoding,default,defer,dir,dirname,disabled,download,draggable,dropzone,enctype,enterkeyhint,for,form,formaction,formenctype,formmethod,formnovalidate,formtarget,headers,height,hidden,high,href,hreflang,http-equiv,icon,id,importance,inert,integrity,ismap,itemprop,keytype,kind,label,lang,language,loading,list,loop,low,manifest,max,maxlength,minlength,media,min,multiple,muted,name,novalidate,open,optimum,pattern,ping,placeholder,poster,preload,radiogroup,readonly,referrerpolicy,rel,required,reversed,rows,rowspan,sandbox,scope,scoped,selected,shape,size,sizes,slot,span,spellcheck,src,srcdoc,srclang,srcset,start,step,style,summary,tabindex,target,title,translate,type,usemap,value,width,wrap"
-), Bi = /* @__PURE__ */ Ae(
+), Bi = /* @__PURE__ */ Se(
   "xmlns,accent-height,accumulate,additive,alignment-baseline,alphabetic,amplitude,arabic-form,ascent,attributeName,attributeType,azimuth,baseFrequency,baseline-shift,baseProfile,bbox,begin,bias,by,calcMode,cap-height,class,clip,clipPathUnits,clip-path,clip-rule,color,color-interpolation,color-interpolation-filters,color-profile,color-rendering,contentScriptType,contentStyleType,crossorigin,cursor,cx,cy,d,decelerate,descent,diffuseConstant,direction,display,divisor,dominant-baseline,dur,dx,dy,edgeMode,elevation,enable-background,end,exponent,fill,fill-opacity,fill-rule,filter,filterRes,filterUnits,flood-color,flood-opacity,font-family,font-size,font-size-adjust,font-stretch,font-style,font-variant,font-weight,format,from,fr,fx,fy,g1,g2,glyph-name,glyph-orientation-horizontal,glyph-orientation-vertical,glyphRef,gradientTransform,gradientUnits,hanging,height,href,hreflang,horiz-adv-x,horiz-origin-x,id,ideographic,image-rendering,in,in2,intercept,k,k1,k2,k3,k4,kernelMatrix,kernelUnitLength,kerning,keyPoints,keySplines,keyTimes,lang,lengthAdjust,letter-spacing,lighting-color,limitingConeAngle,local,marker-end,marker-mid,marker-start,markerHeight,markerUnits,markerWidth,mask,maskContentUnits,maskUnits,mathematical,max,media,method,min,mode,name,numOctaves,offset,opacity,operator,order,orient,orientation,origin,overflow,overline-position,overline-thickness,panose-1,paint-order,path,pathLength,patternContentUnits,patternTransform,patternUnits,ping,pointer-events,points,pointsAtX,pointsAtY,pointsAtZ,preserveAlpha,preserveAspectRatio,primitiveUnits,r,radius,referrerPolicy,refX,refY,rel,rendering-intent,repeatCount,repeatDur,requiredExtensions,requiredFeatures,restart,result,rotate,rx,ry,scale,seed,shape-rendering,slope,spacing,specularConstant,specularExponent,speed,spreadMethod,startOffset,stdDeviation,stemh,stemv,stitchTiles,stop-color,stop-opacity,strikethrough-position,strikethrough-thickness,string,stroke,stroke-dasharray,stroke-dashoffset,stroke-linecap,stroke-linejoin,stroke-miterlimit,stroke-opacity,stroke-width,style,surfaceScale,systemLanguage,tabindex,tableValues,target,targetX,targetY,text-anchor,text-decoration,text-rendering,textLength,to,transform,transform-origin,type,u1,u2,underline-position,underline-thickness,unicode,unicode-bidi,unicode-range,units-per-em,v-alphabetic,v-hanging,v-ideographic,v-mathematical,values,vector-effect,version,vert-adv-y,vert-origin-x,vert-origin-y,viewBox,viewTarget,visibility,width,widths,word-spacing,writing-mode,x,x-height,x1,x2,xChannelSelector,xlink:actuate,xlink:arcrole,xlink:href,xlink:role,xlink:show,xlink:title,xlink:type,xmlns:xlink,xml:base,xml:lang,xml:space,y,y1,y2,yChannelSelector,z,zoomAndPan"
 );
 function xr(t) {
@@ -120,7 +120,7 @@ function qi(t, e) {
   if (t.length !== e.length) return !1;
   let s = !0;
   for (let n = 0; s && n < t.length; n++)
-    s = Ss(t[n], e[n]);
+    s = ws(t[n], e[n]);
   return s;
 }
 function Un(t, e) {
@@ -129,7 +129,7 @@ function Un(t, e) {
   for (const r of t) {
     let i = -1;
     for (let l = 0; l < s.length; l++)
-      if (!n[l] && Ss(r, s[l])) {
+      if (!n[l] && ws(r, s[l])) {
         i = l;
         break;
       }
@@ -138,7 +138,7 @@ function Un(t, e) {
   }
   return !0;
 }
-function Ss(t, e) {
+function ws(t, e) {
   if (t === e) return !0;
   let s = Ln(t), n = Ln(e);
   if (s || n)
@@ -157,7 +157,7 @@ function Ss(t, e) {
       return !1;
     for (const l in t) {
       const o = t.hasOwnProperty(l), f = e.hasOwnProperty(l);
-      if (o && !f || !o && f || !Ss(t[l], e[l]))
+      if (o && !f || !o && f || !ws(t[l], e[l]))
         return !1;
     }
   }
@@ -296,13 +296,13 @@ class vr {
   run() {
     if (!(this.flags & 1))
       return this.fn();
-    this.flags |= 2, Fn(this), Sr(this);
+    this.flags |= 2, Fn(this), wr(this);
     const e = tt, s = Mt;
     tt = this, Mt = !0;
     try {
       return this.fn();
     } finally {
-      Ar(this), tt = e, Mt = s, this.flags &= -3;
+      Sr(this), tt = e, Mt = s, this.flags &= -3;
     }
   }
   stop() {
@@ -362,11 +362,11 @@ function hn() {
   }
   if (t) throw t;
 }
-function Sr(t) {
+function wr(t) {
   for (let e = t.deps; e; e = e.nextDep)
     e.version = -1, e.prevActiveLink = e.dep.activeLink, e.dep.activeLink = e;
 }
-function Ar(t) {
+function Sr(t) {
   let e, s = t.depsTail, n = s;
   for (; n; ) {
     const r = n.prevDep;
@@ -376,24 +376,24 @@ function Ar(t) {
 }
 function qs(t) {
   for (let e = t.deps; e; e = e.nextDep)
-    if (e.dep.version !== e.version || e.dep.computed && (Or(e.dep.computed) || e.dep.version !== e.version))
+    if (e.dep.version !== e.version || e.dep.computed && (Ar(e.dep.computed) || e.dep.version !== e.version))
       return !0;
   return !!t._dirty;
 }
-function Or(t) {
+function Ar(t) {
   if (t.flags & 4 && !(t.flags & 16) || (t.flags &= -17, t.globalVersion === Ke) || (t.globalVersion = Ke, !t.isSSR && t.flags & 128 && (!t.deps && !t._dirty || !qs(t))))
     return;
   t.flags |= 2;
   const e = t.dep, s = tt, n = Mt;
   tt = t, Mt = !0;
   try {
-    Sr(t);
+    wr(t);
     const r = t.fn(t._value);
     (e.version === 0 || Nt(r, t._value)) && (t.flags |= 128, t._value = r, e.version++);
   } catch (r) {
     throw e.version++, r;
   } finally {
-    tt = s, Mt = n, Ar(t), t.flags &= -3;
+    tt = s, Mt = n, Sr(t), t.flags &= -3;
   }
 }
 function pn(t, e = !1) {
@@ -410,12 +410,12 @@ function Xi(t) {
   e && (e.nextDep = s, t.prevDep = void 0), s && (s.prevDep = e, t.nextDep = void 0);
 }
 let Mt = !0;
-const wr = [];
+const Or = [];
 function $t() {
-  wr.push(Mt), Mt = !1;
+  Or.push(Mt), Mt = !1;
 }
 function jt() {
-  const t = wr.pop();
+  const t = Or.pop();
   Mt = t === void 0 ? !0 : t;
 }
 function Fn(t) {
@@ -691,7 +691,7 @@ function Pe(t, e, s = []) {
   const n = (/* @__PURE__ */ G(t))[e].apply(t, s);
   return hn(), jt(), n;
 }
-const el = /* @__PURE__ */ Ae("__proto__,__v_isRef,__isVue"), Pr = new Set(
+const el = /* @__PURE__ */ Se("__proto__,__v_isRef,__isVue"), Pr = new Set(
   /* @__PURE__ */ Object.getOwnPropertyNames(Symbol).filter((t) => t !== "arguments" && t !== "caller").map((t) => Symbol[t]).filter(se)
 );
 function sl(t) {
@@ -1041,7 +1041,7 @@ class xl {
   }
   get value() {
     const e = this.dep.track();
-    return Or(this), e && (e.version = this.dep.version), this._value;
+    return Ar(this), e && (e.version = this.dep.version), this._value;
   }
   set value(e) {
     this.setter && this.setter(e);
@@ -1168,9 +1168,9 @@ let Us = !1;
 function Xt(t, ...e) {
   if (Us) return;
   Us = !0, $t();
-  const s = Fe.length ? Fe[Fe.length - 1].component : null, n = s && s.appContext.config.warnHandler, r = Sl();
+  const s = Fe.length ? Fe[Fe.length - 1].component : null, n = s && s.appContext.config.warnHandler, r = wl();
   if (n)
-    Oe(
+    Ae(
       n,
       s,
       11,
@@ -1191,11 +1191,11 @@ function Xt(t, ...e) {
   else {
     const i = [`[Vue warn]: ${t}`, ...e];
     r.length && i.push(`
-`, ...Al(r)), console.warn(...i);
+`, ...Sl(r)), console.warn(...i);
   }
   jt(), Us = !1;
 }
-function Sl() {
+function wl() {
   let t = Fe[Fe.length - 1];
   if (!t)
     return [];
@@ -1211,22 +1211,22 @@ function Sl() {
   }
   return e;
 }
-function Al(t) {
+function Sl(t) {
   const e = [];
   return t.forEach((s, n) => {
     e.push(...n === 0 ? [] : [`
-`], ...Ol(s));
+`], ...Al(s));
   }), e;
 }
-function Ol({ vnode: t, recurseCount: e }) {
+function Al({ vnode: t, recurseCount: e }) {
   const s = e > 0 ? `... (${e} recursive calls)` : "", n = t.component ? t.component.parent == null : !1, r = ` at <${Ei(
     t.component,
     t.type,
     n
   )}`, i = ">" + s;
-  return t.props ? [r, ...wl(t.props), i] : [r + i];
+  return t.props ? [r, ...Ol(t.props), i] : [r + i];
 }
-function wl(t) {
+function Ol(t) {
   const e = [], s = Object.keys(t);
   return s.slice(0, 3).forEach((n) => {
     e.push(...Vr(n, t[n]));
@@ -1235,18 +1235,18 @@ function wl(t) {
 function Vr(t, e, s) {
   return st(e) ? (e = JSON.stringify(e), s ? e : [`${t}=${e}`]) : typeof e == "number" || typeof e == "boolean" || e == null ? s ? e : [`${t}=${e}`] : /* @__PURE__ */ ht(e) ? (e = Vr(t, /* @__PURE__ */ G(e.value), !0), s ? e : [`${t}=Ref<`, e, ">"]) : $(e) ? [`${t}=fn${e.name ? `<${e.name}>` : ""}`] : (e = /* @__PURE__ */ G(e), s ? e : [`${t}=`, e]);
 }
-function Oe(t, e, s, n) {
+function Ae(t, e, s, n) {
   try {
     return n ? t(...n) : t();
   } catch (r) {
-    As(r, e, s);
+    Ss(r, e, s);
   }
 }
 function Rt(t, e, s, n) {
   if ($(t)) {
-    const r = Oe(t, e, s, n);
+    const r = Ae(t, e, s, n);
     return r && mr(r) && r.catch((i) => {
-      As(i, e, s);
+      Ss(i, e, s);
     }), r;
   }
   if (j(t)) {
@@ -1256,7 +1256,7 @@ function Rt(t, e, s, n) {
     return r;
   }
 }
-function As(t, e, s, n = !0) {
+function Ss(t, e, s, n = !0) {
   const r = e ? e.vnode : null, { errorHandler: i, throwUnhandledErrorInProduction: l } = e && e.appContext.config || et;
   if (e) {
     let o = e.parent;
@@ -1271,7 +1271,7 @@ function As(t, e, s, n = !0) {
       o = o.parent;
     }
     if (i) {
-      $t(), Oe(i, null, 10, [
+      $t(), Ae(i, null, 10, [
         t,
         f,
         d
@@ -1354,7 +1354,7 @@ function Fr(t) {
   try {
     for (Ht = 0; Ht < bt.length; Ht++) {
       const e = bt[Ht];
-      e && !(e.flags & 8) && (e.flags & 4 && (e.flags &= -2), Oe(
+      e && !(e.flags & 8) && (e.flags & 4 && (e.flags &= -2), Ae(
         e,
         e.i,
         e.i ? 15 : 14
@@ -1369,7 +1369,7 @@ function Fr(t) {
   }
 }
 let Ut, Re = [], Qs = !1;
-function Os(t, ...e) {
+function As(t, ...e) {
   Ut ? Ut.emit(t, ...e) : Qs || Re.push({ event: t, args: e });
 }
 function $r(t, e) {
@@ -1384,15 +1384,15 @@ function $r(t, e) {
   }, 3e3)) : (Qs = !0, Re = []);
 }
 function Rl(t, e) {
-  Os("app:init", t, e, {
-    Fragment: At,
+  As("app:init", t, e, {
+    Fragment: St,
     Text: ee,
     Comment: Gt,
     Static: ve
   });
 }
 function Dl(t) {
-  Os("app:unmount", t);
+  As("app:unmount", t);
 }
 const Hl = /* @__PURE__ */ Tn(
   "component:added"
@@ -1410,7 +1410,7 @@ const Hl = /* @__PURE__ */ Tn(
 // @__NO_SIDE_EFFECTS__
 function Tn(t) {
   return (e) => {
-    Os(
+    As(
       t,
       e.appContext.app,
       e.uid,
@@ -1420,7 +1420,7 @@ function Tn(t) {
   };
 }
 function Nl(t, e, s) {
-  Os(
+  As(
     "component:emit",
     t.appContext.app,
     t,
@@ -1527,7 +1527,7 @@ function Br(t, e) {
     return n;
   };
 }
-const Zt = /* @__PURE__ */ new WeakMap(), Wr = /* @__PURE__ */ Symbol("_vte"), ws = (t) => t.__isTeleport, ce = (t) => t && (t.disabled || t.disabled === ""), Kl = (t) => t && (t.defer || t.defer === ""), kn = (t) => typeof SVGElement < "u" && t instanceof SVGElement, Kn = (t) => typeof MathMLElement == "function" && t instanceof MathMLElement, tn = (t, e) => {
+const Zt = /* @__PURE__ */ new WeakMap(), Wr = /* @__PURE__ */ Symbol("_vte"), Os = (t) => t.__isTeleport, ce = (t) => t && (t.disabled || t.disabled === ""), Kl = (t) => t && (t.defer || t.defer === ""), kn = (t) => typeof SVGElement < "u" && t instanceof SVGElement, Kn = (t) => typeof MathMLElement == "function" && t instanceof MathMLElement, tn = (t, e) => {
   const s = t && t.to;
   return st(s) ? e ? e(s) : null : s;
 }, Bl = {
@@ -1747,8 +1747,8 @@ function ql(t) {
   return e;
 }
 function Yr(t) {
-  if (!An(t))
-    return ws(t.type) && t.children ? ql(t.children) : t;
+  if (!Sn(t))
+    return Os(t.type) && t.children ? ql(t.children) : t;
   if (t.component)
     return t.component.subTree;
   const { shapeFlag: e, children: s } = t;
@@ -1764,7 +1764,7 @@ function En(t, e) {
     t.transition = e;
     const s = t.component.subTree;
     En(
-      ws(s.type) && Yr(s) || s,
+      Os(s.type) && Yr(s) || s,
       e
     );
   } else t.shapeFlag & 128 ? (t.ssContent.transition = e.clone(t.ssContent), t.ssFallback.transition = e.clone(t.ssFallback)) : t.transition = e;
@@ -1812,7 +1812,7 @@ function be(t, e, s, n, r = !1) {
     }
   }
   if ($(f))
-    Oe(f, o, 12, [l, u]);
+    Ae(f, o, 12, [l, u]);
   else {
     const M = st(f), K = /* @__PURE__ */ ht(f);
     if (M || K) {
@@ -1917,7 +1917,7 @@ function Xl(t) {
         } else
           Y();
         break;
-      case At:
+      case St:
         N ? H = V(
           h,
           _,
@@ -2069,8 +2069,8 @@ Server rendered element contains more child nodes than client vdom.`
           for (const Z in U.style) U.style[Z];
       }
       let xt;
-      (xt = U && U.onVnodeBeforeMount) && St(xt, C, _), rt && Lt(_, null, C, "beforeMount"), ((xt = U && U.onVnodeMounted) || rt || k) && bi(() => {
-        xt && St(xt, C, _), k && ut.enter(h), rt && Lt(_, null, C, "mounted");
+      (xt = U && U.onVnodeBeforeMount) && wt(xt, C, _), rt && Lt(_, null, C, "beforeMount"), ((xt = U && U.onVnodeMounted) || rt || k) && bi(() => {
+        xt && wt(xt, C, _), k && ut.enter(h), rt && Lt(_, null, C, "mounted");
       }, B);
     }
     return h.nextSibling;
@@ -2079,8 +2079,8 @@ Server rendered element contains more child nodes than client vdom.`
     const Y = _.children, U = Y.length;
     let ot = !1;
     for (let lt = 0; lt < U; lt++) {
-      const rt = N ? Y[lt] : Y[lt] = Ot(Y[lt]), ut = rt.type === ee;
-      h ? (ut && !N && lt + 1 < U && Ot(Y[lt + 1]).type === ee && (f(
+      const rt = N ? Y[lt] : Y[lt] = At(Y[lt]), ut = rt.type === ee;
+      h ? (ut && !N && lt + 1 < U && At(Y[lt + 1]).type === ee && (f(
         r(
           h.data.slice(rt.children.length)
         ),
@@ -2233,7 +2233,7 @@ function so(t, e) {
 }
 function zr(t, e, s) {
   const n = t.subTree;
-  if (t.getCssVars && (e === n || n && n.type === At && n.children.includes(e))) {
+  if (t.getCssVars && (e === n || n && n.type === St && n.children.includes(e))) {
     const r = t.getCssVars();
     for (const i in r) {
       const l = zi(r[i]);
@@ -2253,12 +2253,12 @@ function $e(t, e) {
   if (e === 0 || e === 1)
     for (; t && !t.hasAttribute(hs); )
       t = t.parentElement;
-  return Sn(
+  return wn(
     t && t.getAttribute(hs),
     e
   );
 }
-function Sn(t, e) {
+function wn(t, e) {
   if (t == null)
     return !1;
   if (t === "")
@@ -2276,7 +2276,7 @@ function no(t, e) {
   ) || ro(t) || io(e);
 }
 function ro(t) {
-  return t.nodeType === 1 && Sn(
+  return t.nodeType === 1 && wn(
     t.getAttribute(hs),
     1
     /* CHILDREN */
@@ -2284,7 +2284,7 @@ function ro(t) {
 }
 function io({ props: t }) {
   const e = t && t[hs];
-  return typeof e == "string" && Sn(
+  return typeof e == "string" && wn(
     e,
     1
     /* CHILDREN */
@@ -2292,7 +2292,7 @@ function io({ props: t }) {
 }
 ue().requestIdleCallback;
 ue().cancelIdleCallback;
-const ye = (t) => !!t.type.__asyncLoader, An = (t) => t.type.__isKeepAlive;
+const ye = (t) => !!t.type.__asyncLoader, Sn = (t) => t.type.__isKeepAlive;
 function lo(t, e) {
   Jr(t, "a", e);
 }
@@ -2312,7 +2312,7 @@ function Jr(t, e, s = yt) {
   if (Cs(e, n, s), s) {
     let r = s.parent;
     for (; r && r.parent; )
-      An(r.parent.vnode) && co(n, e, s, r), r = r.parent;
+      Sn(r.parent.vnode) && co(n, e, s, r), r = r.parent;
   }
 }
 function co(t, e, s, n) {
@@ -2611,7 +2611,7 @@ const To = {
   components: He,
   directives: He,
   // watch
-  watch: So,
+  watch: wo,
   // provide / inject
   provide: Zn,
   inject: Eo
@@ -2649,7 +2649,7 @@ function Qn(t, e) {
     Jn(e ?? {})
   ) : e;
 }
-function So(t, e) {
+function wo(t, e) {
   if (!t) return e;
   if (!e) return t;
   const s = pt(/* @__PURE__ */ Object.create(null), t);
@@ -2678,14 +2678,14 @@ function ei() {
     emitsCache: /* @__PURE__ */ new WeakMap()
   };
 }
-let Ao = 0;
-function Oo(t, e) {
+let So = 0;
+function Ao(t, e) {
   return function(n, r = null) {
     $(n) || (n = pt({}, n)), r != null && !nt(r) && (r = null);
     const i = ei(), l = /* @__PURE__ */ new WeakSet(), o = [];
     let f = !1;
     const d = i.app = {
-      _uid: Ao++,
+      _uid: So++,
       _component: n,
       _props: r,
       _container: null,
@@ -2742,12 +2742,12 @@ function Oo(t, e) {
   };
 }
 let xe = null;
-const wo = (t, e) => e === "modelValue" || e === "model-value" ? t.modelModifiers : t[`${e}Modifiers`] || t[`${Pt(e)}Modifiers`] || t[`${re(e)}Modifiers`];
+const Oo = (t, e) => e === "modelValue" || e === "model-value" ? t.modelModifiers : t[`${e}Modifiers`] || t[`${Pt(e)}Modifiers`] || t[`${re(e)}Modifiers`];
 function Co(t, e, ...s) {
   if (t.isUnmounted) return;
   const n = t.vnode.props || et;
   let r = s;
-  const i = e.startsWith("update:"), l = i && wo(n, e.slice(7));
+  const i = e.startsWith("update:"), l = i && Oo(n, e.slice(7));
   l && (l.trim && (r = s.map((u) => st(u) ? u.trim() : u)), l.number && (r = r.map(Vi))), __VUE_PROD_DEVTOOLS__ && Nl(t, e, r);
   let o, f = n[o = Ds(e)] || // also try camelCase event handler (#2249)
   n[o = Ds(Pt(e))];
@@ -2812,7 +2812,7 @@ function ks(t) {
   try {
     if (s.shapeFlag & 4) {
       const _ = r || n, C = _;
-      W = Ot(
+      W = At(
         d.call(
           C,
           _,
@@ -2825,7 +2825,7 @@ function ks(t) {
       ), R = o;
     } else {
       const _ = e;
-      W = Ot(
+      W = At(
         _.length > 1 ? _(
           g,
           { attrs: o, slots: l, emit: f }
@@ -2836,7 +2836,7 @@ function ks(t) {
       ), R = e.props ? o : Mo(o);
     }
   } catch (_) {
-    Te.length = 0, As(_, t, 1), W = Et(Gt);
+    Te.length = 0, Ss(_, t, 1), W = Et(Gt);
   }
   let h = W;
   if (R && M !== !1) {
@@ -2844,10 +2844,10 @@ function ks(t) {
     _.length && C & 7 && (i && _.some(ys) && (R = Io(
       R,
       i
-    )), h = Se(h, R, !1, !0));
+    )), h = we(h, R, !1, !0));
   }
-  if (s.dirs && (h = Se(h, null, !1, !0), h.dirs = h.dirs ? h.dirs.concat(s.dirs) : s.dirs), s.transition) {
-    const _ = ws(h.type) && Yr(h) || h;
+  if (s.dirs && (h = we(h, null, !1, !0), h.dirs = h.dirs ? h.dirs.concat(s.dirs) : s.dirs), s.transition) {
+    const _ = Os(h.type) && Yr(h) || h;
     En(_, s.transition);
   }
   return W = h, us(K), W;
@@ -2897,7 +2897,7 @@ function tr(t, e, s) {
 }
 function ni(t, e, s) {
   const n = t[s], r = e[s];
-  return s === "style" && nt(n) && nt(r) ? !Ss(n, r) : n !== r;
+  return s === "style" && nt(n) && nt(r) ? !ws(n, r) : n !== r;
 }
 function ri({ vnode: t, parent: e, suspense: s }, n) {
   for (; e; ) {
@@ -3089,29 +3089,29 @@ function fi(t, e, s = !1) {
 function er(t) {
   return t[0] !== "$" && !ae(t);
 }
-const On = (t) => t === "_" || t === "_ctx" || t === "$stable", wn = (t) => j(t) ? t.map(Ot) : [Ot(t)], Vo = (t, e, s) => {
+const An = (t) => t === "_" || t === "_ctx" || t === "$stable", On = (t) => j(t) ? t.map(At) : [At(t)], Vo = (t, e, s) => {
   if (e._n)
     return e;
-  const n = Ul((...r) => wn(e(...r)), s);
+  const n = Ul((...r) => On(e(...r)), s);
   return n._c = !1, n;
 }, ai = (t, e, s) => {
   const n = t._ctx;
   for (const r in t) {
-    if (On(r)) continue;
+    if (An(r)) continue;
     const i = t[r];
     if ($(i))
       e[r] = Vo(r, i, n);
     else if (i != null) {
-      const l = wn(i);
+      const l = On(i);
       e[r] = () => l;
     }
   }
 }, ui = (t, e) => {
-  const s = wn(e);
+  const s = On(e);
   t.slots.default = () => s;
 }, di = (t, e, s) => {
   for (const n in e)
-    (s || !On(n)) && (t[n] = e[n]);
+    (s || !An(n)) && (t[n] = e[n]);
 }, No = (t, e, s) => {
   const n = t.slots = li();
   if (t.vnode.shapeFlag & 32) {
@@ -3127,7 +3127,7 @@ const On = (t) => t === "_" || t === "_ctx" || t === "$stable", wn = (t) => j(t)
   } else e && (ui(t, e), l = { default: 1 });
   if (i)
     for (const o in r)
-      !On(o) && l[o] == null && delete r[o];
+      !An(o) && l[o] == null && delete r[o];
 };
 function Fo() {
   typeof __VUE_OPTIONS_API__ != "boolean" && (ue().__VUE_OPTIONS_API__ = !0), typeof __VUE_PROD_DEVTOOLS__ != "boolean" && (ue().__VUE_PROD_DEVTOOLS__ = !1), typeof __VUE_PROD_HYDRATION_MISMATCH_DETAILS__ != "boolean" && (ue().__VUE_PROD_HYDRATION_MISMATCH_DETAILS__ = !1);
@@ -3156,11 +3156,11 @@ function hi(t, e) {
     nextSibling: T,
     setScopeId: A = Ct,
     insertStaticContent: V
-  } = t, M = (c, a, p, x = null, b = null, m = null, S = void 0, E = null, v = !!a.dynamicChildren) => {
+  } = t, M = (c, a, p, x = null, b = null, m = null, w = void 0, E = null, v = !!a.dynamicChildren) => {
     if (c === a)
       return;
     c && !Ie(c, a) && (x = Qe(c), it(c, b, m, !0), c = null), a.patchFlag === -2 && (v = !1, a.dynamicChildren = null);
-    const { type: y, ref: D, shapeFlag: w } = a;
+    const { type: y, ref: D, shapeFlag: O } = a;
     switch (y) {
       case ee:
         K(c, a, p, x);
@@ -3169,9 +3169,9 @@ function hi(t, e) {
         W(c, a, p, x);
         break;
       case ve:
-        c == null && R(a, p, x, S);
+        c == null && R(a, p, x, w);
         break;
-      case At:
+      case St:
         ot(
           c,
           a,
@@ -3179,40 +3179,40 @@ function hi(t, e) {
           x,
           b,
           m,
-          S,
+          w,
           E,
           v
         );
         break;
       default:
-        w & 1 ? C(
+        O & 1 ? C(
           c,
           a,
           p,
           x,
           b,
           m,
-          S,
+          w,
           E,
           v
-        ) : w & 6 ? lt(
+        ) : O & 6 ? lt(
           c,
           a,
           p,
           x,
           b,
           m,
-          S,
+          w,
           E,
           v
-        ) : (w & 64 || w & 128) && y.process(
+        ) : (O & 64 || O & 128) && y.process(
           c,
           a,
           p,
           x,
           b,
           m,
-          S,
+          w,
           E,
           v,
           pe
@@ -3255,15 +3255,15 @@ function hi(t, e) {
     for (; c && c !== a; )
       p = T(c), r(c), c = p;
     r(a);
-  }, C = (c, a, p, x, b, m, S, E, v) => {
-    if (a.type === "svg" ? S = "svg" : a.type === "math" && (S = "mathml"), c == null)
+  }, C = (c, a, p, x, b, m, w, E, v) => {
+    if (a.type === "svg" ? w = "svg" : a.type === "math" && (w = "mathml"), c == null)
       B(
         a,
         p,
         x,
         b,
         m,
-        S,
+        w,
         E,
         v
       );
@@ -3275,7 +3275,7 @@ function hi(t, e) {
           a,
           b,
           m,
-          S,
+          w,
           E,
           v
         );
@@ -3283,33 +3283,33 @@ function hi(t, e) {
         y && y._endPatch();
       }
     }
-  }, B = (c, a, p, x, b, m, S, E) => {
+  }, B = (c, a, p, x, b, m, w, E) => {
     let v, y;
-    const { props: D, shapeFlag: w, transition: I, dirs: L } = c;
+    const { props: D, shapeFlag: O, transition: I, dirs: L } = c;
     if (v = c.el = l(
       c.type,
       m,
       D && D.is,
       D
-    ), w & 8 ? u(v, c.children) : w & 16 && F(
+    ), O & 8 ? u(v, c.children) : O & 16 && F(
       c.children,
       v,
       null,
       x,
       b,
       Ks(c, m),
-      S,
+      w,
       E
-    ), L && Lt(c, null, x, "created"), P(v, c, c.scopeId, S, x), D) {
+    ), L && Lt(c, null, x, "created"), P(v, c, c.scopeId, w, x), D) {
       for (const Q in D)
         Q !== "value" && !ae(Q) && i(v, Q, null, D[Q], m, x);
-      "value" in D && i(v, "value", null, D.value, m), (y = D.onVnodeBeforeMount) && St(y, x, c);
+      "value" in D && i(v, "value", null, D.value, m), (y = D.onVnodeBeforeMount) && wt(y, x, c);
     }
     __VUE_PROD_DEVTOOLS__ && (Ee(v, "__vnode", c, !0), Ee(v, "__vueParentComponent", x, !0)), L && Lt(c, null, x, "beforeMount");
     const q = pi(b, I);
     q && I.beforeEnter(v), n(v, a, p), ((y = D && D.onVnodeMounted) || q || L) && mt(() => {
       try {
-        y && St(y, x, c), q && I.enter(v), L && Lt(c, null, x, "mounted");
+        y && wt(y, x, c), q && I.enter(v), L && Lt(c, null, x, "mounted");
       } finally {
       }
     }, b);
@@ -3320,19 +3320,19 @@ function hi(t, e) {
     if (b) {
       let m = b.subTree;
       if (a === m || mi(m.type) && (m.ssContent === a || m.ssFallback === a)) {
-        const S = b.vnode;
+        const w = b.vnode;
         P(
           c,
-          S,
-          S.scopeId,
-          S.slotScopeIds,
+          w,
+          w.scopeId,
+          w.slotScopeIds,
           b.parent
         );
       }
     }
-  }, F = (c, a, p, x, b, m, S, E, v = 0) => {
+  }, F = (c, a, p, x, b, m, w, E, v = 0) => {
     for (let y = v; y < c.length; y++) {
-      const D = c[y] = E ? Bt(c[y]) : Ot(c[y]);
+      const D = c[y] = E ? Bt(c[y]) : At(c[y]);
       M(
         null,
         D,
@@ -3341,20 +3341,20 @@ function hi(t, e) {
         x,
         b,
         m,
-        S,
+        w,
         E
       );
     }
-  }, N = (c, a, p, x, b, m, S) => {
+  }, N = (c, a, p, x, b, m, w) => {
     const E = a.el = c.el;
     __VUE_PROD_DEVTOOLS__ && (E.__vnode = a);
     let { patchFlag: v, dynamicChildren: y, dirs: D } = a;
     v |= c.patchFlag & 16;
-    const w = c.props || et, I = a.props || et;
+    const O = c.props || et, I = a.props || et;
     let L;
-    if (p && le(p, !1), (L = I.onVnodeBeforeUpdate) && St(L, p, a, c), D && Lt(a, c, p, "beforeUpdate"), p && le(p, !0), // #6385 the old vnode may be a user-wrapped non-isomorphic block
+    if (p && le(p, !1), (L = I.onVnodeBeforeUpdate) && wt(L, p, a, c), D && Lt(a, c, p, "beforeUpdate"), p && le(p, !0), // #6385 the old vnode may be a user-wrapped non-isomorphic block
     // Force full diff when block metadata is unstable.
-    y && (!c.dynamicChildren || c.dynamicChildren.length !== y.length) && (v = 0, S = !1, y = null), (w.innerHTML && I.innerHTML == null || w.textContent && I.textContent == null) && u(E, ""), y ? Y(
+    y && (!c.dynamicChildren || c.dynamicChildren.length !== y.length) && (v = 0, w = !1, y = null), (O.innerHTML && I.innerHTML == null || O.textContent && I.textContent == null) && u(E, ""), y ? Y(
       c.dynamicChildren,
       y,
       E,
@@ -3362,7 +3362,7 @@ function hi(t, e) {
       x,
       Ks(a, b),
       m
-    ) : S || k(
+    ) : w || k(
       c,
       a,
       E,
@@ -3374,27 +3374,27 @@ function hi(t, e) {
       !1
     ), v > 0) {
       if (v & 16)
-        U(E, w, I, p, b);
-      else if (v & 2 && w.class !== I.class && i(E, "class", null, I.class, b), v & 4 && i(E, "style", w.style, I.style, b), v & 8) {
+        U(E, O, I, p, b);
+      else if (v & 2 && O.class !== I.class && i(E, "class", null, I.class, b), v & 4 && i(E, "style", O.style, I.style, b), v & 8) {
         const q = a.dynamicProps;
         for (let Q = 0; Q < q.length; Q++) {
-          const X = q[Q], ct = w[X], ft = I[X];
+          const X = q[Q], ct = O[X], ft = I[X];
           (ft !== ct || X === "value") && i(E, X, ct, ft, b, p);
         }
       }
       v & 1 && c.children !== a.children && u(E, a.children);
-    } else !S && y == null && U(E, w, I, p, b);
+    } else !w && y == null && U(E, O, I, p, b);
     ((L = I.onVnodeUpdated) || D) && mt(() => {
-      L && St(L, p, a, c), D && Lt(a, c, p, "updated");
+      L && wt(L, p, a, c), D && Lt(a, c, p, "updated");
     }, x);
-  }, Y = (c, a, p, x, b, m, S) => {
+  }, Y = (c, a, p, x, b, m, w) => {
     for (let E = 0; E < a.length; E++) {
       const v = c[E], y = a[E], D = (
         // oldVNode may be an errored async setup() component inside Suspense
         // which will not have a mounted element
         v.el && // - In the case of a Fragment, we need to provide the actual parent
         // of the Fragment itself so it can move its children.
-        (v.type === At || // - In the case of different nodes, there is going to be a replacement
+        (v.type === St || // - In the case of different nodes, there is going to be a replacement
         // which also requires the correct parent container
         !Ie(v, y) || // - In the case of a component, it could contain anything.
         v.shapeFlag & 198) ? g(v.el) : (
@@ -3411,7 +3411,7 @@ function hi(t, e) {
         x,
         b,
         m,
-        S,
+        w,
         !0
       );
     }
@@ -3429,14 +3429,14 @@ function hi(t, e) {
           );
       for (const m in p) {
         if (ae(m)) continue;
-        const S = p[m], E = a[m];
-        S !== E && m !== "value" && i(c, m, E, S, b, x);
+        const w = p[m], E = a[m];
+        w !== E && m !== "value" && i(c, m, E, w, b, x);
       }
       "value" in p && i(c, "value", a.value, p.value, b);
     }
-  }, ot = (c, a, p, x, b, m, S, E, v) => {
+  }, ot = (c, a, p, x, b, m, w, E, v) => {
     const y = a.el = c ? c.el : o(""), D = a.anchor = c ? c.anchor : o("");
-    let { patchFlag: w, dynamicChildren: I, slotScopeIds: L } = a;
+    let { patchFlag: O, dynamicChildren: I, slotScopeIds: L } = a;
     L && (E = E ? E.concat(L) : L), c == null ? (n(y, p, x), n(D, p, x), F(
       // #10007
       // such fragment like `<></>` will be compiled into
@@ -3447,10 +3447,10 @@ function hi(t, e) {
       D,
       b,
       m,
-      S,
+      w,
       E,
       v
-    )) : w > 0 && w & 64 && I && // #2715 the previous fragment could've been a BAILed one as a result
+    )) : O > 0 && O & 64 && I && // #2715 the previous fragment could've been a BAILed one as a result
     // of renderSlot() with no valid children
     c.dynamicChildren && c.dynamicChildren.length === I.length ? (Y(
       c.dynamicChildren,
@@ -3458,7 +3458,7 @@ function hi(t, e) {
       p,
       b,
       m,
-      S,
+      w,
       E
     ), // #2080 if the stable fragment has a key, it's a <template v-for> that may
     //  get moved around. Make sure all root level vnodes inherit el.
@@ -3476,16 +3476,16 @@ function hi(t, e) {
       D,
       b,
       m,
-      S,
+      w,
       E,
       v
     );
-  }, lt = (c, a, p, x, b, m, S, E, v) => {
+  }, lt = (c, a, p, x, b, m, w, E, v) => {
     a.slotScopeIds = E, c == null ? a.shapeFlag & 512 ? b.ctx.activate(
       a,
       p,
       x,
-      S,
+      w,
       v
     ) : rt(
       a,
@@ -3493,17 +3493,17 @@ function hi(t, e) {
       x,
       b,
       m,
-      S,
+      w,
       v
     ) : ut(c, a, v);
-  }, rt = (c, a, p, x, b, m, S) => {
+  }, rt = (c, a, p, x, b, m, w) => {
     const E = c.component = Jo(
       c,
       x,
       b
     );
-    if (An(c) && (E.ctx.renderer = pe), Zo(E, !1, S), E.asyncDep) {
-      if (b && b.registerDep(E, H, S), !c.el) {
+    if (Sn(c) && (E.ctx.renderer = pe), Zo(E, !1, w), E.asyncDep) {
+      if (b && b.registerDep(E, H, w), !c.el) {
         const v = E.subTree = Et(Gt);
         W(null, v, a, p), c.placeholder = v.el;
       }
@@ -3515,7 +3515,7 @@ function hi(t, e) {
         p,
         b,
         m,
-        S
+        w
       );
   }, ut = (c, a, p) => {
     const x = a.component = c.component;
@@ -3527,14 +3527,14 @@ function hi(t, e) {
         x.next = a, x.update();
     else
       a.el = c.el, x.vnode = a;
-  }, H = (c, a, p, x, b, m, S) => {
+  }, H = (c, a, p, x, b, m, w) => {
     const E = () => {
       if (c.isMounted) {
-        let { next: w, bu: I, u: L, parent: q, vnode: Q } = c;
+        let { next: O, bu: I, u: L, parent: q, vnode: Q } = c;
         {
           const vt = gi(c);
           if (vt) {
-            w && (w.el = Q.el, z(c, w, S)), vt.asyncDep.then(() => {
+            O && (O.el = Q.el, z(c, O, w)), vt.asyncDep.then(() => {
               mt(() => {
                 c.isUnmounted || y();
               }, b);
@@ -3542,27 +3542,27 @@ function hi(t, e) {
             return;
           }
         }
-        let X = w, ct;
-        le(c, !1), w ? (w.el = Q.el, z(c, w, S)) : w = Q, I && Hs(I), (ct = w.props && w.props.onVnodeBeforeUpdate) && St(ct, q, w, Q), le(c, !0);
-        const ft = ks(c), wt = c.subTree;
+        let X = O, ct;
+        le(c, !1), O ? (O.el = Q.el, z(c, O, w)) : O = Q, I && Hs(I), (ct = O.props && O.props.onVnodeBeforeUpdate) && wt(ct, q, O, Q), le(c, !0);
+        const ft = ks(c), Ot = c.subTree;
         c.subTree = ft, M(
-          wt,
+          Ot,
           ft,
           // parent may have changed if it's in a teleport
-          g(wt.el),
+          g(Ot.el),
           // anchor may have changed if it's in a fragment
-          Qe(wt),
+          Qe(Ot),
           c,
           b,
           m
-        ), w.el = ft.el, X === null && ri(c, ft.el), L && mt(L, b), (ct = w.props && w.props.onVnodeUpdated) && mt(
-          () => St(ct, q, w, Q),
+        ), O.el = ft.el, X === null && ri(c, ft.el), L && mt(L, b), (ct = O.props && O.props.onVnodeUpdated) && mt(
+          () => wt(ct, q, O, Q),
           b
         ), __VUE_PROD_DEVTOOLS__ && jr(c);
       } else {
-        let w;
-        const { el: I, props: L } = a, { bm: q, m: Q, parent: X, root: ct, type: ft } = c, wt = ye(a);
-        if (le(c, !1), q && Hs(q), !wt && (w = L && L.onVnodeBeforeMount) && St(w, X, a), le(c, !0), I && Rs) {
+        let O;
+        const { el: I, props: L } = a, { bm: q, m: Q, parent: X, root: ct, type: ft } = c, Ot = ye(a);
+        if (le(c, !1), q && Hs(q), !Ot && (O = L && L.onVnodeBeforeMount) && wt(O, X, a), le(c, !0), I && Rs) {
           const vt = () => {
             c.subTree = ks(c), Rs(
               I,
@@ -3572,7 +3572,7 @@ function hi(t, e) {
               null
             );
           };
-          wt && ft.__asyncHydrate ? ft.__asyncHydrate(
+          Ot && ft.__asyncHydrate ? ft.__asyncHydrate(
             I,
             c,
             vt
@@ -3593,10 +3593,10 @@ function hi(t, e) {
             m
           ), a.el = vt.el;
         }
-        if (Q && mt(Q, b), !wt && (w = L && L.onVnodeMounted)) {
+        if (Q && mt(Q, b), !Ot && (O = L && L.onVnodeMounted)) {
           const vt = a;
           mt(
-            () => St(w, X, vt),
+            () => wt(O, X, vt),
             b
           );
         }
@@ -3612,18 +3612,18 @@ function hi(t, e) {
     a.component = c;
     const x = c.vnode.props;
     c.vnode = a, c.next = null, Ho(c, a.props, x, p), Uo(c, a.children, p), $t(), jn(c), jt();
-  }, k = (c, a, p, x, b, m, S, E, v = !1) => {
-    const y = c && c.children, D = c ? c.shapeFlag : 0, w = a.children, { patchFlag: I, shapeFlag: L } = a;
+  }, k = (c, a, p, x, b, m, w, E, v = !1) => {
+    const y = c && c.children, D = c ? c.shapeFlag : 0, O = a.children, { patchFlag: I, shapeFlag: L } = a;
     if (I > 0) {
       if (I & 128) {
         Z(
           y,
-          w,
+          O,
           p,
           x,
           b,
           m,
-          S,
+          w,
           E,
           v
         );
@@ -3631,44 +3631,44 @@ function hi(t, e) {
       } else if (I & 256) {
         xt(
           y,
-          w,
+          O,
           p,
           x,
           b,
           m,
-          S,
+          w,
           E,
           v
         );
         return;
       }
     }
-    L & 8 ? (D & 16 && we(y, b, m), w !== y && u(p, w)) : D & 16 ? L & 16 ? Z(
+    L & 8 ? (D & 16 && Oe(y, b, m), O !== y && u(p, O)) : D & 16 ? L & 16 ? Z(
       y,
-      w,
+      O,
       p,
       x,
       b,
       m,
-      S,
+      w,
       E,
       v
-    ) : we(y, b, m, !0) : (D & 8 && u(p, ""), L & 16 && F(
-      w,
+    ) : Oe(y, b, m, !0) : (D & 8 && u(p, ""), L & 16 && F(
+      O,
       p,
       x,
       b,
       m,
-      S,
+      w,
       E,
       v
     ));
-  }, xt = (c, a, p, x, b, m, S, E, v) => {
+  }, xt = (c, a, p, x, b, m, w, E, v) => {
     c = c || Ve, a = a || Ve;
-    const y = c.length, D = a.length, w = Math.min(y, D);
+    const y = c.length, D = a.length, O = Math.min(y, D);
     let I;
-    for (I = 0; I < w; I++) {
-      const L = a[I] = v ? Bt(a[I]) : Ot(a[I]);
+    for (I = 0; I < O; I++) {
+      const L = a[I] = v ? Bt(a[I]) : At(a[I]);
       M(
         c[I],
         L,
@@ -3676,35 +3676,35 @@ function hi(t, e) {
         null,
         b,
         m,
-        S,
+        w,
         E,
         v
       );
     }
-    y > D ? we(
+    y > D ? Oe(
       c,
       b,
       m,
       !0,
       !1,
-      w
+      O
     ) : F(
       a,
       p,
       x,
       b,
       m,
-      S,
+      w,
       E,
       v,
-      w
+      O
     );
-  }, Z = (c, a, p, x, b, m, S, E, v) => {
+  }, Z = (c, a, p, x, b, m, w, E, v) => {
     let y = 0;
     const D = a.length;
-    let w = c.length - 1, I = D - 1;
-    for (; y <= w && y <= I; ) {
-      const L = c[y], q = a[y] = v ? Bt(a[y]) : Ot(a[y]);
+    let O = c.length - 1, I = D - 1;
+    for (; y <= O && y <= I; ) {
+      const L = c[y], q = a[y] = v ? Bt(a[y]) : At(a[y]);
       if (Ie(L, q))
         M(
           L,
@@ -3713,7 +3713,7 @@ function hi(t, e) {
           null,
           b,
           m,
-          S,
+          w,
           E,
           v
         );
@@ -3721,8 +3721,8 @@ function hi(t, e) {
         break;
       y++;
     }
-    for (; y <= w && y <= I; ) {
-      const L = c[w], q = a[I] = v ? Bt(a[I]) : Ot(a[I]);
+    for (; y <= O && y <= I; ) {
+      const L = c[O], q = a[I] = v ? Bt(a[I]) : At(a[I]);
       if (Ie(L, q))
         M(
           L,
@@ -3731,45 +3731,45 @@ function hi(t, e) {
           null,
           b,
           m,
-          S,
+          w,
           E,
           v
         );
       else
         break;
-      w--, I--;
+      O--, I--;
     }
-    if (y > w) {
+    if (y > O) {
       if (y <= I) {
         const L = I + 1, q = L < D ? a[L].el : x;
         for (; y <= I; )
           M(
             null,
-            a[y] = v ? Bt(a[y]) : Ot(a[y]),
+            a[y] = v ? Bt(a[y]) : At(a[y]),
             p,
             q,
             b,
             m,
-            S,
+            w,
             E,
             v
           ), y++;
       }
     } else if (y > I)
-      for (; y <= w; )
+      for (; y <= O; )
         it(c[y], b, m, !0), y++;
     else {
       const L = y, q = y, Q = /* @__PURE__ */ new Map();
       for (y = q; y <= I; y++) {
-        const Tt = a[y] = v ? Bt(a[y]) : Ot(a[y]);
+        const Tt = a[y] = v ? Bt(a[y]) : At(a[y]);
         Tt.key != null && Q.set(Tt.key, y);
       }
       let X, ct = 0;
       const ft = I - q + 1;
-      let wt = !1, vt = 0;
+      let Ot = !1, vt = 0;
       const Ce = new Array(ft);
       for (y = 0; y < ft; y++) Ce[y] = 0;
-      for (y = L; y <= w; y++) {
+      for (y = L; y <= O; y++) {
         const Tt = c[y];
         if (ct >= ft) {
           it(Tt, b, m, !0);
@@ -3784,19 +3784,19 @@ function hi(t, e) {
               Dt = X;
               break;
             }
-        Dt === void 0 ? it(Tt, b, m, !0) : (Ce[Dt - q] = y + 1, Dt >= vt ? vt = Dt : wt = !0, M(
+        Dt === void 0 ? it(Tt, b, m, !0) : (Ce[Dt - q] = y + 1, Dt >= vt ? vt = Dt : Ot = !0, M(
           Tt,
           a[Dt],
           p,
           null,
           b,
           m,
-          S,
+          w,
           E,
           v
         ), ct++);
       }
-      const Rn = wt ? ko(Ce) : Ve;
+      const Rn = Ot ? ko(Ce) : Ve;
       for (X = Rn.length - 1, y = ft - 1; y >= 0; y--) {
         const Tt = q + y, Dt = a[Tt], Dn = a[Tt + 1], Hn = Tt + 1 < D ? (
           // #13559, #14173 fallback to el placeholder for unresolved async component
@@ -3809,14 +3809,14 @@ function hi(t, e) {
           Hn,
           b,
           m,
-          S,
+          w,
           E,
           v
-        ) : wt && (X < 0 || y !== Rn[X] ? at(Dt, p, Hn, 2) : X--);
+        ) : Ot && (X < 0 || y !== Rn[X] ? at(Dt, p, Hn, 2) : X--);
       }
     }
   }, at = (c, a, p, x, b = null) => {
-    const { el: m, type: S, transition: E, children: v, shapeFlag: y } = c;
+    const { el: m, type: w, transition: E, children: v, shapeFlag: y } = c;
     if (y & 6) {
       at(c.component.subTree, a, p, x);
       return;
@@ -3826,17 +3826,17 @@ function hi(t, e) {
       return;
     }
     if (y & 64) {
-      S.move(c, a, p, pe);
+      w.move(c, a, p, pe);
       return;
     }
-    if (S === At) {
+    if (w === St) {
       n(m, a, p);
-      for (let w = 0; w < v.length; w++)
-        at(v[w], a, p, x);
+      for (let O = 0; O < v.length; O++)
+        at(v[O], a, p, x);
       n(c.anchor, a, p);
       return;
     }
-    if (S === ve) {
+    if (w === ve) {
       h(c, a, p);
       return;
     }
@@ -3844,14 +3844,14 @@ function hi(t, e) {
       if (x === 0)
         E.persisted && !m[$s] ? n(m, a, p) : (E.beforeEnter(m), n(m, a, p), mt(() => E.enter(m), b));
       else {
-        const { leave: w, delayLeave: I, afterLeave: L } = E, q = () => {
+        const { leave: O, delayLeave: I, afterLeave: L } = E, q = () => {
           c.ctx.isUnmounted ? r(m) : n(m, a, p);
         }, Q = () => {
           const X = m._isLeaving || !!m[$s];
           m._isLeaving && m[$s](
             !0
             /* cancelled */
-          ), E.persisted && !X ? q() : w(m, () => {
+          ), E.persisted && !X ? q() : O(m, () => {
             q(), L && L();
           });
         };
@@ -3862,23 +3862,23 @@ function hi(t, e) {
   }, it = (c, a, p, x = !1, b = !1) => {
     const {
       type: m,
-      props: S,
+      props: w,
       ref: E,
       children: v,
       dynamicChildren: y,
       shapeFlag: D,
-      patchFlag: w,
+      patchFlag: O,
       dirs: I,
       cacheIndex: L,
       memo: q
     } = c;
-    if (w === -2 && (b = !1), E != null && ($t(), be(E, null, p, c, !0), jt()), L != null && (a.renderCache[L] = void 0), D & 256) {
+    if (O === -2 && (b = !1), E != null && ($t(), be(E, null, p, c, !0), jt()), L != null && (a.renderCache[L] = void 0), D & 256) {
       a.ctx.deactivate(c);
       return;
     }
     const Q = D & 1 && I, X = !ye(c);
     let ct;
-    if (X && (ct = S && S.onVnodeBeforeUnmount) && St(ct, a, c), D & 6)
+    if (X && (ct = w && w.onVnodeBeforeUnmount) && wt(ct, a, c), D & 6)
       Pi(c.component, p, x);
     else {
       if (D & 128) {
@@ -3897,21 +3897,21 @@ function hi(t, e) {
       // so that it doesn't take the fast path during unmount - otherwise
       // components nested in v-once are never unmounted.
       !y.hasOnce && // #1153: fast path should not be taken for non-stable (v-for) fragments
-      (m !== At || w > 0 && w & 64) ? we(
+      (m !== St || O > 0 && O & 64) ? Oe(
         y,
         a,
         p,
         !1,
         !0
-      ) : (m === At && w & 384 || !b && D & 16) && we(v, a, p), x && Ze(c);
+      ) : (m === St && O & 384 || !b && D & 16) && Oe(v, a, p), x && Ze(c);
     }
     const ft = q != null && L == null;
-    (X && (ct = S && S.onVnodeUnmounted) || Q || ft) && mt(() => {
-      ct && St(ct, a, c), Q && Lt(c, null, a, "unmounted"), ft && (c.el = null);
+    (X && (ct = w && w.onVnodeUnmounted) || Q || ft) && mt(() => {
+      ct && wt(ct, a, c), Q && Lt(c, null, a, "unmounted"), ft && (c.el = null);
     }, p);
   }, Ze = (c) => {
     const { type: a, el: p, anchor: x, transition: b } = c;
-    if (a === At) {
+    if (a === St) {
       Ci(p, x);
       return;
     }
@@ -3923,7 +3923,7 @@ function hi(t, e) {
       r(p), b && !b.persisted && b.afterLeave && b.afterLeave();
     };
     if (c.shapeFlag & 1 && b && !b.persisted) {
-      const { leave: S, delayLeave: E } = b, v = () => S(p, m);
+      const { leave: w, delayLeave: E } = b, v = () => w(p, m);
       E ? E(c.el, m, v) : v();
     } else
       m();
@@ -3933,13 +3933,13 @@ function hi(t, e) {
       p = T(c), r(c), c = p;
     r(a);
   }, Pi = (c, a, p) => {
-    const { bum: x, scope: b, job: m, subTree: S, um: E, m: v, a: y } = c;
-    sr(v), sr(y), x && Hs(x), b.stop(), m && (m.flags |= 8, it(S, c, a, p)), E && mt(E, a), mt(() => {
+    const { bum: x, scope: b, job: m, subTree: w, um: E, m: v, a: y } = c;
+    sr(v), sr(y), x && Hs(x), b.stop(), m && (m.flags |= 8, it(w, c, a, p)), E && mt(E, a), mt(() => {
       c.isUnmounted = !0;
     }, a), __VUE_PROD_DEVTOOLS__ && Vl(c);
-  }, we = (c, a, p, x = !1, b = !1, m = 0) => {
-    for (let S = m; S < c.length; S++)
-      it(c[S], a, p, x, b);
+  }, Oe = (c, a, p, x = !1, b = !1, m = 0) => {
+    for (let w = m; w < c.length; w++)
+      it(c[w], a, p, x, b);
   }, Qe = (c) => {
     if (c.shapeFlag & 6)
       return Qe(c.component.subTree);
@@ -3978,7 +3978,7 @@ function hi(t, e) {
   )), {
     render: In,
     hydrate: Is,
-    createApp: Oo(In, Is)
+    createApp: Ao(In, Is)
   };
 }
 function Ks({ type: t, props: e }, s) {
@@ -4039,7 +4039,7 @@ const mi = (t) => t.__isSuspense;
 function bi(t, e) {
   e && e.pendingBranch ? j(t) ? e.effects.push(...t) : e.effects.push(t) : Il(t);
 }
-const At = /* @__PURE__ */ Symbol.for("v-fgt"), ee = /* @__PURE__ */ Symbol.for("v-txt"), Gt = /* @__PURE__ */ Symbol.for("v-cmt"), ve = /* @__PURE__ */ Symbol.for("v-stc"), Te = [];
+const St = /* @__PURE__ */ Symbol.for("v-fgt"), ee = /* @__PURE__ */ Symbol.for("v-txt"), Gt = /* @__PURE__ */ Symbol.for("v-cmt"), ve = /* @__PURE__ */ Symbol.for("v-stc"), Te = [];
 let Yt = null;
 function Ko() {
   Te.pop(), Yt = Te[Te.length - 1] || null;
@@ -4059,7 +4059,7 @@ const yi = ({ key: t }) => t ?? null, os = ({
   ref_key: e,
   ref_for: s
 }) => (typeof t == "number" && (t = "" + t), t != null ? st(t) || /* @__PURE__ */ ht(t) || $(t) ? { i: Ft, r: t, k: e, f: !!s } : t : null);
-function Bo(t, e = null, s = null, n = 0, r = null, i = t === At ? 0 : 1, l = !1, o = !1) {
+function Bo(t, e = null, s = null, n = 0, r = null, i = t === St ? 0 : 1, l = !1, o = !1) {
   const f = {
     __v_isVNode: !0,
     __v_skip: !0,
@@ -4102,7 +4102,7 @@ function Bo(t, e = null, s = null, n = 0, r = null, i = t === At ? 0 : 1, l = !1
 const Et = Wo;
 function Wo(t, e = null, s = null, n = 0, r = null, i = !1) {
   if ((!t || t === bo) && (t = Gt), _s(t)) {
-    const o = Se(
+    const o = we(
       t,
       e,
       !0
@@ -4115,7 +4115,7 @@ function Wo(t, e = null, s = null, n = 0, r = null, i = !1) {
     let { class: o, style: f } = e;
     o && !st(o) && (e.class = Ts(o)), nt(f) && (/* @__PURE__ */ xn(f) && !j(f) && (f = pt({}, f)), e.style = vs(f));
   }
-  const l = st(t) ? 1 : mi(t) ? 128 : ws(t) ? 64 : nt(t) ? 4 : $(t) ? 2 : 0;
+  const l = st(t) ? 1 : mi(t) ? 128 : Os(t) ? 64 : nt(t) ? 4 : $(t) ? 2 : 0;
   return Bo(
     t,
     e,
@@ -4130,7 +4130,7 @@ function Wo(t, e = null, s = null, n = 0, r = null, i = !1) {
 function Yo(t) {
   return t ? /* @__PURE__ */ xn(t) || oi(t) ? pt({}, t) : t : null;
 }
-function Se(t, e, s = !1, n = !1) {
+function we(t, e, s = !1, n = !1) {
   const { props: r, ref: i, patchFlag: l, children: o, transition: f } = t, d = e ? qo(r || {}, e) : r, u = {
     __v_isVNode: !0,
     __v_skip: !0,
@@ -4155,7 +4155,7 @@ function Se(t, e, s = !1, n = !1) {
     // existing patch flag to be reliable and need to add the FULL_PROPS flag.
     // note: preserve flag for fragments since they use the flag for children
     // fast paths only.
-    patchFlag: e && t.type !== At ? l === -1 ? 16 : l | 16 : l,
+    patchFlag: e && t.type !== St ? l === -1 ? 16 : l | 16 : l,
     dynamicProps: t.dynamicProps,
     dynamicChildren: t.dynamicChildren,
     appContext: t.appContext,
@@ -4167,8 +4167,8 @@ function Se(t, e, s = !1, n = !1) {
     // they will simply be overwritten.
     component: t.component,
     suspense: t.suspense,
-    ssContent: t.ssContent && Se(t.ssContent),
-    ssFallback: t.ssFallback && Se(t.ssFallback),
+    ssContent: t.ssContent && we(t.ssContent),
+    ssFallback: t.ssFallback && we(t.ssFallback),
     placeholder: t.placeholder,
     el: t.el,
     anchor: t.anchor,
@@ -4183,16 +4183,16 @@ function Se(t, e, s = !1, n = !1) {
 function xi(t = " ", e = 0) {
   return Et(ee, null, t, e);
 }
-function Ot(t) {
+function At(t) {
   return t == null || typeof t == "boolean" ? Et(Gt) : j(t) ? Et(
-    At,
+    St,
     null,
     // #3666, avoid reference pollution when reusing vnode
     t.slice()
   ) : _s(t) ? Bt(t) : Et(ee, null, String(t));
 }
 function Bt(t) {
-  return t.el === null && t.patchFlag !== -1 || t.memo ? t : Se(t);
+  return t.el === null && t.patchFlag !== -1 || t.memo ? t : we(t);
 }
 function ms(t, e) {
   let s = 0;
@@ -4239,7 +4239,7 @@ function qo(...t) {
   }
   return e;
 }
-function St(t, e, s, n = null) {
+function wt(t, e, s, n = null) {
   Rt(t, e, 7, [
     s,
     n
@@ -4369,7 +4369,7 @@ function Qo(t, e) {
   const { setup: n } = s;
   if (n) {
     $t();
-    const r = t.setupContext = n.length > 1 ? ec(t) : null, i = Xe(t), l = Oe(
+    const r = t.setupContext = n.length > 1 ? ec(t) : null, i = Xe(t), l = Ae(
       n,
       t,
       0,
@@ -4388,7 +4388,7 @@ function Qo(t, e) {
             qe(!1);
           }
         }).catch((f) => {
-          As(f, t, 0);
+          Ss(f, t, 0);
         });
       t.asyncDep = l;
     } else
@@ -4466,7 +4466,7 @@ function ic(t) {
   return $(t) && "__vccOpts" in t;
 }
 const lc = (t, e) => /* @__PURE__ */ vl(t, e, ze);
-function O(t, e, s) {
+function S(t, e, s) {
   try {
     gs(-1);
     const n = arguments.length;
@@ -4490,7 +4490,7 @@ if (ir)
     });
   } catch {
   }
-const Si = cn ? (t) => cn.createHTML(t) : (t) => t, oc = "http://www.w3.org/2000/svg", cc = "http://www.w3.org/1998/Math/MathML", Kt = typeof document < "u" ? document : null, lr = Kt && /* @__PURE__ */ Kt.createElement("template"), fc = {
+const wi = cn ? (t) => cn.createHTML(t) : (t) => t, oc = "http://www.w3.org/2000/svg", cc = "http://www.w3.org/1998/Math/MathML", Kt = typeof document < "u" ? document : null, lr = Kt && /* @__PURE__ */ Kt.createElement("template"), fc = {
   insert: (t, e, s) => {
     e.insertBefore(t, s || null);
   },
@@ -4526,7 +4526,7 @@ const Si = cn ? (t) => cn.createHTML(t) : (t) => t, oc = "http://www.w3.org/2000
       for (; e.insertBefore(r.cloneNode(!0), s), !(r === i || !(r = r.nextSibling)); )
         ;
     else {
-      lr.innerHTML = Si(
+      lr.innerHTML = wi(
         n === "svg" ? `<svg>${t}</svg>` : n === "mathml" ? `<math>${t}</math>` : t
       );
       const o = lr.content;
@@ -4625,7 +4625,7 @@ function ar(t, e, s, n, r, i = ki(e)) {
 }
 function ur(t, e, s, n, r) {
   if (e === "innerHTML" || e === "textContent") {
-    s != null && (t[e] = e === "innerHTML" ? Si(s) : s);
+    s != null && (t[e] = e === "innerHTML" ? wi(s) : s);
     return;
   }
   const i = t.tagName;
@@ -4664,7 +4664,7 @@ function xc(t, e, s, n, r = null) {
   else {
     const [o, f] = Ec(e);
     if (n) {
-      const d = i[e] = Oc(
+      const d = i[e] = Ac(
         n,
         r
       );
@@ -4680,8 +4680,8 @@ function Ec(t) {
   return [t[2] === ":" ? t.slice(3) : re(t.slice(2)), e];
 }
 let Ws = 0;
-const Sc = /* @__PURE__ */ Promise.resolve(), Ac = () => Ws || (Sc.then(() => Ws = 0), Ws = Date.now());
-function Oc(t, e) {
+const wc = /* @__PURE__ */ Promise.resolve(), Sc = () => Ws || (wc.then(() => Ws = 0), Ws = Date.now());
+function Ac(t, e) {
   const s = (n) => {
     if (!n._vts)
       n._vts = Date.now();
@@ -4711,10 +4711,10 @@ function Oc(t, e) {
         [n]
       );
   };
-  return s.value = t, s.attached = Ac(), s;
+  return s.value = t, s.attached = Sc(), s;
 }
 const hr = (t) => t.charCodeAt(0) === 111 && t.charCodeAt(1) === 110 && // lowercase letter
-t.charCodeAt(2) > 96 && t.charCodeAt(2) < 123, wc = (t, e, s, n, r, i) => {
+t.charCodeAt(2) > 96 && t.charCodeAt(2) < 123, Oc = (t, e, s, n, r, i) => {
   const l = r === "svg";
   e === "class" ? uc(t, n, l) : e === "style" ? gc(t, s, n) : Ge(e) ? ys(e) || xc(t, e, s, n, i) : (e[0] === "." ? (e = e.slice(1), !0) : e[0] === "^" ? (e = e.slice(1), !1) : Cc(t, e, n, l)) ? (ur(t, e, n), !t.tagName.includes("-") && (e === "value" || e === "checked" || e === "selected") && ar(t, e, n, l, i, e !== "value")) : /* #11081 force set props for possible async custom element */ t._isVueCE && // #12408 check if it's declared prop or it's async custom element
   (Pc(t, e) || // @ts-expect-error _def is private
@@ -4742,39 +4742,39 @@ function Pc(t, e) {
   const n = Pt(e);
   return Array.isArray(s) ? s.some((r) => Pt(r) === n) : Object.keys(s).some((r) => Pt(r) === n);
 }
-const Ai = /* @__PURE__ */ pt({ patchProp: wc }, fc);
+const Si = /* @__PURE__ */ pt({ patchProp: Oc }, fc);
 let ke, pr = !1;
 function Mc() {
-  return ke || (ke = $o(Ai));
+  return ke || (ke = $o(Si));
 }
 function Ic() {
-  return ke = pr ? ke : jo(Ai), pr = !0, ke;
+  return ke = pr ? ke : jo(Si), pr = !0, ke;
 }
 const Rc = (...t) => {
   const e = Mc().createApp(...t), { mount: s } = e;
   return e.mount = (n) => {
-    const r = wi(n);
+    const r = Oi(n);
     if (!r) return;
     const i = e._component;
     !$(i) && !i.render && !i.template && (i.template = r.innerHTML), r.nodeType === 1 && (r.textContent = "");
-    const l = s(r, !1, Oi(r));
+    const l = s(r, !1, Ai(r));
     return r instanceof Element && (r.removeAttribute("v-cloak"), r.setAttribute("data-v-app", "")), l;
   }, e;
 }, Dc = (...t) => {
   const e = Ic().createApp(...t), { mount: s } = e;
   return e.mount = (n) => {
-    const r = wi(n);
+    const r = Oi(n);
     if (r)
-      return s(r, !0, Oi(r));
+      return s(r, !0, Ai(r));
   }, e;
 };
-function Oi(t) {
+function Ai(t) {
   if (t instanceof SVGElement)
     return "svg";
   if (typeof MathMLElement == "function" && t instanceof MathMLElement)
     return "mathml";
 }
-function wi(t) {
+function Oi(t) {
   return st(t) ? document.querySelector(t) : t;
 }
 function Hc(t) {
@@ -4815,40 +4815,40 @@ const gr = "https://github.com/YvYuYv/taixu", fn = "vite", qt = { ctx: null }, L
     ], s = (n) => {
       t.value = n, qt.ctx?.bus.broadcast(qt.ctx, { type: "sub-route-change", payload: { name: fn, path: `/${n}` } });
     };
-    return () => O("div", null, [
-      O(
+    return () => S("div", null, [
+      S(
         "nav",
         { class: "txvt-nav" },
         e.map(
-          ([n, r]) => O("button", { class: t.value === n ? "on" : "", onClick: () => s(n) }, r)
+          ([n, r]) => S("button", { class: t.value === n ? "on" : "", onClick: () => s(n) }, r)
         )
       ),
-      O("div", { class: "txvt-page" }, [
-        t.value === "home" && O(Vc),
-        t.value === "dialog" && O(Nc),
-        t.value === "location" && O(Uc),
-        t.value === "contact" && O(Fc)
+      S("div", { class: "txvt-page" }, [
+        t.value === "home" && S(Vc),
+        t.value === "dialog" && S(Nc),
+        t.value === "location" && S(Uc),
+        t.value === "contact" && S(Fc)
       ])
     ]);
   }
 }), Vc = {
   setup() {
-    return () => O("div", null, [
-      O("h2", null, "vite 示例"),
-      O("p", null, [
+    return () => S("div", null, [
+      S("h2", null, "vite 示例"),
+      S("p", null, [
         "当前 vite 版本 ",
-        O("b", null, "5.4.21"),
+        S("b", null, "5.4.21"),
         "，当前 vue 版本 ",
-        O("b", null, on),
+        S("b", null, on),
         "（本子应用由 Vite lib mode 独立构建——构建工具差异化；产物与 esbuild 子应用同形态：自包含 ESM，default export = taixu Plugin）。"
       ]),
-      O(
+      S(
         "p",
         null,
         "官方示例 UI 库：element-plus 版本 2.2.6 / ant-design-vue 版本 2.2.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。"
       ),
-      O("p", null, ["仓库地址：", O("a", { href: gr, target: "_blank", rel: "noreferrer" }, gr)]),
-      O("p", null, "页面目录：弹窗 / 路由 / 通信。")
+      S("p", null, ["仓库地址：", S("a", { href: gr, target: "_blank", rel: "noreferrer" }, gr)]),
+      S("p", null, "页面目录：弹窗 / 路由 / 通信。")
     ]);
   }
 }, Nc = {
@@ -4862,19 +4862,19 @@ const gr = "https://github.com/YvYuYv/taixu", fn = "vite", qt = { ctx: null }, L
         i.target === s && n();
       }));
     };
-    return Xr(n), () => O("div", null, [
-      O("h2", null, "弹窗处理"),
-      O("p", null, "弹窗无需子应用做任何处理就可使用（Teleport 挂 body）。"),
-      O("h3", null, "1. 打开弹窗"),
-      O("button", { class: "txvt-btn", onClick: () => t.value = !0 }, "Open Modal"),
-      O("h3", null, "2. 下拉选择器"),
-      O(
+    return Xr(n), () => S("div", null, [
+      S("h2", null, "弹窗处理"),
+      S("p", null, "弹窗无需子应用做任何处理就可使用（Teleport 挂 body）。"),
+      S("h3", null, "1. 打开弹窗"),
+      S("button", { class: "txvt-btn", onClick: () => t.value = !0 }, "Open Modal"),
+      S("h3", null, "2. 下拉选择器"),
+      S(
         "select",
         { class: "txvt-select" },
-        ["Jack", "Lucy", "Tom"].map((i) => O("option", { key: i }, i))
+        ["Jack", "Lucy", "Tom"].map((i) => S("option", { key: i }, i))
       ),
-      O("h3", null, "3. 气泡卡片（悬停）"),
-      O(
+      S("h3", null, "3. 气泡卡片（悬停）"),
+      S(
         "span",
         {
           class: "txvt-pop",
@@ -4882,27 +4882,27 @@ const gr = "https://github.com/YvYuYv/taixu", fn = "vite", qt = { ctx: null }, L
           onMouseleave: () => e.value = !1
         },
         [
-          O("button", { class: "txvt-btn", style: { background: "#5a67d8" } }, "Hover me"),
-          e.value && O("span", { class: "txvt-pop-body" }, [O("div", null, "Content"), O("div", null, "Content")])
+          S("button", { class: "txvt-btn", style: { background: "#5a67d8" } }, "Hover me"),
+          e.value && S("span", { class: "txvt-pop-body" }, [S("div", null, "Content"), S("div", null, "Content")])
         ]
       ),
-      O("h3", null, "4. 手动向 body 中 append 弹层"),
-      O("button", { class: "txvt-btn", onClick: r }, "点击插入 body"),
-      O("button", { class: "txvt-btn warn", onClick: n }, "点击删除 body"),
-      t.value && O(
+      S("h3", null, "4. 手动向 body 中 append 弹层"),
+      S("button", { class: "txvt-btn", onClick: r }, "点击插入 body"),
+      S("button", { class: "txvt-btn warn", onClick: n }, "点击删除 body"),
+      t.value && S(
         Yl,
         { to: "body" },
-        () => O(
+        () => S(
           "div",
           { class: "txvt-overlay", onClick: () => t.value = !1 },
-          O(
+          S(
             "div",
             { class: "txvt-modal", onClick: (i) => i.stopPropagation() },
             [
-              O("h3", null, "Basic Modal"),
-              O("p", null, "弹窗内容（渲染在 body 下）"),
-              O("div", { style: { textAlign: "right", marginTop: "14px" } }, [
-                O("button", { class: "txvt-btn", onClick: () => t.value = !1 }, "OK")
+              S("h3", null, "Basic Modal"),
+              S("p", null, "弹窗内容（渲染在 body 下）"),
+              S("div", { style: { textAlign: "right", marginTop: "14px" } }, [
+                S("button", { class: "txvt-btn", onClick: () => t.value = !1 }, "OK")
               ])
             ]
           )
@@ -4913,49 +4913,51 @@ const gr = "https://github.com/YvYuYv/taixu", fn = "vite", qt = { ctx: null }, L
 }, Uc = {
   setup() {
     const t = window.location.host;
-    return () => O("div", null, [
-      O("h2", null, "location 处理"),
-      O("p", null, [
+    return () => S("div", null, [
+      S("h2", null, "location 处理"),
+      S("p", null, [
         "官方 vite 示例因 ",
-        O("code", null, '<script type="module">'),
+        S("code", null, '<script type="module">'),
         " 无法用闭包劫持 location，需把代理挂到 ",
-        O("code", null, "$wujie.location"),
+        S("code", null, "$wujie.location"),
         "，子应用所有用到 ",
-        O("code", null, "window.location"),
+        S("code", null, "window.location"),
         " 的代码都要改写成 ",
-        O("code", null, "$wujie.location"),
+        S("code", null, "$wujie.location"),
         "；taixu 子应用与宿主同文档渲染，location 直读真实地址，无需任何改写。"
       ]),
-      O("h3", null, "1. 路由同步"),
-      O("p", null, [
+      S("h3", null, "1. 路由同步"),
+      S("p", null, [
         "子应用页面变化经 bus 消息 ",
-        O("code", null, "sub-route-change"),
+        S("code", null, "sub-route-change"),
         " 通知宿主，宿主路由跟随；宿主路由变化经定向消息 ",
-        O("code", null, "vite-router-change"),
+        S("code", null, "vite-router-change"),
         " 下发——双向同步。浏览器的刷新、前进、后退都可以作用到子应用上。"
       ]),
-      O("div", { class: "txvt-row" }, [
-        O("button", { class: "txvt-btn", onClick: () => window.history.back() }, "后退一页"),
-        O("button", { class: "txvt-btn", onClick: () => window.history.forward() }, "前进一页")
+      S("div", { class: "txvt-row" }, [
+        S("button", { class: "txvt-btn", onClick: () => window.history.back() }, "后退一页"),
+        S("button", { class: "txvt-btn", onClick: () => window.history.forward() }, "前进一页")
       ]),
-      O("h3", null, "2. 获取 window.location.host 的值"),
-      O("blockquote", null, O("b", null, t)),
-      O("p", null, "taixu 子应用与宿主同文档，location 直读真实地址——无需劫持回填。"),
-      O("h3", null, "3. 修改 window.location.href"),
-      O(
+      S("h3", null, "2. 获取 window.location.host 的值"),
+      S("blockquote", null, S("b", null, t)),
+      S("p", null, "taixu 子应用与宿主同文档，location 直读真实地址——无需劫持回填。"),
+      S("h3", null, "3. 修改 window.location.href"),
+      S(
         "button",
         { class: "txvt-btn warn", onClick: () => window.location.href = "https://github.com/taixu-micro" },
         "跳转 taixu 仓库"
       ),
-      O("p", null, "同窗应用直接跳转，无 shadow 删除 / iframe 替换等降级动作。")
+      S("p", null, "同窗应用直接跳转，无 shadow 删除 / iframe 替换等降级动作。")
     ]);
   }
 }, Fc = {
   setup() {
-    return () => O("div", null, [
-      O("h2", null, "通信处理"),
-      O("h3", null, "1. 宿主导航能力（= props.jump）"),
-      O(
+    return () => S("div", null, [
+      S("h2", null, "通信处理"),
+      S("p", null, "应用可以有三种方式进行通信（对应 wujie 的 props / window.parent / bus）："),
+      S("h3", null, "1. 宿主注入的导航能力（= wujie props.jump）"),
+      S("p", null, "子应用 broadcast 消息 navigate，宿主监听后跳转对应路由。"),
+      S(
         "button",
         {
           class: "txvt-btn",
@@ -4963,10 +4965,12 @@ const gr = "https://github.com/YvYuYv/taixu", fn = "vite", qt = { ctx: null }, L
         },
         "点击跳转 react16"
       ),
-      O("h3", null, "2. 调用宿主全局方法"),
-      O("button", { class: "txvt-btn", onClick: () => window.alert("子应用直接调用 window.alert") }, "显示 alert"),
-      O("h3", null, "3. bus 去中心化事件"),
-      O(
+      S("h3", null, "2. 调用宿主全局方法（= wujie window.parent.alert）"),
+      S("p", null, "taixu 子应用与宿主同窗运行——直接调用 window.alert，无需 window.parent 中转。"),
+      S("button", { class: "txvt-btn", onClick: () => window.alert("子应用直接调用 window.alert") }, "显示 alert"),
+      S("h3", null, "3. bus 去中心化事件（= wujie bus.$emit）"),
+      S("p", null, "子应用 broadcast click 事件，宿主全局旁听后 alert。"),
+      S(
         "button",
         {
           class: "txvt-btn",
