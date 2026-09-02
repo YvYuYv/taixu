@@ -17,7 +17,6 @@
   - [应用侧 API](api/app-side.md)
 - **在线示例**
   - [wujie 场景全集重写](examples-wujie.md)
-  - [基础示例（demo）](https://taixu-micro.github.io/taixu/demo/host/)
 - **深入**
   - [架构总览](architecture.md)
   - [常见问题](guide/faq.md)

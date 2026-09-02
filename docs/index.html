@@ -15,6 +15,37 @@
     .markdown-section h2 { border-bottom: 1px solid #eee; padding-bottom: .3rem; }
     .sidebar > h1 { font-size: 1.4rem; }
     .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; background: #eef1ff; color: #4a6cf7; margin-right: 6px; }
+    /* navbar 下拉菜单（docsify 主题不带，自行补充） */
+    .app-nav > ul > li { position: relative; }
+    .app-nav li > ul {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 0;
+      min-width: 190px;
+      padding: 6px 0;
+      margin: 0;
+      list-style: none;
+      background: #fff;
+      border: 1px solid #eee;
+      border-radius: 6px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, .1);
+      z-index: 999;
+    }
+    .app-nav li:hover > ul { display: block; }
+    .app-nav li > ul li { display: block; margin: 0; }
+    .app-nav li > ul li a {
+      display: block;
+      padding: 7px 18px;
+      margin: 0;
+      border-bottom: none;
+      font-size: 14px;
+      white-space: nowrap;
+    }
+    .app-nav li > ul li a:hover {
+      color: var(--theme-color, #4a6cf7);
+      background: #f5f7ff;
+    }
   </style>
 </head>
 <body>
