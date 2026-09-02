@@ -64,5 +64,5 @@ Issues 以本地 Markdown 文件追踪于 `.scratch/<feature>/`（spec.md + issu
 
 ## Git
 
-- remote：`git@github-yvyuv:YvYuYv/taixu.git`（SSH 别名，双账号共存：默认 `github.com` 走 Himoriarty 的 `id_ed25519`，yvyuv 专用 key 走 `~/.ssh/config` 的 `github-yvyuv` Host）
+- remote：`git@github-yvyuv:taixu-micro/taixu.git`（SSH 别名，双账号共存：默认 `github.com` 走 Himoriarty 的 `id_ed25519`，yvyuv 专用 key 走 `~/.ssh/config` 的 `github-yvyuv` Host）
 - 推送前确认 `npm run verify` 全绿
