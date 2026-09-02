@@ -1,0 +1,9 @@
+{
+  "name": "taixu-example-vue3",
+  "private": true,
+  "description": "vue3 子应用（Vue 3 本地独立副本 + @taixu/adapter-vue3）",
+  "dependencies": {
+    "@taixu/adapter-vue3": "^0.1.0",
+    "vue": "^3.4.0"
+  }
+}

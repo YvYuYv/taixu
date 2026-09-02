@@ -1,0 +1,25 @@
+{
+  "name": "taixu-examples-wujie",
+  "private": true,
+  "type": "module",
+  "description": "wujie 官方示例（Tencent/wujie/examples）的 taixu 完整重写：2 个宿主（main-react / main-vue）+ 6 个异构子应用，全部经 @taixu/core 运行时集成",
+  "scripts": {
+    "build": "node ./build-apps.mjs",
+    "build:angular": "cd apps/angular12 && npm run build",
+    "serve": "node ./serve.mjs",
+    "postinstall": "node ./install-apps.mjs"
+  },
+  "dependencies": {
+    "@taixu/core": "^0.1.0",
+    "@taixu/adapter-vue2": "^0.1.0",
+    "cordis": "^4.0.0-rc.8",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.20.0",
+    "vue": "^2.7.16"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.5",
+    "typescript": "^5.4.0"
+  }
+}

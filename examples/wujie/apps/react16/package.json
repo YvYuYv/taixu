@@ -1,0 +1,9 @@
+{
+  "name": "taixu-example-react16",
+  "private": true,
+  "description": "react16 子应用（React 16.13.1 独立副本——多版本 React 共存演示）",
+  "dependencies": {
+    "react": "16.13.1",
+    "react-dom": "16.13.1"
+  }
+}

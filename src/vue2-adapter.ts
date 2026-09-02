@@ -7,7 +7,9 @@
  * - **经共享依赖仲裁获取**（`deps.negotiate('vue', range)`）——Vue 2 与 Vue 3 是
  *   registry 的两个条目（§八：`vue@^2` 与 `vue@^3` 互不重叠），框架不硬 import vue2
  *   （不让全体宿主承担其体积；多版本共存是 legacy 路线的核心诉求）
- * - **Vue 2 API 形态**：`new Vue({ render }).$mount(container)` / `$destroy()`
+ * - **Vue 2 API 形态**：`new Vue({ render }).$mount(挂载点)` / `$destroy()`。注意
+ *   Vue 2 的 `$mount(el)` 是**替换 el** 语义——适配器在 lifecycle 容器内建挂载点挂载
+ *   （容器保留），否则容器引用失效、suspend/switch 的 DOM 管理错位。
  *   （无 `createApp`；实例即应用）。渲染错误经 `Vue.config.errorHandler`（Vue 2 的
  *   全局错误出口，实例创建前设置）转发 `monitor.capture`（基线 §三 唯一错误入口）
  *
@@ -62,20 +64,30 @@ export function defineCordisVue2App(options: CordisVue2AppOptions): Plugin.Objec
         }
 
         let instance: Vue2Instance | null = null
+        // Vue 2 `$mount(el)` 语义是**替换 el**：直接替换 lifecycle 容器会让容器引用
+        // 失效（suspend/switch 的 DOM 管理错位、实例容器悬空）。容器内建挂载点挂载——
+        // Vue 替换挂载点、容器本身保留（与 Vue 3 `createApp().mount` 的容器内语义对齐）。
+        const mountPoint = document.createElement('div')
+        container.appendChild(mountPoint)
         try {
           const shared = await ctx.deps.negotiate('vue', vueRange, { appId, singleton: true, strict: true })
           const mod = shared.module as Vue2Module
           vue2 = (mod.default ?? mod.Vue ?? null) as Vue2Ctor | null
           if (!vue2) throw new Error(`adapter: shared "vue@${vueRange}" module has no Vue constructor`)
 
-          // 错误边界：Vue 2 的全局 errorHandler（实例创建前设置）-> monitor.capture
-          vue2.config = vue2.config ?? {}
-          vue2.config.errorHandler = (err: unknown) => {
-            ctx.monitor.capture(err, { appId, phase: 'runtime' })
+          // 错误边界：Vue 2 的全局 errorHandler（实例创建前设置）-> monitor.capture。
+          // 注意 Vue 2.7 的 config 是只读 getter（返回内部配置对象）——整体赋值会抛
+          // "Cannot set property config"，只能就地改其属性。
+          const vueConfig = (vue2 as { config?: Vue2Ctor['config'] }).config
+          if (vueConfig) {
+            vueConfig.errorHandler = (err: unknown) => {
+              ctx.monitor.capture(err, { appId, phase: 'runtime' })
+            }
           }
 
-          instance = new vue2({ render }).$mount(container)
+          instance = new vue2({ render }).$mount(mountPoint)
         } catch (error) {
+          mountPoint.remove() // 挂载失败不留空挂载点（容器归 lifecycle 管理）
           // async effect 的错误被 cordis 静默吞——显式上报再上抛（与 Angular 适配器同纪律）
           ctx.monitor.capture(error, { appId, phase: 'activate' })
           throw error
@@ -83,14 +95,9 @@ export function defineCordisVue2App(options: CordisVue2AppOptions): Plugin.Objec
 
         return () => {
           instance?.$destroy()
-          // 重跑防双挂载（lifecycle §5.7 适配器义务）：$destroy 默认不移除 $el（Vue 2 语义）
-          if (container.childElementCount > 0) {
-            ctx.monitor.capture(
-              new Error(`adapter: container not empty after $destroy (${container.childElementCount} nodes)`),
-              { appId, phase: 'runtime' },
-            )
-            container.replaceChildren()
-          }
+          // $destroy 不移除 DOM（Vue 2 语义）：$el（原挂载点位置）残留在容器内，
+          // 由 adapter 义务清空容器（lifecycle §5.7 重跑防双挂载）
+          container.replaceChildren()
           void vue2
         }
       })

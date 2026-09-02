@@ -1,0 +1,17 @@
+{
+  "name": "taixu-example-vite",
+  "private": true,
+  "description": "vite 子应用（Vite 构建工具差异化：vite lib mode 产出自包含 ESM app.mjs）",
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@taixu/adapter-vue3": "^0.1.0",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "vite": "^5.2.0",
+    "typescript": "^5.4.0"
+  }
+}

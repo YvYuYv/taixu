@@ -1,0 +1,9 @@
+{
+  "name": "taixu-example-react17",
+  "private": true,
+  "description": "react17 子应用（React 17.0.2 独立副本——保活 + 跨应用 bus 事件演示）",
+  "dependencies": {
+    "react": "17.0.2",
+    "react-dom": "17.0.2"
+  }
+}

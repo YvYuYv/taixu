@@ -1,0 +1,8 @@
+{
+  "name": "taixu-example-host-vue",
+  "private": true,
+  "description": "taixu 主应用（Vue 3）——vue2/vue3/react16/react17/vite/angular12 子应用 + multiple 同屏 + postmessage 演示",
+  "dependencies": {
+    "vue": "^3.4.0"
+  }
+}
