@@ -1,57 +1,81 @@
-/* 宿主布局（wujie 官方示例同款：左侧导航 + 右侧内容区；两宿主共用） */
+/**
+ * 宿主样式：一比一对齐 wujie 官方 examples/main-vue（App.vue + Home.vue 的 <style> 块）。
+ * 类名映射（官方 → taixu）：
+ *   #app / .app → #app, #root        #nav / .nav   → .txh-nav
+ *   .content     → .txh-content      .sub-menu     → .txh-submenu
+ *   .alive       → .txh-alive        .home         → .txh-home
+ *   .tool        → .txh-tools        .detail-content → .txh-cards
+ *   .all-item    → .txh-all-item
+ * 唯一偏离官方处：开关用零依赖 DOM 实现（taixu 示例不引 antd），视觉尺寸对齐 antd Switch。
+ */
 html,
 body {
   margin: 0;
   padding: 0;
-  font-size: 18px;
+  font-size: 20px;
   height: 100vh;
-  font-family: Avenir, Helvetica, Arial, 'PingFang SC', sans-serif;
+  --theme: rgb(241, 107, 95);
+}
+
+#app,
+#root {
+  font-family: Avenir, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   color: #2c3e50;
-}
-#root,
-#app {
   display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   width: 100vw;
-  height: 100vh;
 }
+
 .txh-nav {
-  background: #fff;
+  background-color: white;
   flex-shrink: 0;
+  font-size: 20px;
   display: flex;
+  position: relative;
+  z-index: 1;
   flex-direction: column;
-  padding: 26px 0;
-  width: 212px;
+  padding: 30px 0;
+  width: 210px;
   height: 100vh;
   box-sizing: border-box;
-  box-shadow: 3px 0 9px 2px #e6e6e6;
+  box-shadow: 3px 0px 9px 2px #e6e6e6;
+  transition: transform 0.1s linear;
+  transform: translate(0, 0);
   overflow: auto;
-  z-index: 2;
 }
+
 .txh-nav a,
 .txh-nav button.link {
-  display: block;
+  display: flex;
+  align-items: center;
   padding: 10px 30px;
   font-weight: bold;
   color: #2c3e50;
   text-decoration: none;
-  font-size: 18px;
+  transition: all 0.2s linear;
+  font-size: 20px;
   border: none;
   background: none;
-  text-align: left;
   cursor: pointer;
-  transition: all 0.2s linear;
+  white-space: nowrap;
 }
+
 .txh-nav a:hover,
 .txh-nav button.link:hover,
 .txh-nav a.active,
 .txh-nav button.link.active {
   color: rgb(241, 107, 95);
-  background: rgba(0, 0, 0, 0.04);
+  background: rgba(0, 0, 0, 0.05);
 }
-.txh-row {
-  display: flex;
-  align-items: center;
+
+.txh-submenu {
+  font-size: 16px;
+  padding: 0 10px;
 }
+
 .txh-alive {
   display: inline-block;
   white-space: nowrap;
@@ -61,128 +85,254 @@ body {
   font-size: 10px;
   vertical-align: top;
   padding: 1px 4px;
-  color: #fff;
+  color: white;
 }
-.txh-submenu {
-  font-size: 15px;
+
+.main-icon {
   padding: 0 10px;
+  transition: transform 0.2s ease-in;
 }
-.txh-submenu a,
-.txh-submenu button.link {
-  font-weight: normal;
-  font-size: 15px;
-  padding: 6px 20px;
-  color: #667;
+
+.main-icon.active {
+  transform: rotate(180deg);
 }
+
+.txh-status {
+  margin-top: auto;
+  font-size: 13px;
+  color: #789;
+  padding: 10px 30px 0;
+}
+
 .txh-content {
   flex: 1;
   height: 100vh;
-  overflow: hidden auto;
+  overflow: hidden scroll;
   width: 1px;
-  box-sizing: border-box;
 }
+
+/* ---------- Home ---------- */
 .txh-home {
-  padding: 60px 40px;
+  font-size: 20px;
 }
-.txh-home h1 {
-  font-size: 56px;
+
+.button-gap {
+  margin-bottom: 10px;
+}
+
+.txh-tools {
+  margin: 30px 20px 30px 0;
+  display: flex;
+  flex-direction: row;
+  align-items: top;
+}
+
+.button-list {
+  flex: 1;
+  display: flex;
+  flex-direction: row-reverse;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.txh-header {
+  font-size: 70px;
+  margin-top: 100px;
+  text-align: center;
   font-weight: 300;
-  margin: 0 0 6px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-right: 200px;
 }
-.txh-home h2 {
-  font-size: 30px;
+
+.txh-subtitle {
+  font-size: 50px;
+  margin-left: 250px;
+  text-align: center;
   font-weight: 300;
   font-style: italic;
-  margin: 0 0 40px;
+  margin-top: 0;
+  margin-bottom: 0;
 }
+
+.bland {
+  display: inline-block;
+  font-weight: 400;
+}
+
 .txh-cards {
+  width: 900px;
+  margin: 150px auto 0 auto;
   display: flex;
-  gap: 40px;
-  max-width: 860px;
+  flex-direction: row;
+  justify-content: space-between;
 }
-.txh-cards .item .title {
-  font-size: 24px;
-  color: rgb(241, 107, 95);
+
+.txh-cards .title {
+  font-size: 30px;
+  color: var(--theme);
   text-align: center;
-  margin-bottom: 12px;
 }
+
 .txh-cards .item ul {
-  margin: 0;
+  margin: 15px 0;
   padding-left: 20px;
-  font-size: 16px;
-  line-height: 2;
+  font-size: 20px;
+  line-height: 1.7;
 }
-.txh-tools {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  margin-bottom: 30px;
-  font-size: 15px;
-}
+
+/* 开关（antd Switch 的零依赖等价物，尺寸对齐 .switch.ant-switch::after 25x25） */
 .txh-switch {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  margin-left: 15px;
+  padding: 5px;
+  height: 40px;
+  box-sizing: border-box;
   cursor: pointer;
   user-select: none;
+  font-size: 16px;
 }
+
 .txh-switch .track {
-  width: 44px;
-  height: 22px;
-  border-radius: 11px;
-  background: #ccc;
+  width: 54px;
+  height: 30px;
+  border-radius: 15px;
+  background: #00000040;
+  border: 1px solid rgb(217, 217, 217);
+  box-shadow: 0 2px #00000004;
   position: relative;
   transition: background 0.2s;
+  flex-shrink: 0;
 }
+
 .txh-switch.on .track {
   background: rgb(241, 107, 95);
 }
+
 .txh-switch .dot {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   background: #fff;
   transition: left 0.2s;
 }
+
 .txh-switch.on .dot {
-  left: 24px;
+  left: 26px;
 }
+
+.docs {
+  font-size: 20px;
+  border: 1px solid rgb(217, 217, 217);
+  box-shadow: 0 2px #00000004;
+  color: rgb(44, 62, 80);
+  padding: 5px 20px;
+  border-radius: 20px;
+  margin-left: 15px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.1s linear;
+  white-space: nowrap;
+}
+
+.docs:hover {
+  color: var(--theme);
+  border: 1px solid var(--theme);
+}
+
+/* ---------- all 页多应用同屏 ---------- */
 .txh-all-grid {
   display: flex;
   flex-wrap: wrap;
   height: 100%;
+  align-content: flex-start;
 }
+
 .txh-all-item {
+  display: inline-block;
+  border: 1px dashed #ccc;
+  border-radius: 8px;
   width: 45%;
-  height: 44%;
-  margin: 14px;
-  border: 1px dashed #ccc;
-  border-radius: 8px;
-  overflow: auto;
+  height: 45%;
+  margin: 20px;
+  overflow: scroll;
 }
-.txh-postmessage {
-  padding: 30px 40px;
-}
+
+/* ---------- postmessage 页（对齐官方 PostMessage.vue） ---------- */
+.txh-postmessage .title,
 .txh-postmessage h3 {
-  font-size: 18px;
+  margin-top: 20px;
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 800;
 }
-.txh-pm-panel {
-  margin: 20px 0;
-  height: 480px;
+
+.txh-postmessage .main-content {
+  margin: 40px;
+  font-size: 16px;
+}
+
+.txh-postmessage .sub-content {
+  margin: 40px;
+  height: 500px;
   border: 1px dashed #ccc;
-  border-radius: 8px;
 }
-.txh-status {
-  font-size: 13px;
-  color: #789;
-  padding: 0 30px 10px;
+
+h3 {
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid #eaecef;
 }
+
 .hidden {
   display: none !important;
 }
+
 iframe {
   border: none;
+}
+
+@media screen and (max-width: 768px) {
+  .txh-nav {
+    position: absolute;
+    box-shadow: none;
+    transform: translate(-100%, 0);
+  }
+
+  .txh-nav.active {
+    transform: translate(0, 0);
+    box-shadow: 3px 0px 9px 2px #e6e6e6;
+  }
+
+  .txh-subtitle {
+    font-size: 35px;
+    margin-left: 0;
+    font-weight: 150;
+  }
+
+  .txh-header {
+    margin-right: 0;
+  }
+
+  .txh-cards {
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    width: auto;
+  }
+
+  .txh-cards .item {
+    width: 220px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
