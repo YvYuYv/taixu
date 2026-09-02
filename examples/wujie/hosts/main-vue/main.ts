@@ -1,28 +1,72 @@
 /**
- * 宿主 main-vue（对齐 wujie examples/main-vue 的全部功能）：
- * - 侧边导航 + 子菜单（/react16、/react16-sub/:path …）
- * - 主槽位 lifecycle.switch（默认保活）；multiple 页 6 应用同屏（多槽位共存）
+ * 宿主 main-vue（一比一还原 wujie examples/main-vue 的功能与界面）：
+ * - 侧边导航 + 子菜单（/react16、/react16-sub/:path …），菜单项/顺序/href 与官方一致
+ * - 主槽位 lifecycle.switch（默认保活）；all 页 6 应用同屏（多槽位共存）
  * - postmessage 页：向 vue2 子应用定向发送 bus 消息并接收应答（= wujie iframe 中继的等价物）
- * - Home 页：预加载开关；降级不适用（taixu 无 iframe 依赖）
+ * - Home 页：降级开关（不适用，taixu 无 iframe/shadow/proxy 依赖）+ 预加载开关 + 三张特性卡
  *
  * 纯 h() 渲染（无 SFC 编译步骤）；hash 路由手写（无 vue-router 依赖）。
  */
-import { createApp, defineComponent, h, ref, onMounted } from 'vue'
+import { createApp, defineComponent, h, ref, onMounted, Fragment, type VNodeChild } from 'vue'
+
 import { createHostCore, wireGlobalMessages, parseHash, subIds, type HostCore } from '../shared/host-core'
 
-const SUB_MENUS: Record<string, string[]> = {
-  react16: ['home', 'dialog', 'location', 'communication', 'nest', 'font'],
-  react17: ['home', 'dialog', 'location', 'communication', 'state'],
-  vue2: ['home', 'dialog', 'location', 'communication', 'postmessage', 'rich-text'],
-  vue3: ['home', 'dialog', 'location', 'contact', 'state', 'inline-event', 'postmessage'],
-  vite: ['home', 'dialog', 'location', 'contact'],
+/** 子菜单：[href, 展示文案]——官方 vue2 的 rich-text 显示为「富文本」 */
+const SUB_MENUS: Record<string, [string, string][]> = {
+  react16: [
+    ['home', 'home'],
+    ['dialog', 'dialog'],
+    ['location', 'location'],
+    ['communication', 'communication'],
+    ['nest', 'nest'],
+    ['font', 'font'],
+  ],
+  react17: [
+    ['home', 'home'],
+    ['dialog', 'dialog'],
+    ['location', 'location'],
+    ['communication', 'communication'],
+    ['state', 'state'],
+  ],
+  vue2: [
+    ['home', 'home'],
+    ['dialog', 'dialog'],
+    ['location', 'location'],
+    ['communication', 'communication'],
+    ['rich-text', '富文本'],
+    ['postmessage', 'postmessage'],
+  ],
+  vue3: [
+    ['home', 'home'],
+    ['dialog', 'dialog'],
+    ['location', 'location'],
+    ['contact', 'contact'],
+    ['state', 'state'],
+    ['inline-event', 'inline-event'],
+    ['postmessage', 'postmessage'],
+  ],
+  vite: [
+    ['home', 'home'],
+    ['dialog', 'dialog'],
+    ['location', 'location'],
+    ['contact', 'contact'],
+  ],
 }
+
+/** 保活应用（官方 vue3/react17 带「保活」徽标） */
+const ALIVE_APPS = new Set(['react17', 'vue3'])
+
+/** 另一宿主入口（官方两站互跳） */
+const SIBLING_HOST = { href: '/taixu/demo-wujie/hosts/main-react/', label: 'react主应用' }
 
 let core: HostCore | null = null
 const message = ref('')
 const pmMounted = ref(false)
+/** 当前路由（导航高亮与子菜单自动展开共用；官方由 vue-router 的 $route.name 提供） */
+const curHash = ref(window.location.hash.replace(/^#/, '') || '/home')
 
 function nav(to: string) {
+  curHash.value = to
   window.location.hash = to
 }
 
@@ -56,14 +100,16 @@ function routeEffect(hash: string) {
   if (pmMounted.value) {
     pmMounted.value = false
     document.getElementById('pm-wrap')?.classList.add('hidden')
-    void core.host.lifecycle.destroyByAppId('vue2', 'host').catch(() => {})
+    // 销毁 vue2 全部实例（含主槽位），并同步清空主槽位占用记录
+    void core.destroyApp('vue2')
   }
 
   if (parsed.page === 'all') {
     setWrapVisible('outlet-main-wrap', false)
     document.getElementById('all-wrap')?.classList.remove('hidden')
     void core.showAll()
-  } else if (parsed.page === 'app' && parsed.appId) {
+  } else if ((parsed.page === 'app' || parsed.page === 'sub') && parsed.appId) {
+    // app = 顶层入口（/#/react16）；sub = 子页面（/#/react16-sub/dialog）——两者共用主槽位
     setWrapVisible('all-wrap', false)
     void core.hideAll().then(async () => {
       setWrapVisible('outlet-main-wrap', true)
@@ -77,43 +123,72 @@ function routeEffect(hash: string) {
   }
 }
 
+/** 官方 vue-router 的 router-link-active 语义：前缀匹配（-sub 子路由使父项高亮） */
+function isActive(to: string) {
+  const cur = curHash.value
+  return cur === to || cur.startsWith(`${to}/`) || cur.startsWith(`${to}-sub`)
+}
+
 const Nav = defineComponent({
   name: 'Nav',
   setup() {
-    const open = ref<Record<string, boolean>>({})
+    // 官方：处于 xxx-sub 路由时对应子菜单自动展开
+    const open = ref<Record<string, boolean>>(
+      Object.fromEntries(
+        Object.keys(SUB_MENUS).map((id) => [id, new RegExp(`/${id}-sub`).test(curHash.value)]),
+      ),
+    )
     const toggle = (id: string) => {
       open.value = { ...open.value, [id]: !open.value[id] }
     }
-    const link = (to: string, label: string, cls = '') =>
+    const link = (to: string, children: VNodeChild) =>
       h(
         'a',
-        { href: `#${to}`, class: ['txh-route', cls], onClick: (e: Event) => e.preventDefault() || nav(to) },
-        label,
+        {
+          href: `#${to}`,
+          class: [isActive(to) ? 'active' : ''],
+          onClick: (e: Event) => {
+            e.preventDefault()
+            nav(to)
+          },
+        },
+        children,
+      )
+    /** 展开箭头（官方 antd caret-up 图标，展开态 rotate(180deg) 变向下） */
+    const caret = (id: string) =>
+      h(
+        'span',
+        {
+          class: ['main-icon', open.value[id] ? 'active' : ''],
+          onClick: (e: Event) => {
+            // 阻止冒泡到 <a>，避免展开子菜单的同时触发路由跳转
+            e.preventDefault()
+            e.stopPropagation()
+            toggle(id)
+          },
+        },
+        '▴',
       )
     return () =>
       h('nav', { class: 'txh-nav' }, [
         link('/home', '介绍'),
-        ...['react16', 'react17', 'vue2', 'vue3', 'vite'].map((id) =>
-          h('div', { key: id }, [
-            h('div', { class: 'txh-row' }, [
-              link(`/${id}`, id),
-              (id === 'react17' || id === 'vue3') && h('span', { class: 'txh-alive' }, '保活'),
-              h(
-                'span',
-                { style: { cursor: 'pointer', padding: '0 8px', opacity: '.7' }, onClick: () => toggle(id) },
-                '▾',
-              ),
+        ...Object.keys(SUB_MENUS).map((id) =>
+          h(Fragment, { key: id }, [
+            link(`/${id}`, [
+              id,
+              ALIVE_APPS.has(id) && h('span', { class: 'txh-alive' }, '保活'),
+              caret(id),
             ]),
             open.value[id] &&
               h(
                 'div',
                 { class: 'txh-submenu' },
-                (SUB_MENUS[id] ?? []).map((item) => link(`/${id}-sub/${item}`, item)),
+                (SUB_MENUS[id] ?? []).map(([href, label]) => link(`/${id}-sub/${href}`, label)),
               ),
           ]),
         ),
         link('/angular12', 'angular12'),
-        link('/multiple', 'multiple'),
+        link('/all', 'all'),
         link('/postmessage', 'postmessage'),
         h('p', { class: 'txh-status' }, localStorage.getItem('tx-examples-status') ?? ''),
       ])
@@ -132,33 +207,46 @@ const Home = defineComponent({
     onMounted(() => {
       if (preload.value && core) void core.preloadAll()
     })
+    /** 开关（antd Switch 的零依赖等价物） */
+    const sw = (on: boolean, label: string, onToggle?: () => void, disabled = false, title = '') =>
+      h(
+        'span',
+        {
+          class: ['txh-switch', on ? 'on' : ''],
+          style: disabled ? { opacity: 0.5, cursor: 'not-allowed' } : {},
+          title,
+          onClick: disabled ? undefined : onToggle,
+        },
+        [h('span', { class: 'track' }, h('span', { class: 'dot' })), h('span', null, label)],
+      )
     return () =>
       h('div', { class: 'txh-home' }, [
         h('div', { class: 'txh-tools' }, [
-          h('span', { class: ['txh-switch', preload.value ? 'on' : ''], onClick: togglePreload }, [
-            h('span', { class: 'track' }, h('span', { class: 'dot' })),
-            h('span', null, `预加载（${preload.value ? '开' : '关'}）`),
+          h('div', { class: 'button-list' }, [
+            // 降级：taixu 同文档渲染，无 iframe/shadow DOM/proxy 依赖，无降级概念
+            sw(false, '降级关', undefined, true, 'taixu 同文档渲染，无 iframe / shadow DOM / proxy 依赖，无降级概念'),
+            sw(preload.value, preload.value ? '预加载开' : '预加载关', togglePreload),
+            h('a', { class: 'docs', href: SIBLING_HOST.href, target: '_blank' }, SIBLING_HOST.label),
+            h('a', { class: 'docs', href: 'https://github.com/taixu-micro/taixu', target: '_blank' }, '仓库'),
+            h('a', { class: 'docs', href: 'https://taixu-micro.github.io/taixu/', target: '_blank' }, '文档'),
           ]),
-          h('span', { class: 'txh-switch', style: { opacity: '.5' }, title: 'taixu 同窗运行，无 iframe 依赖' }, [
-            h('span', { class: 'track' }),
-            h('span', null, '降级（不适用）'),
-          ]),
-          h('a', { href: 'https://taixu-micro.github.io/taixu/', target: '_blank' }, '文档'),
-          h('a', { href: 'https://github.com/taixu-micro/taixu', target: '_blank' }, '仓库'),
         ]),
-        h('h1', null, '🌐 taixu'),
-        h('h2', null, '—官方示例集（Vue 宿主）'),
+        h('h1', { class: 'txh-header' }, [
+          h('span', { style: { marginRight: '15px' } }, '🌐'),
+          h('span', { class: 'bland' }, 'taixu'),
+        ]),
+        h('h2', { class: 'txh-subtitle' }, '—极致的微前端框架'),
         h(
           'div',
           { class: 'txh-cards' },
           [
-            ['极速 🚀', ['预加载：动态 import 预热', '挂起/恢复零冷启动', '切换事务无闪烁']],
-            ['强大 💪', ['多应用同时激活在线', '应用级保活（LRU 池）', '鉴权总线 + 请求-应答']],
-            ['简单 🤞', ['子应用即 ESM Plugin', '同文档渲染无 iframe', '适配器一行接入']],
+            ['极速 🚀', ['极致预加载提速', '应用秒开无白屏', '应用丝滑般切换']],
+            ['强大 💪', ['多应用同时激活在线', '应用级别保活', '去中心化的通信']],
+            ['简单 🤞', ['更小的体积', '精简的API', '开箱即用']],
           ].map(([title, items]) =>
             h('div', { class: 'item' }, [
               h('div', { class: 'title' }, title as string),
-              h('ul', null, (items as string[]).map((t) => h('li', null, t))),
+              h('div', { class: 'detail' }, h('ul', null, (items as string[]).map((t) => h('li', null, t)))),
             ]),
           ),
         ),
@@ -183,7 +271,11 @@ const PostMessage = defineComponent({
         h('div', { class: 'main-content' }, [
           h('div', { style: { paddingBottom: '10px' } }, `接收的消息：${message.value || '（空）'}`),
           h('button', { class: 'txv2-btn', style: { marginRight: '10px' }, onClick: send }, '发送消息给vue2子应用'),
-          h('span', { style: { fontSize: '13px', color: '#789' } }, '（wujie 版经 iframe postMessage 中继；taixu 走鉴权总线定向消息）'),
+          h(
+            'span',
+            { style: { fontSize: '13px', color: '#789' } },
+            '（wujie 版经 iframe postMessage 中继；taixu 走鉴权总线定向消息）',
+          ),
         ]),
         h('div', { class: 'sub-content' }),
       ])
@@ -193,14 +285,14 @@ const PostMessage = defineComponent({
 const App = defineComponent({
   name: 'App',
   setup() {
-    const route = ref(window.location.hash.replace(/^#/, '') || '/home')
     return () => {
-      const p = parseHash(route.value)
-      const children: any[] = [h(Nav)]
-      const content: any[] = []
+      const p = parseHash(curHash.value)
+      const content: VNodeChild[] = []
       if (p.page === 'home') content.push(h(Home))
       if (p.page === 'postmessage') content.push(h(PostMessage))
-      children.push(
+      // Fragment 直接铺进 #app：多包一层 div 会让 #app 的 display:flex 失效、内容区塌陷
+      return h(Fragment, null, [
+        h(Nav),
         h('div', { class: 'txh-content' }, [
           ...content,
           h(
@@ -217,12 +309,12 @@ const App = defineComponent({
               subIds.map((id) => h('div', { class: 'txh-all-item', id: `all-${id}`, key: id })),
             ),
           ),
-          h('section', { id: 'pm-wrap', class: 'hidden', style: { height: '480px' } }, [
-            h('div', { id: 'pm-vue2', style: { height: '100%', border: '1px dashed #ccc', borderRadius: '8px' } }),
+          // 官方 postmessage 页的子应用容器为 .sub-content（500px 虚线框）
+          h('section', { id: 'pm-wrap', class: 'hidden', style: { margin: '40px' } }, [
+            h('div', { id: 'pm-vue2', style: { height: '500px', border: '1px dashed #ccc' } }),
           ]),
         ]),
-      )
-      return h('div', null, children)
+      ])
     }
   },
 })
@@ -247,7 +339,7 @@ async function main() {
   })
 
   window.addEventListener('hashchange', () => {
-    route.value = window.location.hash.replace(/^#/, '') || '/home'
+    curHash.value = window.location.hash.replace(/^#/, '') || '/home'
     routeEffect(window.location.hash)
   })
 

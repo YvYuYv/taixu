@@ -13,6 +13,8 @@ export interface HostCore {
   show: (appId: string) => Promise<void>
   showAll: () => Promise<void>
   hideAll: () => Promise<void>
+  /** 销毁某 appId 的全部实例（跨槽位），并同步清空主槽位占用记录 */
+  destroyApp: (appId: string) => Promise<void>
   notifySubRoute: (appId: string, path: string) => Promise<void>
   sendRouterChange: (appId: string, path: string) => void
   preloadAll: () => Promise<void>
@@ -92,10 +94,14 @@ export function createHostCore(): HostCore {
     apps: appDefs,
   })
 
-  let currentMain: string | null = null
   const allMounted = new Set<string>()
-  /** 主槽位首次挂载标记：首次 mount，之后 switch（保活切换）——空槽位不可直接 switch */
-  const mainMounted = new Set<string>()
+  /**
+   * 主槽位当前占用者（null = 空槽位）。
+   * 关键：切换必须走 lifecycle.switch——它才会在挂载新应用后 retire 旧实例（默认挂起保活）。
+   * 若对每个新 appId 都直接 mount，旧应用的容器不会被摘离，#outlet-main 下会同时残留多个
+   * 子应用容器（实测 vue2 → vue3 切换后 outlet 内出现两个 #tx-main）。
+   */
+  let mainSlotApp: string | null = null
 
   /** 服务激活等待（cordis 异步激活；框架主缝测试同纪律） */
   const settle = async () => {
@@ -105,14 +111,11 @@ export function createHostCore(): HostCore {
 
   async function show(appId: string) {
     if (!SUB_IDS.includes(appId as (typeof SUB_IDS)[number])) return
-    if (currentMain === appId) return
-    if (!mainMounted.has(appId)) {
-      await host.lifecycle.mount(appId, 'main')
-      mainMounted.add(appId)
-    } else {
-      await host.lifecycle.switch('main', appId)
-    }
-    currentMain = appId
+    if (mainSlotApp === appId) return
+    // 空槽位首次 mount；此后一律 switch（switch 内部对未挂载应用会走「隐藏挂载 → 让位 → reveal」切换事务）
+    if (mainSlotApp === null) await host.lifecycle.mount(appId, 'main')
+    else await host.lifecycle.switch('main', appId)
+    mainSlotApp = appId
   }
 
   async function showAll() {
@@ -131,14 +134,24 @@ export function createHostCore(): HostCore {
     for (const id of SUB_IDS) {
       if (!allMounted.has(id)) continue
       try {
+        // destroyByAppId 会销毁该 appId 的**全部**实例（跨槽位），主槽位实例若同 id 一并消失
         await host.lifecycle.destroyByAppId(id, 'host')
       } catch (err) {
         console.warn(`[all] destroy ${id} 失败`, err)
       }
       allMounted.delete(id)
-      mainMounted.delete(id)
-      if (currentMain === id) currentMain = null // 主槽位实例一并销毁，重置避免 show() 短路
+      if (mainSlotApp === id) mainSlotApp = null // 重置，避免 show() 误判槽位仍被占用
     }
+  }
+
+  /** 销毁某 appId 的全部实例（跨槽位），并同步清空主槽位占用记录 */
+  async function destroyApp(appId: string) {
+    try {
+      await host.lifecycle.destroyByAppId(appId, 'host')
+    } catch (err) {
+      console.warn(`[destroy] ${appId} 失败`, err)
+    }
+    if (mainSlotApp === appId) mainSlotApp = null
   }
 
   /** 子应用页面变化后的路由对齐（宿主导航到 /<id>-sub<path>） */
@@ -169,7 +182,7 @@ export function createHostCore(): HostCore {
     })
   }
 
-  return { host, show, showAll, hideAll, notifySubRoute, sendRouterChange, preloadAll, subIds }
+  return { host, show, showAll, hideAll, destroyApp, notifySubRoute, sendRouterChange, preloadAll, subIds }
 }
 
 /** 宿主全局旁听：子应用 broadcast 消息（sub-route-change / navigate / click / add / postmessage-ack） */

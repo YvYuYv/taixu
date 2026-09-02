@@ -31,6 +31,36 @@ npm run serve        # http://localhost:7700/hosts/main-react/ 与 /hosts/main-v
 
 单跑 Angular：`npm run build:angular`。
 
+## 一比一还原验证（QA/）
+
+`QA/` 下是一套**跑真实浏览器**的自动化比对工具：同一份用例清单分别跑 4 个目标
+（wujie 官方站 ×2 宿主 + 本工程 ×2 宿主），按「布局样式 / 菜单结构 / 功能点覆盖 /
+运行时错误」四个维度出差异报告。
+
+```bash
+cd QA && npm install
+export CHROME_PATH="$HOME/.agent-browser/browsers/chrome-152.0.7977.64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+
+npm run serve                                  # 另开终端，起 localhost:7700
+node run-suite.mjs official-vue                # 采集 wujie 官方站（vue 宿主）
+node run-suite.mjs official-react
+node run-suite.mjs taixu-vue                   # 采集本工程
+node run-suite.mjs taixu-react
+node probe-font.mjs                            # 布局根字体探针（承载元素两侧不同名）
+node compare.mjs                               # → gap-report.md
+```
+
+产物：`suite.<target>.json`（逐页 DOM / 计算样式 / 菜单树 / 控制台错误）、
+`font-probe.json`、`gap-report.md`（P0/P1/P2 分级差异清单）。
+
+三个设计要点，改用例前先读：
+
+- **全部走 SPA 点击导航**，不 goto 深链。官方站深链会让子应用 html 请求 404。
+- **菜单结构独立一趟采集**（`collectMenu()`），不夹在用例流程里——官方展开箭头
+  `<a-icon @click.native>` 没有 stop 修饰符，点它会连带触发父 router-link 跳转。
+- **功能点用同义正则判定**（`lib/cases.mjs` 的 `FEATURES`），不做逐字 token 重合。
+  taixu 文案会解释自身语义（同文档 / bus / 保活），逐字比对会大面积误报。
+
 ## wujie 场景 → taixu 实现映射
 
 | wujie 场景 | taixu 实现 |

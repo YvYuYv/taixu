@@ -1,0 +1,7 @@
+# 采集产物（可由 run-suite.mjs / probe-font.mjs 重新生成，不进版本控制）
+node_modules/
+shots/
+shots-compare/
+suite.*.json
+baseline.*.json
+font-probe.json

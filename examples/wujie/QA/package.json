@@ -1,0 +1,16 @@
+{
+  "name": "taixu-examples-wujie-qa",
+  "private": true,
+  "type": "module",
+  "description": "wujie 官方示例 ↔ taixu 重写示例的行为与样式基线对比：采集（capture）→ 对比（diff）",
+  "scripts": {
+    "capture:official-vue": "node capture.mjs --site official-vue --base https://wujie-micro.github.io/demo-main-vue --entry /home --out ./baseline.official-vue.json --shots",
+    "capture:official-react": "node capture.mjs --site official-react --base https://wujie-micro.github.io/demo-main-react --entry /#/home --out ./baseline.official-react.json --shots",
+    "capture:taixu-vue": "node capture.mjs --site taixu-vue --base http://localhost:7700/hosts/main-vue --entry /#/home --out ./baseline.taixu-vue.json --shots",
+    "capture:taixu-react": "node capture.mjs --site taixu-react --base http://localhost:7700/hosts/main-react --entry /#/home --out ./baseline.taixu-react.json --shots",
+    "diff": "node diff.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.62.1"
+  }
+}

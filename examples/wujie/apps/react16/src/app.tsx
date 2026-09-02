@@ -5,6 +5,10 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createCordis, defineApp } from '@taixu/core'
+import { version } from 'react'
+
+/** 仓库地址（官方各子应用首页都有「仓库地址」入口，此处指向 taixu 仓库） */
+const REPO = 'https://github.com/YvYuYv/taixu'
 
 interface Bridge {
   ctx?: any
@@ -67,7 +71,16 @@ function Home() {
     <div>
       <h2>react16 示例</h2>
       <p>
-        当前 React 版本 <b>16.13.1</b>（子应用独立副本，与宿主 React 18 多版本共存）
+        当前 react 版本 <b>{version}</b>（子应用独立副本，与宿主 React 18 多版本共存）
+      </p>
+      <p>
+        官方示例 UI 库：antd 版本 4.18.3 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。
+      </p>
+      <p>
+        仓库地址：{' '}
+        <a href={REPO} target="_blank" rel="noreferrer">
+          {REPO}
+        </a>
       </p>
       <p>页面目录：弹窗 / 路由 / 通信 / 内嵌 / 字体 —— 全部经 @taixu/core 运行时集成。</p>
     </div>

@@ -10,7 +10,7 @@
  * 页面切换用 signal（Angular 17 控制流 @if/@for）；宿主消息经 bridge 下行。
  */
 import 'zone.js'
-import { Component, signal } from '@angular/core'
+import { Component, signal, VERSION } from '@angular/core'
 import { bridge } from './bridge'
 
 @Component({
@@ -27,7 +27,9 @@ import { bridge } from './bridge'
         @switch (page()) {
           @case ('home') {
             <h2>angular 示例</h2>
-            <p>当前 Angular 版本 <b>17（standalone + AOT）</b>，taixu adapter-angular 接入（createApplication 独立 ApplicationRef）。</p>
+            <p>当前 Angular 版本 <b>{{ ngVersion }}（standalone + AOT）</b>，taixu adapter-angular 接入（createApplication 独立 ApplicationRef）。</p>
+            <p>官方示例 UI 库：ng-zorro-antd 版本 12（官方 angular12 示例所用）—— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。</p>
+            <p>仓库地址：<a [href]="repo" target="_blank" rel="noreferrer">{{ repo }}</a></p>
             <p>页面目录：弹窗 / 路由 / 通信。</p>
           }
           @case ('dialog') {
@@ -80,6 +82,9 @@ export class AppComponent {
   bridge = bridge
   window = window
   host = window.location.host
+  /** 仓库地址（官方各子应用首页都有「仓库地址」入口，此处指向 taixu 仓库） */
+  repo = 'https://github.com/YvYuYv/taixu'
+  ngVersion = VERSION.full
   PAGES: Array<[string, string]> = [
     ['home', '首页'],
     ['dialog', '弹窗'],

@@ -1,8 +1,8 @@
 /**
- * 宿主 main-react（对齐 wujie examples/main-react 全部功能）：
+ * 宿主 main-react（一比一还原 wujie examples/main-react 的功能与界面）：
  * - 左侧导航 + 子菜单（与 wujie 相同的信息架构：/react16、/react16-sub/:path …）
  * - 主槽位 lifecycle.switch（默认保活）· all 页 6 应用同屏（多槽位共存，主槽位实例状态保留）
- * - Home 页：预加载开关（= wujie preloadApp 预执行开关）；降级开关不适用（taixu 无 iframe 依赖，页面内说明）
+ * - Home 页：降级开关（不适用）+ 预加载开关 + 三张特性卡 + 主应用互跳 / 仓库 / 文档
  * - 全局旁听子应用消息：sub-route-change -> 宿主路由跟随；navigate -> 路由跳转；click -> alert
  */
 import React, { useEffect, useState } from 'react'
@@ -10,19 +10,92 @@ import { createRoot } from 'react-dom/client'
 import { HashRouter as Router, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { createHostCore, wireGlobalMessages, parseHash, subIds, type HostCore } from '../shared/host-core'
 
-const SUB_MENUS: Record<string, string[]> = {
-  react16: ['home', 'dialog', 'location', 'communication', 'nest', 'font'],
-  react17: ['home', 'dialog', 'location', 'communication', 'state'],
-  vue2: ['home', 'dialog', 'location', 'communication', 'postmessage', 'rich-text'],
-  vue3: ['home', 'dialog', 'location', 'contact', 'state', 'inline-event'],
-  vite: ['home', 'dialog', 'location', 'contact'],
+/** 子菜单：[href, 展示文案]——官方 vue2 的 rich-text 显示为「富文本」 */
+const SUB_MENUS: Record<string, [string, string][]> = {
+  react16: [
+    ['home', 'home'],
+    ['dialog', 'dialog'],
+    ['location', 'location'],
+    ['communication', 'communication'],
+    ['nest', 'nest'],
+    ['font', 'font'],
+  ],
+  react17: [
+    ['home', 'home'],
+    ['dialog', 'dialog'],
+    ['location', 'location'],
+    ['communication', 'communication'],
+    ['state', 'state'],
+  ],
+  vue2: [
+    ['home', 'home'],
+    ['dialog', 'dialog'],
+    ['location', 'location'],
+    ['communication', 'communication'],
+    ['rich-text', '富文本'],
+    ['postmessage', 'postmessage'],
+  ],
+  vue3: [
+    ['home', 'home'],
+    ['dialog', 'dialog'],
+    ['location', 'location'],
+    ['contact', 'contact'],
+    ['state', 'state'],
+    ['inline-event', 'inline-event'],
+    ['postmessage', 'postmessage'],
+  ],
+  vite: [
+    ['home', 'home'],
+    ['dialog', 'dialog'],
+    ['location', 'location'],
+    ['contact', 'contact'],
+  ],
 }
+
+/** 保活应用（官方 react17 / vue3 带「保活」徽标） */
+const ALIVE_APPS = new Set(['react17', 'vue3'])
+
+/** 另一宿主入口（官方两站互跳） */
+const SIBLING_HOST = { href: '/taixu/demo-wujie/hosts/main-vue/', label: 'vue主应用' }
 
 let core: HostCore | null = null
 const navigateRef: { current: ((to: string) => void) | null } = { current: null }
 
+/** 开关（antd Switch 的零依赖等价物；on 态类必须挂 .txh-switch 上，CSS 才能命中 .track/.dot） */
+function Switch({
+  on,
+  label,
+  onToggle,
+  disabled = false,
+  title = '',
+}: {
+  on: boolean
+  label: string
+  onToggle?: () => void
+  disabled?: boolean
+  title?: string
+}) {
+  return (
+    <span
+      className={'txh-switch' + (on ? ' on' : '')}
+      style={disabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+      title={title}
+      onClick={disabled ? undefined : onToggle}
+    >
+      <span className="track">
+        <span className="dot" />
+      </span>
+      <span>{label}</span>
+    </span>
+  )
+}
+
 function Nav() {
-  const [open, setOpen] = useState<Record<string, boolean>>({})
+  const location = useLocation()
+  // 官方：处于 xxx-sub 路由时对应子菜单自动展开
+  const [open, setOpen] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(Object.keys(SUB_MENUS).map((id) => [id, location.pathname.includes(`${id}-sub`)])),
+  )
   const toggle = (id: string) => setOpen((o) => ({ ...o, [id]: !o[id] }))
 
   // 子应用页面变化 -> 宿主路由跟随（= wujie bus.$on('sub-route-change')）；navigate -> 路由跳转
@@ -38,41 +111,44 @@ function Nav() {
     })
   }, [])
 
+  const cls = ({ isActive }: { isActive: boolean }) => (isActive ? 'active' : '')
+
   return (
     <nav className="txh-nav">
-      <NavLink to="/home" className={({ isActive }) => (isActive ? 'active' : '')}>
+      <NavLink to="/home" className={cls}>
         介绍
       </NavLink>
-      {['react16', 'react17', 'vue2', 'vue3', 'vite'].map((id) => (
+      {Object.keys(SUB_MENUS).map((id) => (
         <React.Fragment key={id}>
-          <NavLink to={`/${id}`} className={({ isActive }) => (isActive ? 'active' : '')}>
+          <NavLink to={`/${id}`} className={cls}>
             {id}
-            {(id === 'react17' || id === 'vue3') && <span className="txh-alive">保活</span>}
+            {ALIVE_APPS.has(id) && <span className="txh-alive">保活</span>}
             <span
-              style={{ cursor: 'pointer', padding: '0 8px', opacity: 0.7 }}
+              className={'main-icon' + (open[id] ? ' active' : '')}
               onClick={(e) => {
                 e.preventDefault()
+                e.stopPropagation()
                 toggle(id)
               }}
             >
-              ▾
+              ▴
             </span>
           </NavLink>
           {open[id] && (
             <div className="txh-submenu">
-              {(SUB_MENUS[id] ?? []).map((item) => (
-                <NavLink key={item} to={`/${id}-sub/${item}`} className={({ isActive }) => (isActive ? 'active' : '')}>
-                  {item}
+              {SUB_MENUS[id].map(([href, label]) => (
+                <NavLink key={href} to={`/${id}-sub/${href}`} className={cls}>
+                  {label}
                 </NavLink>
               ))}
             </div>
           )}
         </React.Fragment>
       ))}
-      <NavLink to="/angular12" className={({ isActive }) => (isActive ? 'active' : '')}>
+      <NavLink to="/angular12" className={cls}>
         angular12
       </NavLink>
-      <NavLink to="/all" className={({ isActive }) => (isActive ? 'active' : '')}>
+      <NavLink to="/all" className={cls}>
         all
       </NavLink>
       <p className="txh-status" />
@@ -94,52 +170,61 @@ function Home() {
   return (
     <div className="txh-home">
       <div className="txh-tools">
-        <span className="txh-switch" onClick={togglePreload}>
-          <span className={'track' + (preload ? ' on' : '')}>
-            <span className="dot" />
-          </span>
-          <span>预加载（{preload ? '开' : '关'}）</span>
-        </span>
-        <span className="txh-switch" style={{ opacity: 0.5 }} title="taixu 同窗运行，无 iframe 依赖，无降级概念">
-          <span className="track" />
-          <span>降级（不适用）</span>
-        </span>
-        <a href="https://taixu-micro.github.io/taixu/" target="_blank" rel="noreferrer">
-          文档
-        </a>
-        <a href="https://github.com/taixu-micro/taixu" target="_blank" rel="noreferrer">
-          仓库
-        </a>
+        <div className="button-list">
+          {/* 降级：taixu 同文档渲染，无 iframe / shadow DOM / proxy 依赖，无降级概念 */}
+          <Switch
+            on={false}
+            label="降级关"
+            disabled
+            title="taixu 同文档渲染，无 iframe / shadow DOM / proxy 依赖，无降级概念"
+          />
+          <Switch on={preload} label={preload ? '预加载开' : '预加载关'} onToggle={togglePreload} />
+          <a className="docs" href={SIBLING_HOST.href} target="_blank" rel="noreferrer">
+            {SIBLING_HOST.label}
+          </a>
+          <a className="docs" href="https://github.com/taixu-micro/taixu" target="_blank" rel="noreferrer">
+            仓库
+          </a>
+          <a className="docs" href="https://taixu-micro.github.io/taixu/" target="_blank" rel="noreferrer">
+            文档
+          </a>
+        </div>
       </div>
-      <h1>
-        <span style={{ marginRight: 12 }}>🌐</span>
-        <span>taixu</span>
+      <h1 className="txh-header">
+        <span style={{ marginRight: 15 }}>🌐</span>
+        <span className="bland">taixu</span>
       </h1>
-      <h2>—官方示例集（React 宿主）</h2>
+      <h2 className="txh-subtitle">—极致的微前端框架</h2>
       <div className="txh-cards">
         <div className="item">
           <div className="title">极速 🚀</div>
-          <ul>
-            <li>预加载：动态 import 预热</li>
-            <li>挂起/恢复零冷启动</li>
-            <li>切换事务无闪烁</li>
-          </ul>
+          <div className="detail">
+            <ul>
+              <li>极致预加载提速</li>
+              <li>应用秒开无白屏</li>
+              <li>应用丝滑般切换</li>
+            </ul>
+          </div>
         </div>
         <div className="item">
           <div className="title">强大 💪</div>
-          <ul>
-            <li>多应用同时激活在线</li>
-            <li>应用级保活（LRU 池）</li>
-            <li>鉴权总线 + 请求-应答</li>
-          </ul>
+          <div className="detail">
+            <ul>
+              <li>多应用同时激活在线</li>
+              <li>应用级别保活</li>
+              <li>去中心化的通信</li>
+            </ul>
+          </div>
         </div>
         <div className="item">
           <div className="title">简单 🤞</div>
-          <ul>
-            <li>子应用即 ESM Plugin</li>
-            <li>同文档渲染无 iframe</li>
-            <li>适配器一行接入</li>
-          </ul>
+          <div className="detail">
+            <ul>
+              <li>更小的体积</li>
+              <li>精简的API</li>
+              <li>开箱即用</li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>
@@ -170,7 +255,7 @@ function App() {
         if (parsed.sub && parsed.sub !== '/') core!.sendRouterChange(parsed.appId!, parsed.sub)
       })
     } else {
-      // home / postmessage：主槽位实例保留（保活），仅视觉隐藏
+      // home：主槽位实例保留（保活），仅视觉隐藏
       allWrap?.classList.add('hidden')
       mainWrap?.classList.add('hidden')
     }

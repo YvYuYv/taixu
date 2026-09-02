@@ -3,6 +3,10 @@
  */
 import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { version } from 'react'
+
+/** 仓库地址（官方各子应用首页都有「仓库地址」入口，此处指向 taixu 仓库） */
+const REPO = 'https://github.com/YvYuYv/taixu'
 
 interface Bridge {
   ctx?: any
@@ -56,7 +60,14 @@ function Home() {
     <div>
       <h2>react17 示例</h2>
       <p>
-        当前 React 版本 <b>17.0.2</b>（保活模式演示：lifecycle.switch 挂起保活，切回零冷启动）
+        当前 react 版本 <b>{version}</b>（保活模式演示：lifecycle.switch 挂起保活，切回零冷启动）
+      </p>
+      <p>官方示例 UI 库：antd 版本 4.18.3 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。</p>
+      <p>
+        仓库地址：{' '}
+        <a href={REPO} target="_blank" rel="noreferrer">
+          {REPO}
+        </a>
       </p>
     </div>
   )
@@ -64,6 +75,7 @@ function Home() {
 
 function Dialog() {
   const [open, setOpen] = useState(false)
+  const [pop, setPop] = useState(false)
   return (
     <div>
       <h2>弹窗处理</h2>
@@ -78,6 +90,18 @@ function Dialog() {
         <option>Jack</option>
         <option>Lucy</option>
       </select>
+      <h3>3. 气泡卡片（悬停）</h3>
+      <span className="tx17-pop" onMouseEnter={() => setPop(true)} onMouseLeave={() => setPop(false)}>
+        <button className="tx17-btn" style={{ background: '#5a67d8' }}>
+          Hover me
+        </button>
+        {pop && (
+          <span className="tx17-pop-body">
+            <div>Content</div>
+            <div>Content</div>
+          </span>
+        )}
+      </span>
       {open &&
         createPortal(
           <div className="tx17-overlay" onClick={() => setOpen(false)}>

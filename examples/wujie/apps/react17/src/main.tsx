@@ -53,4 +53,6 @@ const STYLES = `
 .tx17-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; z-index:9999; }
 .tx17-modal { background:#fff; border-radius:10px; padding:20px 24px; width:420px; max-width:90vw; }
 .tx17-select { padding:6px 10px; border:1px solid #d5daea; border-radius:6px; font-size:14px; }
+.tx17-pop { position:relative; display:inline-block; }
+.tx17-pop-body { position:absolute; top:110%; left:0; background:#fff; border:1px solid #e5e8f0; box-shadow:0 4px 14px rgba(0,0,0,.12); border-radius:8px; padding:10px 14px; width:220px; z-index:50; font-size:13px; }
 `
