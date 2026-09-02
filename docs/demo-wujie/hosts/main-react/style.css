@@ -1,0 +1,188 @@
+/* 宿主布局（wujie 官方示例同款：左侧导航 + 右侧内容区；两宿主共用） */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-size: 18px;
+  height: 100vh;
+  font-family: Avenir, Helvetica, Arial, 'PingFang SC', sans-serif;
+  color: #2c3e50;
+}
+#root,
+#app {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+}
+.txh-nav {
+  background: #fff;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 26px 0;
+  width: 212px;
+  height: 100vh;
+  box-sizing: border-box;
+  box-shadow: 3px 0 9px 2px #e6e6e6;
+  overflow: auto;
+  z-index: 2;
+}
+.txh-nav a,
+.txh-nav button.link {
+  display: block;
+  padding: 10px 30px;
+  font-weight: bold;
+  color: #2c3e50;
+  text-decoration: none;
+  font-size: 18px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s linear;
+}
+.txh-nav a:hover,
+.txh-nav button.link:hover,
+.txh-nav a.active,
+.txh-nav button.link.active {
+  color: rgb(241, 107, 95);
+  background: rgba(0, 0, 0, 0.04);
+}
+.txh-row {
+  display: flex;
+  align-items: center;
+}
+.txh-alive {
+  display: inline-block;
+  white-space: nowrap;
+  background-color: rgb(241, 107, 95);
+  border-radius: 8px;
+  margin-left: 4px;
+  font-size: 10px;
+  vertical-align: top;
+  padding: 1px 4px;
+  color: #fff;
+}
+.txh-submenu {
+  font-size: 15px;
+  padding: 0 10px;
+}
+.txh-submenu a,
+.txh-submenu button.link {
+  font-weight: normal;
+  font-size: 15px;
+  padding: 6px 20px;
+  color: #667;
+}
+.txh-content {
+  flex: 1;
+  height: 100vh;
+  overflow: hidden auto;
+  width: 1px;
+  box-sizing: border-box;
+}
+.txh-home {
+  padding: 60px 40px;
+}
+.txh-home h1 {
+  font-size: 56px;
+  font-weight: 300;
+  margin: 0 0 6px;
+}
+.txh-home h2 {
+  font-size: 30px;
+  font-weight: 300;
+  font-style: italic;
+  margin: 0 0 40px;
+}
+.txh-cards {
+  display: flex;
+  gap: 40px;
+  max-width: 860px;
+}
+.txh-cards .item .title {
+  font-size: 24px;
+  color: rgb(241, 107, 95);
+  text-align: center;
+  margin-bottom: 12px;
+}
+.txh-cards .item ul {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 16px;
+  line-height: 2;
+}
+.txh-tools {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 30px;
+  font-size: 15px;
+}
+.txh-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.txh-switch .track {
+  width: 44px;
+  height: 22px;
+  border-radius: 11px;
+  background: #ccc;
+  position: relative;
+  transition: background 0.2s;
+}
+.txh-switch.on .track {
+  background: rgb(241, 107, 95);
+}
+.txh-switch .dot {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: left 0.2s;
+}
+.txh-switch.on .dot {
+  left: 24px;
+}
+.txh-all-grid {
+  display: flex;
+  flex-wrap: wrap;
+  height: 100%;
+}
+.txh-all-item {
+  width: 45%;
+  height: 44%;
+  margin: 14px;
+  border: 1px dashed #ccc;
+  border-radius: 8px;
+  overflow: auto;
+}
+.txh-postmessage {
+  padding: 30px 40px;
+}
+.txh-postmessage h3 {
+  font-size: 18px;
+}
+.txh-pm-panel {
+  margin: 20px 0;
+  height: 480px;
+  border: 1px dashed #ccc;
+  border-radius: 8px;
+}
+.txh-status {
+  font-size: 13px;
+  color: #789;
+  padding: 0 30px 10px;
+}
+.hidden {
+  display: none !important;
+}
+iframe {
+  border: none;
+}

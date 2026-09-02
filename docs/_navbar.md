@@ -1,4 +1,5 @@
 - [文档](/)
 - [示例](https://taixu-micro.github.io/taixu/demo/host/)
+- [wujie 示例](https://taixu-micro.github.io/taixu/demo-wujie/hosts/main-react/)
 - [GitHub](https://github.com/YvYuYv/taixu)
 - [架构深读](architecture.md)
