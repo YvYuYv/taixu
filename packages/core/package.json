@@ -1,6 +1,6 @@
 {
   "name": "@taixu/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Taixu 微前端框架核心：lifecycle/router/state/bus/sandbox/monitor/security/deps 八服务 + 主题/水合/PII/时间旅行",
   "type": "module",
   "license": "MIT",
