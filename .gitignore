@@ -14,3 +14,6 @@ packages/*/dist
 packages/*/dist
 # tsup 运行时临时 bundle
 packages/*/tsup.config.bundled_*.mjs
+
+# Angular 构建缓存（ng build 增量信息，纯本地产物）
+.angular/
