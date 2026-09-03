@@ -1,6 +1,6 @@
 {
   "name": "@taixu/adapter-angular",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Taixu Angular 适配器（实验性）：standalone + AOT，每应用独立 ApplicationRef；@angular/core 经共享依赖仲裁获取",
   "type": "module",
   "license": "MIT",
