@@ -127,7 +127,7 @@ const Dialog: Component = {
         h('button', { class: 'txvt-btn', onClick: insertBody }, '点击插入 body'),
         h('button', { class: 'txvt-btn warn', onClick: removeBody }, '点击删除 body'),
         open.value &&
-          h(Teleport, { to: 'body' }, () =>
+          h(Teleport, { to: 'body' }, [
             h(
               'div',
               { class: 'txvt-overlay', onClick: () => (open.value = false) },
@@ -143,7 +143,7 @@ const Dialog: Component = {
                 ],
               ),
             ),
-          ),
+          ]),
       ])
   },
 }

@@ -4889,10 +4889,8 @@ const gr = "https://github.com/YvYuYv/taixu", fn = "vite", qt = { ctx: null }, L
       S("h3", null, "4. 手动向 body 中 append 弹层"),
       S("button", { class: "txvt-btn", onClick: r }, "点击插入 body"),
       S("button", { class: "txvt-btn warn", onClick: n }, "点击删除 body"),
-      t.value && S(
-        Yl,
-        { to: "body" },
-        () => S(
+      t.value && S(Yl, { to: "body" }, [
+        S(
           "div",
           { class: "txvt-overlay", onClick: () => t.value = !1 },
           S(
@@ -4907,7 +4905,7 @@ const gr = "https://github.com/YvYuYv/taixu", fn = "vite", qt = { ctx: null }, L
             ]
           )
         )
-      )
+      ])
     ]);
   }
 }, Uc = {

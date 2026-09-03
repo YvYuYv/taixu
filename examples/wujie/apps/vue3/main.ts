@@ -135,7 +135,7 @@ const Dialog: Component = {
         h('button', { class: 'txv3-btn warn', onClick: removeBody }, '点击删除 body'),
         h('p', null, '脱离框架的原生 DOM 操作，直接挂到 document.body 下。'),
         open.value &&
-          h(Teleport, { to: 'body' }, () =>
+          h(Teleport, { to: 'body' }, [
             h('div', { class: 'txv3-overlay', onClick: () => (open.value = false) }, [
               h(
                 'div',
@@ -149,7 +149,7 @@ const Dialog: Component = {
                 ],
               ),
             ]),
-          ),
+          ]),
       ])
   },
 }
