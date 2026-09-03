@@ -85,9 +85,15 @@ export function createHostCore(): HostCore {
       { appId: 'react17', allow: ['message:sub-route-change', 'message:navigate', 'message:click', 'message:add'] },
       {
         appId: 'vue2',
-        allow: ['message:sub-route-change', 'message:navigate', 'message:click', 'message:postmessage-ack'],
+        // postmessage：vue2 → 嵌套 vue3 的定向消息（官方「发消息给iframe」的等价物）
+        allow: ['message:sub-route-change', 'message:navigate', 'message:click', 'message:postmessage-ack', 'message:postmessage'],
       },
-      { appId: 'vue3', allow: ['message:sub-route-change', 'message:navigate', 'message:click'] },
+      {
+        appId: 'vue3',
+        // postmessage-ack：嵌套 vue3 → 主应用；postmessage-relay：官方「(借助主应用)」按钮——
+        // 嵌套应用够不着兄弟应用，借主应用中继（主应用收到后定向转发）
+        allow: ['message:sub-route-change', 'message:navigate', 'message:click', 'message:postmessage-ack', 'message:postmessage-relay'],
+      },
       { appId: 'vite', allow: ['message:sub-route-change', 'message:navigate', 'message:click'] },
       { appId: 'angular12', allow: ['message:sub-route-change', 'message:navigate'] },
     ],
@@ -193,6 +199,8 @@ export function wireGlobalMessages(
     onNavigate: (name: string) => void
     onClick: (from: string) => void
     onPostMessageAck?: (text: string) => void
+    /** 官方「(借助主应用)」中继：嵌套 vue3 够不着兄弟应用，主应用代为定向转发 */
+    onPostMessageRelay?: (target: string, text: string) => void
   },
 ) {
   host.on(
@@ -204,6 +212,7 @@ export function wireGlobalMessages(
       else if (m.type === 'navigate') handlers.onNavigate(m.payload?.name)
       else if (m.type === 'click') handlers.onClick(String(m.payload ?? ''))
       else if (m.type === 'postmessage-ack') handlers.onPostMessageAck?.(m.payload?.text ?? '')
+      else if (m.type === 'postmessage-relay') handlers.onPostMessageRelay?.(String(m.payload?.target ?? ''), String(m.payload?.text ?? ''))
     },
     { global: true } as any,
   )

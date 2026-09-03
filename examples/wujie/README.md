@@ -15,8 +15,8 @@ hosts/
 apps/
   react16/             React 16.13 独立副本（多版本 React 共存；nest 页演示子应用嵌套）
   react17/             React 17.0.2（保活计数 + 跨应用 state 联动）
-  vue2/                Vue 2.7（deps 共享依赖仲裁接入；postmessage / rich-text）
-  vue3/                Vue 3（adapter-vue3 接入；state / inline-event / postmessage）
+  vue2/                Vue 2.7（deps 共享依赖仲裁接入；rich-text + postmessage 页内嵌套 vue3）
+  vue3/                Vue 3（adapter-vue3 接入；state / inline-event + 「vue3-iframe」postmessage 页）
   vite/                Vite lib mode 构建工具差异化
   angular12/           Angular 17 standalone + AOT（adapter-angular + deps 单例仲裁）
 ```

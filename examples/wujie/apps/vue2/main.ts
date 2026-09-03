@@ -1,6 +1,8 @@
 /**
  * vue2 子应用（对齐 wujie examples/vue2 全部页面）：
- *   home / dialog（四种弹层）/ location / communication / postmessage（bus 消息）/ rich-text（富文本）
+ *   home / dialog（四种弹层）/ location / communication / rich-text（富文本）
+ *   + postmessage（官方子应用导航不含此项、进入时整条导航隐藏；仅从宿主一级菜单进入，
+ *     页内嵌套挂载 vue3 —— 三级链 主应用 → vue2 → vue3）
  *
  * 接入方式：@taixu/adapter-vue2（defineCordisVue2App）——Vue 2 构造器经
  * deps 共享依赖仲裁（'vue@^2'）登记使用；模板经 vue 2.7 完整构建（含编译器）。
@@ -229,7 +231,7 @@ const Root = {
   data: () => ({ page: 'home' }),
   template: `
 <div>
-  <nav class="txv2-nav">
+  <nav class="txv2-nav" v-if="page !== 'postmessage'">
     <button v-for="p in pages" :key="p.key" :class="{ on: page === p.key }" @click="nav(p.key)">{{ p.label }}</button>
   </nav>
   <div class="txv2-page">
@@ -237,12 +239,13 @@ const Root = {
   </div>
 </div>`,
   computed: {
+    // 官方 vue2 子应用导航没有 postmessage 项，且进入 postmessage 页时整条导航隐藏
+    //（官方 App.vue：v-if="$route.name !== 'postmessage'"）——postmessage 只从宿主一级菜单进入
     pages: () => [
       { key: 'home', label: '首页' },
       { key: 'dialog', label: '弹窗' },
       { key: 'location', label: '路由' },
       { key: 'communication', label: '通信' },
-      { key: 'postmessage', label: 'postmessage' },
       { key: 'rich-text', label: '富文本' },
     ],
     /**
@@ -378,20 +381,40 @@ const pages: Record<string, any> = {
       },
     },
   },
-  /** wujie 的 postmessage 页演示 iframe 消息中继；taixu 同文档直接走 bus 双向消息 */
+  /**
+   * postmessage 页（一比一还原官方 vue2/views/PostMessage.vue 的结构与交互）：
+   *   标题「vue2-子应用」+ 接收的消息 + 「发消息给主应用」「发消息给iframe」两个按钮
+   *   + 页内嵌一块 iframe 区。
+   *
+   * 官方的 iframe 指向 vue3 应用的 postmessage 页（跨应用三层链：
+   * 主应用 → vue2 → 内嵌 vue3）。taixu 同文档渲染，iframe 的等价物是
+   * 「应用内再挂应用」：这里只渲染嵌套容器（#pm-nest-vue3），由宿主把 vue3
+   * 挂进来（lifecycle.mount('vue3', 'pm-nest-vue3')）。
+   *
+   * 消息面（对齐官方 type 语义）：
+   *   发消息给主应用  → broadcast postmessage-ack（宿主旁听显示）
+   *   发消息给iframe  → 定向 send 给嵌套 vue3（官方：iframe.contentWindow.postMessage）
+   */
   PmPage: {
     computed: {
       received: () => bridge.pm.received,
     },
     template: `<div>
-      <h2>postmessage 处理</h2>
-      <p>wujie 因 iframe 隔离需要 postMessage 中继；taixu 同窗运行，直接走 bus 双向消息。</p>
-      <h3>接收的消息：{{ received || '（空）' }}</h3>
-      <button class="txv2-btn" @click="send">发送消息给主应用</button>
+      <div class="txv2-pm-title">vue2-子应用</div>
+      <div class="txv2-pm-main">
+        <div style="padding-bottom:10px">接收的消息：{{ received || '（空）' }}</div>
+        <button class="txv2-btn" style="margin-right:10px" @click="toMain">发消息给主应用</button>
+        <button class="txv2-btn" @click="toIframe">发消息给iframe</button>
+        <p class="txv2-pm-note">官方版此处用 iframe 直载 vue3 的 postmessage 页；taixu 同文档渲染，等价实现为嵌套挂载 vue3 子应用（下方虚线框，应用内再挂应用）。</p>
+      </div>
+      <div class="txv2-pm-nest"><div id="pm-nest-vue3"></div></div>
     </div>`,
     methods: {
-      send() {
-        bridge.ctx?.bus.broadcast(bridge.ctx, { type: 'postmessage-ack', payload: { text: "hello, i'm vue2 sub app" } })
+      toMain() {
+        bridge.ctx?.bus.broadcast(bridge.ctx, { type: 'postmessage-ack', payload: { text: "hello, i'm sub app" } })
+      },
+      toIframe() {
+        bridge.ctx?.bus.send(bridge.ctx, { type: 'postmessage', payload: { text: "hello, i'm sub app" }, target: 'vue3' })
       },
     },
   },
@@ -593,6 +616,12 @@ const STYLES = `
 .txv2-probe { margin:8px 0; padding:10px 12px; background:#f7f8fa; border-radius:6px; }
 .txv2-probe-title { font-weight:700; font-size:13px; margin-bottom:4px; }
 .txv2-probe pre { margin:0 0 6px; padding:8px 10px; background:#1f2d3d; color:#cfe3ff; border-radius:6px; font-size:12px; overflow:auto; }
+/* postmessage 页（对齐官方 vue2/views/PostMessage.vue 的结构与交互） */
+.txv2-pm-title { margin-top:20px; text-align:center; font-size:20px; font-weight:800; }
+.txv2-pm-main { margin:40px; font-size:16px; }
+.txv2-pm-note { font-size:13px; color:#789; }
+.txv2-pm-nest { margin:0 40px 40px; height:420px; border:1px dashed #ccc; }
+.txv2-pm-nest > div { width:100%; height:100%; }
 /* 原生定位库弹出层（对齐 wujie NativePopperDemo） */
 .txv2-popper-demo { margin-top:18px; padding:14px; border:1px dashed #9fb7ff; border-radius:6px; background:#f7faff; }
 .txv2-popper-demo h4 { margin:0 0 8px; font-size:14px; }

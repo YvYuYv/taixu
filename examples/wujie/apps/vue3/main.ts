@@ -1,7 +1,8 @@
 /**
  * vue3 子应用（对齐 wujie examples/vue3 全部页面）：
  *   home / dialog（Teleport 弹窗）/ location / contact（通信）/ state（保活计数 + 'add' 事件）/
- *   inline-event（行内事件验证）/ postmessage（bus 双向消息）
+ *   inline-event（行内事件验证）/ postmessage（「vue3-iframe」页，官方嵌在 vue2 页内的三层链最内层；
+ *   子应用导航不含此项、进入时整条导航隐藏）
  *
  * 接入方式：@taixu/adapter-vue3（defineCordisApp），rootComponent 的 setup 闭包持有 ctx。
  */
@@ -23,6 +24,9 @@ const Root = defineComponent({
     bridge.setPage = (p: string) => {
       page.value = p
     }
+    // 官方 vue3 子应用导航没有 postmessage 项，且进入 postmessage 页时整条导航隐藏
+    //（官方 App.vue：v-if="$route.name !== 'Postmessage'"）——postmessage 页由宿主
+    // 嵌套挂载时经 vue3-router-change 直达
     const pages: Array<[string, string]> = [
       ['home', '首页'],
       ['dialog', '弹窗'],
@@ -30,7 +34,6 @@ const Root = defineComponent({
       ['contact', '通信'],
       ['state', '状态'],
       ['inline-event', '内联事件'],
-      ['postmessage', 'postmessage'],
     ]
     const nav = (p: string) => {
       page.value = p
@@ -38,13 +41,14 @@ const Root = defineComponent({
     }
     return () =>
       h('div', null, [
-        h(
-          'nav',
-          { class: 'txv3-nav' },
-          pages.map(([key, label]) =>
-            h('button', { class: page.value === key ? 'on' : '', onClick: () => nav(key) }, label),
+        page.value !== 'postmessage' &&
+          h(
+            'nav',
+            { class: 'txv3-nav' },
+            pages.map(([key, label]) =>
+              h('button', { class: page.value === key ? 'on' : '', onClick: () => nav(key) }, label),
+            ),
           ),
-        ),
         h('div', { class: 'txv3-page' }, [
           page.value === 'home' && h(Home),
           page.value === 'dialog' && h(Dialog),
@@ -342,23 +346,34 @@ const InlineEvent: Component = {
   },
 }
 
+/**
+ * postmessage 页（一比一还原官方 vue3/views/PostMessage.vue，即「vue3-iframe」页）。
+ *
+ * 官方这一页以 iframe 形态嵌在 vue2 的 postmessage 页里（三层链的最内层），
+ * 三个按钮对应三条官方消息路径：
+ *   发送消息给主应用              → window.parent（主应用显示）
+ *   发送消息给vue2子应用(借助主应用) → 够不着兄弟应用，发到父窗口由主应用中继转发
+ *   发送消息给自己(借助主应用)      → 同上，主应用中继回自己
+ *
+ * taixu 落法：broadcast postmessage-ack（主应用旁听显示）/ broadcast
+ * postmessage-relay（主应用收到后按 payload.target 定向转发）——「借助主应用」
+ * 的中继语义原样保留，而不是让 bus 直连（官方正是因为嵌套应用够不着兄弟才有此设计）。
+ */
 const PostMessage: Component = {
   setup() {
     const received = ref('')
     bridge.onPost = (text: string) => (received.value = text)
+    const ack = () =>
+      bridge.ctx?.bus.broadcast(bridge.ctx, { type: 'postmessage-ack', payload: { text: "hello, i'm sub app's iframe" } })
+    const relay = (target: string) =>
+      bridge.ctx?.bus.broadcast(bridge.ctx, { type: 'postmessage-relay', payload: { target, text: "hello, i'm sub app's iframe" } })
     return () =>
       h('div', null, [
-        h('h2', null, 'postmessage 处理'),
-        h('p', null, 'wujie 版本演示 iframe 消息中继；taixu 同窗运行，bus 双向消息等价实现。'),
-        h('h3', null, `接收的消息：${received.value || '（空）'}`),
-        h(
-          'button',
-          {
-            class: 'txv3-btn',
-            onClick: () => bridge.ctx?.bus.broadcast(bridge.ctx, { type: 'postmessage-ack', payload: { text: "hello, i'm vue3 sub app" } }),
-          },
-          '发送消息给主应用',
-        ),
+        h('div', { class: 'txv3-pm-title' }, 'vue3-iframe'),
+        h('div', { style: { paddingBottom: '10px' } }, `接收的消息：${received.value || '（空）'}`),
+        h('button', { class: 'txv3-btn', style: { marginRight: '10px' }, onClick: ack }, '发送消息给主应用'),
+        h('button', { class: 'txv3-btn', style: { marginRight: '10px' }, onClick: () => relay('vue2') }, '发送消息给vue2子应用(借助主应用)'),
+        h('button', { class: 'txv3-btn', onClick: () => relay('vue3') }, '发送消息给自己(借助主应用)'),
       ])
   },
 }
@@ -404,6 +419,8 @@ const STYLES = `
 .txv3-modal { background:#fff; border-radius:10px; padding:20px 24px; width:420px; max-width:90vw; }
 .txv3-count { font-size:44px; font-weight:800; color:#41b883; display:inline-block; width:110px; text-align:center; }
 .txv3-count-row { display:flex; align-items:center; justify-content:center; gap:6px; padding:16px 0; }
+/* postmessage 页（对齐官方 vue3/views/PostMessage.vue「vue3-iframe」页） */
+.txv3-pm-title { margin-top:20px; text-align:center; font-size:20px; font-weight:800; }
 /* 内联事件测试页（对齐 wujie InlineEvent.vue） */
 .txv3-ie .ie-section { margin:16px 0; padding:16px; border:1px solid #ddd; border-radius:8px; }
 .txv3-ie .ie-section h3 { margin:0 0 8px; font-size:16px; }

@@ -33,7 +33,6 @@ const SUB_MENUS: Record<string, [string, string][]> = {
     ['location', 'location'],
     ['communication', 'communication'],
     ['rich-text', '富文本'],
-    ['postmessage', 'postmessage'],
   ],
   vue3: [
     ['home', 'home'],
@@ -42,7 +41,6 @@ const SUB_MENUS: Record<string, [string, string][]> = {
     ['contact', 'contact'],
     ['state', 'state'],
     ['inline-event', 'inline-event'],
-    ['postmessage', 'postmessage'],
   ],
   vite: [
     ['home', 'home'],

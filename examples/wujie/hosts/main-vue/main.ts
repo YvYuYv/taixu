@@ -2,7 +2,8 @@
  * 宿主 main-vue（一比一还原 wujie examples/main-vue 的功能与界面）：
  * - 侧边导航 + 子菜单（/react16、/react16-sub/:path …），菜单项/顺序/href 与官方一致
  * - 主槽位 lifecycle.switch（默认保活）；all 页 6 应用同屏（多槽位共存）
- * - postmessage 页：向 vue2 子应用定向发送 bus 消息并接收应答（= wujie iframe 中继的等价物）
+ * - postmessage 页（三级链，对齐官方）：主应用（2 按钮）→ vue2 子应用 postmessage 页（2 按钮）
+ *   → 页内嵌 vue3 postmessage 页（3 按钮，官方为 iframe 直载；taixu 为「应用内再挂应用」）
  * - Home 页：降级开关（不适用，taixu 无 iframe/shadow/proxy 依赖）+ 预加载开关 + 三张特性卡
  *
  * 纯 h() 渲染（无 SFC 编译步骤）；hash 路由手写（无 vue-router 依赖）。
@@ -34,7 +35,6 @@ const SUB_MENUS: Record<string, [string, string][]> = {
     ['location', 'location'],
     ['communication', 'communication'],
     ['rich-text', '富文本'],
-    ['postmessage', 'postmessage'],
   ],
   vue3: [
     ['home', 'home'],
@@ -43,7 +43,6 @@ const SUB_MENUS: Record<string, [string, string][]> = {
     ['contact', 'contact'],
     ['state', 'state'],
     ['inline-event', 'inline-event'],
-    ['postmessage', 'postmessage'],
   ],
   vite: [
     ['home', 'home'],
@@ -76,6 +75,9 @@ function setWrapVisible(id: string, visible: boolean) {
 }
 
 /** 路由 effect：hash -> 槽位编排（与 main-react 同一套 HostCore） */
+/** 嵌套 vue3 的挂载容器 id（vue2 postmessage 页渲染；= 官方 vue2 页内嵌的 iframe 位） */
+const PM_NEST_ID = 'pm-nest-vue3'
+
 function routeEffect(hash: string) {
   if (!core) return
   const parsed = parseHash(hash.replace(/^#/, ''))
@@ -90,8 +92,18 @@ function routeEffect(hash: string) {
       try {
         await core!.host.lifecycle.mount('vue2', 'pm-vue2')
         core!.sendRouterChange('vue2', '/postmessage')
+        // 官方 postmessage 页是三级链：主应用 → vue2 子应用（postmessage 页）→ 页内嵌 vue3
+        // postmessage 页（官方用 iframe 直载；taixu 同文档，等价做法是「应用内再挂应用」）。
+        // 等 vue2 渲染出嵌套容器后挂 vue3 并路由到其 postmessage 页。
+        for (let i = 0; i < 40 && !document.getElementById(PM_NEST_ID); i++) {
+          await new Promise((r) => setTimeout(r, 50))
+          if (!pmMounted.value) return
+        }
+        if (!pmMounted.value || !document.getElementById(PM_NEST_ID)) return
+        await core!.host.lifecycle.mount('vue3', PM_NEST_ID)
+        core!.sendRouterChange('vue3', '/postmessage')
       } catch (err) {
-        console.warn('[pm] mount vue2 失败', err)
+        console.warn('[pm] mount 失败', err)
       }
     })
     return
@@ -102,6 +114,9 @@ function routeEffect(hash: string) {
     document.getElementById('pm-wrap')?.classList.add('hidden')
     // 销毁 vue2 全部实例（含主槽位），并同步清空主槽位占用记录
     void core.destroyApp('vue2')
+    // 嵌套 vue3 只销毁 pm 槽位实例——主槽位（保活）实例不受影响，回 /vue3 原样恢复
+    const nest = core.host.lifecycle.getInstances().find((i: any) => i.outlet === PM_NEST_ID)
+    if (nest) void core.host.lifecycle.destroy(nest.instanceId, 'host: leave postmessage')
   }
 
   if (parsed.page === 'all') {
@@ -257,12 +272,13 @@ const Home = defineComponent({
 const PostMessage = defineComponent({
   name: 'PostMessage',
   setup() {
-    const send = () => {
-      // 宿主 root ctx（source='system'）免裁决；定向 target 到 vue2
+    /** 官方两个按钮：发给 vue2 子应用 / 发给 vue2 页内嵌的 iframe（taixu = 嵌套 vue3） */
+    const sendTo = (target: string) => {
+      // 宿主 root ctx（source='system'）免裁决；定向 target
       core?.host.bus.send(core!.host as never, {
         type: 'postmessage',
         payload: { text: "hello, i'm main app" },
-        target: 'vue2',
+        target,
       })
     }
     return () =>
@@ -270,11 +286,12 @@ const PostMessage = defineComponent({
         h('h3', null, '主应用'),
         h('div', { class: 'main-content' }, [
           h('div', { style: { paddingBottom: '10px' } }, `接收的消息：${message.value || '（空）'}`),
-          h('button', { class: 'txv2-btn', style: { marginRight: '10px' }, onClick: send }, '发送消息给vue2子应用'),
+          h('button', { class: 'txv2-btn', style: { marginRight: '10px' }, onClick: () => sendTo('vue2') }, '发送消息给vue2子应用'),
+          h('button', { class: 'txv2-btn', onClick: () => sendTo('vue3') }, '发送消息给vue2子应用的iframe'),
           h(
             'span',
-            { style: { fontSize: '13px', color: '#789' } },
-            '（wujie 版经 iframe postMessage 中继；taixu 走鉴权总线定向消息）',
+            { style: { fontSize: '13px', color: '#789', marginLeft: '8px' } },
+            '（wujie 版第二条经 shadow iframe 穿透；taixu 走鉴权总线定向到嵌套 vue3）',
           ),
         ]),
         h('div', { class: 'sub-content' }),
@@ -335,6 +352,11 @@ async function main() {
     onClick: (from) => window.alert(`主应用收到 ${from} 的 bus 事件`),
     onPostMessageAck: (text) => {
       message.value = text
+    },
+    // 官方「(借助主应用)」中继：嵌套 vue3 够不着兄弟应用，主应用代为定向转发
+    onPostMessageRelay: (target, text) => {
+      if (target !== 'vue2' && target !== 'vue3') return
+      core?.host.bus.send(core!.host as never, { type: 'postmessage', payload: { text }, target })
     },
   })
 
