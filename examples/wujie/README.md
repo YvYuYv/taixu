@@ -79,3 +79,9 @@ node compare.mjs                               # → gap-report.md
 | @font-face 字体处理 | 同文档，字体原生加载，零框架介入 |
 | 降级（degrade） | 不适用（无 iframe 依赖，无降级概念） |
 | 子应用嵌套 | 子应用内再起一个 taixu 运行时（react16 nest 页） |
+
+## 回归门禁
+
+npm `@taixu/core@0.1.1` 起示例在 CI 用冻结基线跑 parity 回归（`.github/workflows/parity.yml`）：
+采集 taixu-vue / taixu-react 全部页面与 `QA/baseline/` 比对，有差异即红灯。
+本地复现：`cd examples/wujie/QA && node freeze-baseline.mjs && node compare.mjs --baseline`。
