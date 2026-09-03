@@ -288,6 +288,19 @@ const pages: Record<string, any> = {
       <p>弹窗无需子应用做任何处理就可使用（同文档渲染，无 shadowRoot/iframe 边界）。</p>
       <h3>1. 打开对话框</h3>
       <button class="txv2-btn" @click="dialogVisible = true">点击打开 Dialog</button>
+      <div v-if="dialogVisible" class="txv2-overlay" @click="dialogVisible = false">
+        <div class="txv2-modal" @click.stop>
+          <h3>Basic Modal</h3>
+          <p>弹窗内容（taixu 同文档渲染，v-if 直挂组件树即可，无需传送门/样式兜底）</p>
+          <select class="txv2-select">
+            <option value="">Select a person（弹窗内）</option>
+            <option v-for="o in options" :key="o">{{ o }}</option>
+          </select>
+          <div style="text-align:right;margin-top:14px">
+            <button class="txv2-btn" @click="dialogVisible = false">OK</button>
+          </div>
+        </div>
+      </div>
       <h3>2. 打开选择器</h3>
       <select class="txv2-select"><option v-for="o in options" :key="o">{{ o }}</option></select>
       <h3>3. 气泡卡片</h3>
