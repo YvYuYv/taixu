@@ -3,5 +3,8 @@ node_modules/
 shots/
 shots-compare/
 suite.*.json
-baseline.*.json
 font-probe.json
+
+# 早期的一次性快照（命名如 baseline.official-vue.json）。
+# 注意：**回归基线在 baseline/ 目录，是进版本控制的**（CI 门禁要用）。
+baseline.*.json

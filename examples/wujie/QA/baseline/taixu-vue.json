@@ -1,0 +1,4459 @@
+{
+  "target": "taixu-vue",
+  "flavor": "vue",
+  "impl": "taixu",
+  "entry": "http://localhost:7700/hosts/main-vue/#/home",
+  "navSel": ".txh-nav",
+  "contentSel": ".txh-content",
+  "subMenuSel": ".txh-submenu",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "menuFull": [
+    {
+      "text": "介绍",
+      "href": "#/home",
+      "depth": 0
+    },
+    {
+      "text": "react16",
+      "href": "#/react16",
+      "depth": 0
+    },
+    {
+      "text": "home",
+      "href": "#/react16-sub/home",
+      "depth": 1
+    },
+    {
+      "text": "dialog",
+      "href": "#/react16-sub/dialog",
+      "depth": 1
+    },
+    {
+      "text": "location",
+      "href": "#/react16-sub/location",
+      "depth": 1
+    },
+    {
+      "text": "communication",
+      "href": "#/react16-sub/communication",
+      "depth": 1
+    },
+    {
+      "text": "nest",
+      "href": "#/react16-sub/nest",
+      "depth": 1
+    },
+    {
+      "text": "font",
+      "href": "#/react16-sub/font",
+      "depth": 1
+    },
+    {
+      "text": "react17保活",
+      "href": "#/react17",
+      "depth": 0
+    },
+    {
+      "text": "home",
+      "href": "#/react17-sub/home",
+      "depth": 1
+    },
+    {
+      "text": "dialog",
+      "href": "#/react17-sub/dialog",
+      "depth": 1
+    },
+    {
+      "text": "location",
+      "href": "#/react17-sub/location",
+      "depth": 1
+    },
+    {
+      "text": "communication",
+      "href": "#/react17-sub/communication",
+      "depth": 1
+    },
+    {
+      "text": "state",
+      "href": "#/react17-sub/state",
+      "depth": 1
+    },
+    {
+      "text": "vue2",
+      "href": "#/vue2",
+      "depth": 0
+    },
+    {
+      "text": "home",
+      "href": "#/vue2-sub/home",
+      "depth": 1
+    },
+    {
+      "text": "dialog",
+      "href": "#/vue2-sub/dialog",
+      "depth": 1
+    },
+    {
+      "text": "location",
+      "href": "#/vue2-sub/location",
+      "depth": 1
+    },
+    {
+      "text": "communication",
+      "href": "#/vue2-sub/communication",
+      "depth": 1
+    },
+    {
+      "text": "富文本",
+      "href": "#/vue2-sub/rich-text",
+      "depth": 1
+    },
+    {
+      "text": "postmessage",
+      "href": "#/vue2-sub/postmessage",
+      "depth": 1
+    },
+    {
+      "text": "vue3保活",
+      "href": "#/vue3",
+      "depth": 0
+    },
+    {
+      "text": "home",
+      "href": "#/vue3-sub/home",
+      "depth": 1
+    },
+    {
+      "text": "dialog",
+      "href": "#/vue3-sub/dialog",
+      "depth": 1
+    },
+    {
+      "text": "location",
+      "href": "#/vue3-sub/location",
+      "depth": 1
+    },
+    {
+      "text": "contact",
+      "href": "#/vue3-sub/contact",
+      "depth": 1
+    },
+    {
+      "text": "state",
+      "href": "#/vue3-sub/state",
+      "depth": 1
+    },
+    {
+      "text": "inline-event",
+      "href": "#/vue3-sub/inline-event",
+      "depth": 1
+    },
+    {
+      "text": "postmessage",
+      "href": "#/vue3-sub/postmessage",
+      "depth": 1
+    },
+    {
+      "text": "vite",
+      "href": "#/vite",
+      "depth": 0
+    },
+    {
+      "text": "home",
+      "href": "#/vite-sub/home",
+      "depth": 1
+    },
+    {
+      "text": "dialog",
+      "href": "#/vite-sub/dialog",
+      "depth": 1
+    },
+    {
+      "text": "location",
+      "href": "#/vite-sub/location",
+      "depth": 1
+    },
+    {
+      "text": "contact",
+      "href": "#/vite-sub/contact",
+      "depth": 1
+    },
+    {
+      "text": "angular12",
+      "href": "#/angular12",
+      "depth": 0
+    },
+    {
+      "text": "all",
+      "href": "#/all",
+      "depth": 0
+    },
+    {
+      "text": "postmessage",
+      "href": "#/postmessage",
+      "depth": 0
+    }
+  ],
+  "cases": [
+    "home",
+    "react16",
+    "react16/home",
+    "react16/dialog",
+    "react16/location",
+    "react16/communication",
+    "react16/nest",
+    "react16/font",
+    "react17",
+    "react17/home",
+    "react17/dialog",
+    "react17/location",
+    "react17/communication",
+    "react17/state",
+    "vue2",
+    "vue2/home",
+    "vue2/dialog",
+    "vue2/location",
+    "vue2/communication",
+    "vue2/rich-text",
+    "vue3",
+    "vue3/home",
+    "vue3/dialog",
+    "vue3/location",
+    "vue3/contact",
+    "vue3/state",
+    "vue3/inline-event",
+    "vite",
+    "vite/home",
+    "vite/dialog",
+    "vite/location",
+    "vite/contact",
+    "angular12",
+    "all",
+    "postmessage"
+  ],
+  "pages": [
+    {
+      "id": "home",
+      "url": "http://localhost:7700/hosts/main-vue/#/home",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H1:🌐 taixu",
+        "H2:—极致的微前端框架"
+      ],
+      "subCount": 0,
+      "subText": "",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 81ms 降级关 预加载开 react主应用 仓库 文档 🌐 taixu —极致的微前端框架 极速 🚀 极致预加载提速 应用秒开无白屏 应用丝滑般切换 强大 💪 多应用同时激活在线 应用级别保活 去中心化的通信 简单 🤞 更小的体积 精简的API 开箱即用",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "react16",
+      "url": "http://localhost:7700/hosts/main-vue/#/react16",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:react16 示例"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 内嵌 字体 react16 示例 当前 react 版本 16.13.1（子应用独立副本，与宿主 React 18 多版本共存） 官方示例 UI 库：antd 版本 4.18.3 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址： https://github.com/YvYuYv/taixu 页面目录：弹窗 / 路由 / 通信 / 内嵌 / 字体 —— 全部经 @taixu/core 运行时集成。",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 85ms 首页 弹窗 路由 通信 内嵌 字体 react16 示例 当前 react 版本 16.13.1（子应用独立副本，与宿主 React 18 多版本共存） 官方示例 UI 库：antd 版本 4.18.3 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址： https://github.com/YvYuYv/taixu 页面目录：弹窗 / 路由 / 通信 / 内嵌 / 字体 —— 全部经 @taixu/core 运行时集成。",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "react16/home",
+      "url": "http://localhost:7700/hosts/main-vue/#/react16-sub/home",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/react16-sub/home",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/react16-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/react16-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "communication",
+            "href": "#/react16-sub/communication",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "nest",
+            "href": "#/react16-sub/nest",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "font",
+            "href": "#/react16-sub/font",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:react16 示例"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 内嵌 字体 react16 示例 当前 react 版本 16.13.1（子应用独立副本，与宿主 React 18 多版本共存） 官方示例 UI 库：antd 版本 4.18.3 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址： https://github.com/YvYuYv/taixu 页面目录：弹窗 / 路由 / 通信 / 内嵌 / 字体 —— 全部经 @taixu/core 运行时集成。",
+      "bodyText": "介绍 react16 ▴ home dialog location communication nest font react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 83ms 首页 弹窗 路由 通信 内嵌 字体 react16 示例 当前 react 版本 16.13.1（子应用独立副本，与宿主 React 18 多版本共存） 官方示例 UI 库：antd 版本 4.18.3 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址： https://github.com/YvYuYv/taixu 页面目录：弹窗 / 路由 / 通信 / 内嵌 / 字体 —— 全部经 @taixu/core 运行时集成。",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "react16/dialog",
+      "url": "http://localhost:7700/hosts/main-vue/#/react16-sub/dialog",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/react16-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/react16-sub/dialog",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/react16-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "communication",
+            "href": "#/react16-sub/communication",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "nest",
+            "href": "#/react16-sub/nest",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "font",
+            "href": "#/react16-sub/font",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:弹窗处理",
+        "H3:1. 打开弹窗（ReactDOM.createPortal 挂 body）",
+        "H3:2. 下拉选择器",
+        "H3:3. 气泡卡片（悬停）"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 内嵌 字体 弹窗处理 弹窗无需子应用做任何处理就可使用 —— taixu 子应用与宿主同文档渲染，Portal 直挂 document.body。 1. 打开弹窗（ReactDOM.createPortal 挂 body） Open Modal 2. 下拉选择器 Select a person Jack Lucy Tom 3. 气泡卡片（悬停） Hover me",
+      "bodyText": "介绍 react16 ▴ home dialog location communication nest font react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 83ms 首页 弹窗 路由 通信 内嵌 字体 弹窗处理 弹窗无需子应用做任何处理就可使用 —— taixu 子应用与宿主同文档渲染，Portal 直挂 document.body。 1. 打开弹窗（ReactDOM.createPortal 挂 body） Open Modal 2. 下拉选择器 Select a person Jack Lucy Tom 3. 气泡卡片（悬停） Hover me",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "react16/location",
+      "url": "http://localhost:7700/hosts/main-vue/#/react16-sub/location",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/react16-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/react16-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/react16-sub/location",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "communication",
+            "href": "#/react16-sub/communication",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "nest",
+            "href": "#/react16-sub/nest",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "font",
+            "href": "#/react16-sub/font",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:路由处理",
+        "H3:1. 路由同步",
+        "H3:2. location 读取",
+        "H3:3. 修改 window.location.href"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 内嵌 字体 路由处理 1. 路由同步 子应用页面变化经 bus 消息 sub-route-change 通知宿主，宿主路由跟随； 宿主路由变化经定向消息 react16-router-change 下发——双向同步。 2. location 读取 window.location.host = localhost:7700 taixu 子应用运行在宿主同文档，location 无需劫持回填——读到的就是真实地址。 3. 修改 window.location.href 跳转 taixu 仓库 同窗应用直接跳转即可，无需删除 shadow / 替换 iframe 的降级动作。",
+      "bodyText": "介绍 react16 ▴ home dialog location communication nest font react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 85ms 首页 弹窗 路由 通信 内嵌 字体 路由处理 1. 路由同步 子应用页面变化经 bus 消息 sub-route-change 通知宿主，宿主路由跟随； 宿主路由变化经定向消息 react16-router-change 下发——双向同步。 2. location 读取 window.location.host = localhost:7700 taixu 子应用运行在宿主同文档，location 无需劫持回填——读到的就是真实地址。 3. 修改 window.location.href 跳转 taixu 仓库 同窗应用直接跳转即可，无需删除 shadow / 替换 iframe 的降级动作。",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "react16/communication",
+      "url": "http://localhost:7700/hosts/main-vue/#/react16-sub/communication",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/react16-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/react16-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/react16-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "communication",
+            "href": "#/react16-sub/communication",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "nest",
+            "href": "#/react16-sub/nest",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "font",
+            "href": "#/react16-sub/font",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:通信处理",
+        "H3:1. 宿主注入的导航能力（= wujie props.jump）",
+        "H3:2. 调用宿主全局方法（= wujie window.parent.alert）",
+        "H3:3. bus 去中心化事件"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 内嵌 字体 通信处理 应用可以有三种方式进行通信（对应 wujie 的 props / window.parent / bus）： 1. 宿主注入的导航能力（= wujie props.jump） 子应用 broadcast 消息 navigate，宿主监听后跳转对应路由。 点击跳转 vue3 2. 调用宿主全局方法（= wujie window.parent.alert） taixu 子应用与宿主同窗运行——直接调用 window.alert，无需 window.parent 中转。 显示 alert 3. bus 去中心化事件 子应用 broadcast click 事件，宿主全局旁听 message/send 后 alert。 显示 alert（bus）",
+      "bodyText": "介绍 react16 ▴ home dialog location communication nest font react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 87ms 首页 弹窗 路由 通信 内嵌 字体 通信处理 应用可以有三种方式进行通信（对应 wujie 的 props / window.parent / bus）： 1. 宿主注入的导航能力（= wujie props.jump） 子应用 broadcast 消息 navigate，宿主监听后跳转对应路由。 点击跳转 vue3 2. 调用宿主全局方法（= wujie window.parent.alert） taixu 子应用与宿主同窗运行——直接调用 window.alert，无需 window.parent 中转。 显示 alert 3. bus 去中心化事件 子应用 broadcast click 事件，宿主全局旁听 message/send 后 alert。 显示 alert（bus）",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "react16/nest",
+      "url": "http://localhost:7700/hosts/main-vue/#/react16-sub/nest",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/react16-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/react16-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/react16-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "communication",
+            "href": "#/react16-sub/communication",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "nest",
+            "href": "#/react16-sub/nest",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "font",
+            "href": "#/react16-sub/font",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:子应用嵌套",
+        "H2:react17 示例"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 内嵌 字体 子应用嵌套 react16 内部创建自己的 taixu 运行时（子应用也能当宿主），远程加载 react17： 嵌套运行时已挂载 react17 首页 弹窗 路由 通信 状态 react17 示例 当前 react 版本 17.0.2（保活模式演示：lifecycle.switch 挂起保活，切回零冷启动） 官方示例 UI 库：antd 版本 4.18.3 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址： https://github.com/YvYuYv/taixu",
+      "bodyText": "介绍 react16 ▴ home dialog location communication nest font react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 85ms 首页 弹窗 路由 通信 内嵌 字体 子应用嵌套 react16 内部创建自己的 taixu 运行时（子应用也能当宿主），远程加载 react17： 嵌套运行时已挂载 react17 首页 弹窗 路由 通信 状态 react17 示例 当前 react 版本 17.0.2（保活模式演示：lifecycle.switch 挂起保活，切回零冷启动） 官方示例 UI 库：antd 版本 4.18.3 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址： https://github.com/YvYuYv/taixu",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "react16/font",
+      "url": "http://localhost:7700/hosts/main-vue/#/react16-sub/font",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/react16-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/react16-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/react16-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "communication",
+            "href": "#/react16-sub/communication",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "nest",
+            "href": "#/react16-sub/nest",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "font",
+            "href": "#/react16-sub/font",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:字体处理",
+        "H3:背景",
+        "H3:解决",
+        "H3:IconFont 图标示例",
+        "H3:相对地址"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 内嵌 字体 字体处理 背景 wujie 的子应用 DOM 挂在 shadowRoot 内，shadowRoot 内部的字体文件不会加载。 解决 wujie 的做法：框架加载子应用时将自定义字体样式提取到 shadowRoot 外部，且主应用与子应用的 @font-face font-family 不能重名，否则会互相覆盖。 taixu 的做法：无需处理——子应用与宿主同文档渲染（无 shadowRoot 隔离），@font-face 与相对地址字体原生加载，零框架介入；样式注入走 ctx.style.inject 显式登记（样式冲突可经 DevTools scanStyleConflicts 扫描）。 IconFont 图标示例 TDesign icon 相对地址 浏览器按 css 文件自身的 URL 解析相对地址，无需框架改写。 比如 TDesign icon 的 css 文件地址为: https://tdesign.gtimg.com/icon/0.1.1/fonts/index.css index.css 文件中 @font-face 中 url('./t.woff') 最终解析为: https://tdesign.gtimg.com/icon/0.1.1/fonts/t.woff",
+      "bodyText": "介绍 react16 ▴ home dialog location communication nest font react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 83ms 首页 弹窗 路由 通信 内嵌 字体 字体处理 背景 wujie 的子应用 DOM 挂在 shadowRoot 内，shadowRoot 内部的字体文件不会加载。 解决 wujie 的做法：框架加载子应用时将自定义字体样式提取到 shadowRoot 外部，且主应用与子应用的 @font-face font-family 不能重名，否则会互相覆盖。 taixu 的做法：无需处理——子应用与宿主同文档渲染（无 shadowRoot 隔离），@font-face 与相对地址字体原生加载，零框架介入；样式注入走 ctx.style.inject 显式登记（样式冲突可经 DevTools scanStyleConflicts 扫描）。 IconFont 图标示例 TDesign icon 相对地址 浏览器按 css 文件自身的 URL 解析相对地址，无需框架改写。 比如 TDesign icon 的 css 文件地址为: https://tdesign.gtimg.com/icon/0.1.1/fonts/index.css index.css 文件中 @font-face 中 url('./t.woff') 最终解析为: https://tdesign.gtimg.com/icon/0.1.1/fonts/t.woff",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "react17",
+      "url": "http://localhost:7700/hosts/main-vue/#/react17",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:react17 示例"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 状态 react17 示例 当前 react 版本 17.0.2（保活模式演示：lifecycle.switch 挂起保活，切回零冷启动） 官方示例 UI 库：antd 版本 4.18.3 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址： https://github.com/YvYuYv/taixu",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 84ms 首页 弹窗 路由 通信 状态 react17 示例 当前 react 版本 17.0.2（保活模式演示：lifecycle.switch 挂起保活，切回零冷启动） 官方示例 UI 库：antd 版本 4.18.3 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址： https://github.com/YvYuYv/taixu",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "react17/home",
+      "url": "http://localhost:7700/hosts/main-vue/#/react17-sub/home",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/react17-sub/home",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/react17-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/react17-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "communication",
+            "href": "#/react17-sub/communication",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "state",
+            "href": "#/react17-sub/state",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:react17 示例"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 状态 react17 示例 当前 react 版本 17.0.2（保活模式演示：lifecycle.switch 挂起保活，切回零冷启动） 官方示例 UI 库：antd 版本 4.18.3 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址： https://github.com/YvYuYv/taixu",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ home dialog location communication state vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 83ms 首页 弹窗 路由 通信 状态 react17 示例 当前 react 版本 17.0.2（保活模式演示：lifecycle.switch 挂起保活，切回零冷启动） 官方示例 UI 库：antd 版本 4.18.3 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址： https://github.com/YvYuYv/taixu",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "react17/dialog",
+      "url": "http://localhost:7700/hosts/main-vue/#/react17-sub/dialog",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/react17-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/react17-sub/dialog",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/react17-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "communication",
+            "href": "#/react17-sub/communication",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "state",
+            "href": "#/react17-sub/state",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:弹窗处理",
+        "H3:1. 打开弹窗",
+        "H3:2. 下拉选择器",
+        "H3:3. 气泡卡片（悬停）"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 状态 弹窗处理 弹窗无需子应用做任何处理就可使用（Portal 挂 body，同文档无 iframe 边界）。 1. 打开弹窗 Open Modal 2. 下拉选择器 Select a person Jack Lucy 3. 气泡卡片（悬停） Hover me",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ home dialog location communication state vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 85ms 首页 弹窗 路由 通信 状态 弹窗处理 弹窗无需子应用做任何处理就可使用（Portal 挂 body，同文档无 iframe 边界）。 1. 打开弹窗 Open Modal 2. 下拉选择器 Select a person Jack Lucy 3. 气泡卡片（悬停） Hover me",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "react17/location",
+      "url": "http://localhost:7700/hosts/main-vue/#/react17-sub/location",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/react17-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/react17-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/react17-sub/location",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "communication",
+            "href": "#/react17-sub/communication",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "state",
+            "href": "#/react17-sub/state",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:路由处理",
+        "H3:1. 路由同步",
+        "H3:2. location 读取",
+        "H3:3. 修改 location.href"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 状态 路由处理 1. 路由同步 子应用页面变化 broadcast sub-route-change，宿主路由跟随；宿主变化经 react17-router-change 下发。 2. location 读取 window.location.host = localhost:7700（同文档直读，无需劫持回填） 3. 修改 location.href 跳转 taixu 仓库",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ home dialog location communication state vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 88ms 首页 弹窗 路由 通信 状态 路由处理 1. 路由同步 子应用页面变化 broadcast sub-route-change，宿主路由跟随；宿主变化经 react17-router-change 下发。 2. location 读取 window.location.host = localhost:7700（同文档直读，无需劫持回填） 3. 修改 location.href 跳转 taixu 仓库",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "react17/communication",
+      "url": "http://localhost:7700/hosts/main-vue/#/react17-sub/communication",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/react17-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/react17-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/react17-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "communication",
+            "href": "#/react17-sub/communication",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "state",
+            "href": "#/react17-sub/state",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:通信处理",
+        "H3:1. 宿主注入的导航能力（= wujie props.jump）",
+        "H3:2. 调用宿主全局方法（= wujie window.parent.alert）",
+        "H3:3. bus 去中心化事件（= wujie bus.$emit）"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 状态 通信处理 应用可以有三种方式进行通信（对应 wujie 的 props / window.parent / bus）： 1. 宿主注入的导航能力（= wujie props.jump） 子应用 broadcast 消息 navigate，宿主监听后跳转对应路由。 点击跳转 vue3跳转 angular12 2. 调用宿主全局方法（= wujie window.parent.alert） taixu 子应用与宿主同窗运行——直接调用 window.alert，无需 window.parent 中转。 显示 alert 3. bus 去中心化事件（= wujie bus.$emit） 子应用 broadcast click 事件，宿主全局旁听后 alert。 显示 alert（bus）",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ home dialog location communication state vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 83ms 首页 弹窗 路由 通信 状态 通信处理 应用可以有三种方式进行通信（对应 wujie 的 props / window.parent / bus）： 1. 宿主注入的导航能力（= wujie props.jump） 子应用 broadcast 消息 navigate，宿主监听后跳转对应路由。 点击跳转 vue3跳转 angular12 2. 调用宿主全局方法（= wujie window.parent.alert） taixu 子应用与宿主同窗运行——直接调用 window.alert，无需 window.parent 中转。 显示 alert 3. bus 去中心化事件（= wujie bus.$emit） 子应用 broadcast click 事件，宿主全局旁听后 alert。 显示 alert（bus）",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "react17/state",
+      "url": "http://localhost:7700/hosts/main-vue/#/react17-sub/state",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/react17-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/react17-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/react17-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "communication",
+            "href": "#/react17-sub/communication",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "state",
+            "href": "#/react17-sub/state",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:子应用保活",
+        "H3:1. 改动实例的状态，切换到 vue3 再回来看看"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 状态 子应用保活 保活模式：切换应用时，子应用的路由和 state 都得到保留（suspend/resume 而非 dispose）。 1. 改动实例的状态，切换到 vue3 再回来看看 - 10 + vue3 state+1 跳回 挂起期间到达的 bus 消息进挂起队列，恢复时回放——保活应用不丢消息。",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ home dialog location communication state vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 85ms 首页 弹窗 路由 通信 状态 子应用保活 保活模式：切换应用时，子应用的路由和 state 都得到保留（suspend/resume 而非 dispose）。 1. 改动实例的状态，切换到 vue3 再回来看看 - 10 + vue3 state+1 跳回 挂起期间到达的 bus 消息进挂起队列，恢复时回放——保活应用不丢消息。",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vue2",
+      "url": "http://localhost:7700/hosts/main-vue/#/vue2",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:vue2 示例"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 postmessage 富文本 vue2 示例 当前 vue 版本 2.7.16（@taixu/adapter-vue2 接入，Vue 构造器经 deps 共享依赖仲裁） 官方示例 UI 库：element 版本 2.15.6 / ant-design-vue 版本 1.7.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 85ms 首页 弹窗 路由 通信 postmessage 富文本 vue2 示例 当前 vue 版本 2.7.16（@taixu/adapter-vue2 接入，Vue 构造器经 deps 共享依赖仲裁） 官方示例 UI 库：element 版本 2.15.6 / ant-design-vue 版本 1.7.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vue2/home",
+      "url": "http://localhost:7700/hosts/main-vue/#/vue2-sub/home",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/vue2-sub/home",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/vue2-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/vue2-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "communication",
+            "href": "#/vue2-sub/communication",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "富文本",
+            "href": "#/vue2-sub/rich-text",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "postmessage",
+            "href": "#/vue2-sub/postmessage",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:vue2 示例"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 postmessage 富文本 vue2 示例 当前 vue 版本 2.7.16（@taixu/adapter-vue2 接入，Vue 构造器经 deps 共享依赖仲裁） 官方示例 UI 库：element 版本 2.15.6 / ant-design-vue 版本 1.7.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ home dialog location communication 富文本 postmessage vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 82ms 首页 弹窗 路由 通信 postmessage 富文本 vue2 示例 当前 vue 版本 2.7.16（@taixu/adapter-vue2 接入，Vue 构造器经 deps 共享依赖仲裁） 官方示例 UI 库：element 版本 2.15.6 / ant-design-vue 版本 1.7.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vue2/dialog",
+      "url": "http://localhost:7700/hosts/main-vue/#/vue2-sub/dialog",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/vue2-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/vue2-sub/dialog",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/vue2-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "communication",
+            "href": "#/vue2-sub/communication",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "富文本",
+            "href": "#/vue2-sub/rich-text",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "postmessage",
+            "href": "#/vue2-sub/postmessage",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:弹窗处理",
+        "H3:1. 打开对话框",
+        "H3:2. 打开选择器",
+        "H3:3. 气泡卡片",
+        "H3:4. 手动向 body 中 append 弹层",
+        "H3:5. 原生 Popper/Floating 弹出层"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 postmessage 富文本 弹窗处理 弹窗无需子应用做任何处理就可使用（同文档渲染，无 shadowRoot/iframe 边界）。 1. 打开对话框 点击打开 Dialog 2. 打开选择器 黄金糕 双皮奶 蚵仔煎 3. 气泡卡片 Hover me 4. 手动向 body 中 append 弹层 打开 body 弹层 5. 原生 Popper/Floating 弹出层 弹窗页面：原生定位库弹出层 点击按钮打开 append 到 document.body 的原生弹出层，用于观察子应用内是否发生定位漂移。 打开 Popper.js 1.x 打开 Popper.js 2.x 打开 Floating UI",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ home dialog location communication 富文本 postmessage vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 83ms 首页 弹窗 路由 通信 postmessage 富文本 弹窗处理 弹窗无需子应用做任何处理就可使用（同文档渲染，无 shadowRoot/iframe 边界）。 1. 打开对话框 点击打开 Dialog 2. 打开选择器 黄金糕 双皮奶 蚵仔煎 3. 气泡卡片 Hover me 4. 手动向 body 中 append 弹层 打开 body 弹层 5. 原生 Popper/Floating 弹出层 弹窗页面：原生定位库弹出层 点击按钮打开 append 到 document.body 的原生弹出层，用于观察子应用内是否发生定位漂移。 打开 Popper.js 1.x 打开 Popper.js 2.x 打开 Floating UI",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vue2/location",
+      "url": "http://localhost:7700/hosts/main-vue/#/vue2-sub/location",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/vue2-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/vue2-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/vue2-sub/location",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "communication",
+            "href": "#/vue2-sub/communication",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "富文本",
+            "href": "#/vue2-sub/rich-text",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "postmessage",
+            "href": "#/vue2-sub/postmessage",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:location 处理",
+        "H3:1. 路由同步",
+        "H3:2. 获取 window.location.host 的值",
+        "H3:3. 修改 window.location.href"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 postmessage 富文本 location 处理 当用户访问 location 来获取当前的 url 时，wujie 统一拦截并回填子应用正确的地址；taixu 子应用与宿主同文档，location 直读真实地址——无需劫持回填。 1. 路由同步 子应用页面变化经 bus 消息 sub-route-change 通知宿主，宿主路由跟随；宿主路由变化经定向消息 vue2-router-change 下发——双向同步。浏览器的刷新、前进、后退都可以作用到子应用上。 后退一页 前进一页 2. 获取 window.location.host 的值 localhost:7700 taixu 子应用与宿主同文档，location 直读真实地址——无需框架劫持回填。 3. 修改 window.location.href 跳转 taixu 仓库 同窗应用直接跳转，无 shadow 删除 / iframe 替换等降级动作。",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ home dialog location communication 富文本 postmessage vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 84ms 首页 弹窗 路由 通信 postmessage 富文本 location 处理 当用户访问 location 来获取当前的 url 时，wujie 统一拦截并回填子应用正确的地址；taixu 子应用与宿主同文档，location 直读真实地址——无需劫持回填。 1. 路由同步 子应用页面变化经 bus 消息 sub-route-change 通知宿主，宿主路由跟随；宿主路由变化经定向消息 vue2-router-change 下发——双向同步。浏览器的刷新、前进、后退都可以作用到子应用上。 后退一页 前进一页 2. 获取 window.location.host 的值 localhost:7700 taixu 子应用与宿主同文档，location 直读真实地址——无需框架劫持回填。 3. 修改 window.location.href 跳转 taixu 仓库 同窗应用直接跳转，无 shadow 删除 / iframe 替换等降级动作。",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vue2/communication",
+      "url": "http://localhost:7700/hosts/main-vue/#/vue2-sub/communication",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/vue2-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/vue2-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/vue2-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "communication",
+            "href": "#/vue2-sub/communication",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "富文本",
+            "href": "#/vue2-sub/rich-text",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "postmessage",
+            "href": "#/vue2-sub/postmessage",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:通信处理",
+        "H3:1. 宿主注入的导航能力（= wujie props.jump）",
+        "H3:2. 调用宿主全局方法（= wujie window.parent.alert）",
+        "H3:3. bus 去中心化事件（= wujie bus.$emit）"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 postmessage 富文本 通信处理 应用可以有三种方式进行通信（对应 wujie 的 props / window.parent / bus）： 1. 宿主注入的导航能力（= wujie props.jump） 子应用 broadcast 消息 navigate，宿主监听后跳转对应路由。 点击跳转 react17 2. 调用宿主全局方法（= wujie window.parent.alert） taixu 子应用与宿主同窗运行——直接调用 window.alert，无需 window.parent 中转。 显示 alert 3. bus 去中心化事件（= wujie bus.$emit） 子应用 broadcast click 事件，宿主全局旁听后 alert。 显示 alert（bus）",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ home dialog location communication 富文本 postmessage vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 86ms 首页 弹窗 路由 通信 postmessage 富文本 通信处理 应用可以有三种方式进行通信（对应 wujie 的 props / window.parent / bus）： 1. 宿主注入的导航能力（= wujie props.jump） 子应用 broadcast 消息 navigate，宿主监听后跳转对应路由。 点击跳转 react17 2. 调用宿主全局方法（= wujie window.parent.alert） taixu 子应用与宿主同窗运行——直接调用 window.alert，无需 window.parent 中转。 显示 alert 3. bus 去中心化事件（= wujie bus.$emit） 子应用 broadcast click 事件，宿主全局旁听后 alert。 显示 alert（bus）",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vue2/rich-text",
+      "url": "http://localhost:7700/hosts/main-vue/#/vue2-sub/rich-text",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/vue2-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/vue2-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/vue2-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "communication",
+            "href": "#/vue2-sub/communication",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "富文本",
+            "href": "#/vue2-sub/rich-text",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "postmessage",
+            "href": "#/vue2-sub/postmessage",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:富文本处理",
+        "H3:预填内容删改 已验证 · Issue #218",
+        "H3:快速输入不失焦 已验证 · Issue #513",
+        "H3:Selection / DOM 一致 已验证 · Issue #450、#770"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 postmessage 富文本 富文本处理 对照 wujie Issues 中 wangEditor / TinyMCE 的常见问题。建议在宿主嵌入子应用与子应用单独打开两种环境下分别验证。 当前运行在 taixu 子应用环境（与宿主同文档渲染；wangEditor / TinyMCE 等第三方编辑器原生可用，此处以零依赖编辑器演示同等的选区与输入行为）。 预填内容删改 已验证 · Issue #218 子应用使用编辑器初始化已有 HTML 后，聚焦编辑、删除预填文字、在中段插入内容均正常。 操作：点击下方编辑器，删除预填文字或在「预填」二字前插入新内容，确认光标与删改行为符合预期。 https://github.com/Tencent/wujie/issues/218 这是预填内容，请尝试删除本段文字或在「预填」二字前插入新内容。 编辑器已正常加载，上述场景验证通过。 快速输入不失焦 已验证 · Issue #513 快速连续输入（含输入法）时编辑器保持聚焦，无光标跳动；LO / RO 为 true 时选区同步正常。 操作：在下方编辑器快速连续打字（含中文输入法），确认无失焦、光标跳动；同时观察上方 LO/RO 面板均为 true。 https://github.com/Tencent/wujie/issues/513 wangEditor LO / RO（#513 降级快速输入） LO / RO 为 true 时选区同步正常；快速输入时若变为 false 易失焦。 {\"focused\":false,\"RO\":true,\"LO_anchor\":true,\"LO_focus\":true,\"anchorOwnerIsRenderDoc\":true,\"focusOwnerIsRenderDoc\":true,\"degrade\":false,\"inWujie\":false} LO / RO 校验通过 请在此输入内容进行验证… 编辑器已正常加载，上述场景验证通过。 Selection / DOM 一致 已验证 · Issue #450、#770 选区与 DOM 映射正常，无 Cannot resolve a Slate range from DOM range；getSelection() 指向正确的 document。 操作：在编辑器中点击、选中文字并编辑，确认无控制台报错，选区行为正常。 https://github.com/Tencent/wujie/issues/450 请在此输入内容进行验证… 编辑器已正常加载，上述场景验证通过。 B I U 列表",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ home dialog location communication 富文本 postmessage vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 84ms 首页 弹窗 路由 通信 postmessage 富文本 富文本处理 对照 wujie Issues 中 wangEditor / TinyMCE 的常见问题。建议在宿主嵌入子应用与子应用单独打开两种环境下分别验证。 当前运行在 taixu 子应用环境（与宿主同文档渲染；wangEditor / TinyMCE 等第三方编辑器原生可用，此处以零依赖编辑器演示同等的选区与输入行为）。 预填内容删改 已验证 · Issue #218 子应用使用编辑器初始化已有 HTML 后，聚焦编辑、删除预填文字、在中段插入内容均正常。 操作：点击下方编辑器，删除预填文字或在「预填」二字前插入新内容，确认光标与删改行为符合预期。 https://github.com/Tencent/wujie/issues/218 这是预填内容，请尝试删除本段文字或在「预填」二字前插入新内容。 编辑器已正常加载，上述场景验证通过。 快速输入不失焦 已验证 · Issue #513 快速连续输入（含输入法）时编辑器保持聚焦，无光标跳动；LO / RO 为 true 时选区同步正常。 操作：在下方编辑器快速连续打字（含中文输入法），确认无失焦、光标跳动；同时观察上方 LO/RO 面板均为 true。 https://github.com/Tencent/wujie/issues/513 wangEditor LO / RO（#513 降级快速输入） LO / RO 为 true 时选区同步正常；快速输入时若变为 false 易失焦。 {\"focused\":false,\"RO\":true,\"LO_anchor\":true,\"LO_focus\":true,\"anchorOwnerIsRenderDoc\":true,\"focusOwnerIsRenderDoc\":true,\"degrade\":false,\"inWujie\":false} LO / RO 校验通过 请在此输入内容进行验证… 编辑器已正常加载，上述场景验证通过。 Selection / DOM 一致 已验证 · Issue #450、#770 选区与 DOM 映射正常，无 Cannot resolve a Slate range from DOM range；getSelection() 指向正确的 document。 操作：在编辑器中点击、选中文字并编辑，确认无控制台报错，选区行为正常。 https://github.com/Tencent/wujie/issues/450 请在此输入内容进行验证… 编辑器已正常加载，上述场景验证通过。 B I U 列表",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vue3",
+      "url": "http://localhost:7700/hosts/main-vue/#/vue3",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:vue3 示例"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 状态 内联事件 postmessage vue3 示例 当前 vue 版本 3.5.42（子应用独立副本），@taixu/adapter-vue3 接入（保活模式：suspend/resume） 官方示例 UI 库：element-plus 版本 2.2.6 / ant-design-vue 版本 2.2.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 83ms 首页 弹窗 路由 通信 状态 内联事件 postmessage vue3 示例 当前 vue 版本 3.5.42（子应用独立副本），@taixu/adapter-vue3 接入（保活模式：suspend/resume） 官方示例 UI 库：element-plus 版本 2.2.6 / ant-design-vue 版本 2.2.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vue3/home",
+      "url": "http://localhost:7700/hosts/main-vue/#/vue3-sub/home",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/vue3-sub/home",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/vue3-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/vue3-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "contact",
+            "href": "#/vue3-sub/contact",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "state",
+            "href": "#/vue3-sub/state",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "inline-event",
+            "href": "#/vue3-sub/inline-event",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "postmessage",
+            "href": "#/vue3-sub/postmessage",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:vue3 示例"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 状态 内联事件 postmessage vue3 示例 当前 vue 版本 3.5.42（子应用独立副本），@taixu/adapter-vue3 接入（保活模式：suspend/resume） 官方示例 UI 库：element-plus 版本 2.2.6 / ant-design-vue 版本 2.2.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ home dialog location contact state inline-event postmessage vite ▴ angular12 all postmessage preload 6/6 @ 83ms 首页 弹窗 路由 通信 状态 内联事件 postmessage vue3 示例 当前 vue 版本 3.5.42（子应用独立副本），@taixu/adapter-vue3 接入（保活模式：suspend/resume） 官方示例 UI 库：element-plus 版本 2.2.6 / ant-design-vue 版本 2.2.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vue3/dialog",
+      "url": "http://localhost:7700/hosts/main-vue/#/vue3-sub/dialog",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/vue3-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/vue3-sub/dialog",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/vue3-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "contact",
+            "href": "#/vue3-sub/contact",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "state",
+            "href": "#/vue3-sub/state",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "inline-event",
+            "href": "#/vue3-sub/inline-event",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "postmessage",
+            "href": "#/vue3-sub/postmessage",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:弹窗处理",
+        "H3:1. 打开弹窗（Teleport to body）",
+        "H3:2. 下拉选择器",
+        "H3:3. 气泡卡片（悬停）",
+        "H3:4. 手动向 body 中 append 弹层"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 状态 内联事件 postmessage 弹窗处理 弹窗无需子应用做任何处理就可使用 —— Teleport 直挂 body（同文档无 iframe 边界）。 1. 打开弹窗（Teleport to body） Open Modal 2. 下拉选择器 Jack Lucy Tom 3. 气泡卡片（悬停） Hover me 4. 手动向 body 中 append 弹层 点击插入 body点击删除 body 脱离框架的原生 DOM 操作，直接挂到 document.body 下。",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ home dialog location contact state inline-event postmessage vite ▴ angular12 all postmessage preload 6/6 @ 84ms 首页 弹窗 路由 通信 状态 内联事件 postmessage 弹窗处理 弹窗无需子应用做任何处理就可使用 —— Teleport 直挂 body（同文档无 iframe 边界）。 1. 打开弹窗（Teleport to body） Open Modal 2. 下拉选择器 Jack Lucy Tom 3. 气泡卡片（悬停） Hover me 4. 手动向 body 中 append 弹层 点击插入 body点击删除 body 脱离框架的原生 DOM 操作，直接挂到 document.body 下。",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vue3/location",
+      "url": "http://localhost:7700/hosts/main-vue/#/vue3-sub/location",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/vue3-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/vue3-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/vue3-sub/location",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "contact",
+            "href": "#/vue3-sub/contact",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "state",
+            "href": "#/vue3-sub/state",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "inline-event",
+            "href": "#/vue3-sub/inline-event",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "postmessage",
+            "href": "#/vue3-sub/postmessage",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:location 处理",
+        "H3:1. 路由同步",
+        "H3:2. 获取 window.location.host 的值",
+        "H3:3. 修改 window.location.href"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 状态 内联事件 postmessage location 处理 当用户访问 location 来获取当前的 url 时，wujie 统一拦截并回填子应用正确的地址；taixu 子应用与宿主同文档，location 直读真实地址——无需劫持回填。 1. 路由同步 子应用页面变化经 bus 消息 sub-route-change 通知宿主，宿主路由跟随；宿主路由变化经定向消息 vue3-router-change 下发——双向同步。浏览器的刷新、前进、后退都可以作用到子应用上。 后退一页 前进一页 2. 获取 window.location.host 的值 localhost:7700 taixu 子应用与宿主同文档，location 直读真实地址——无需劫持回填。 3. 修改 window.location.href 跳转 taixu 仓库 同窗应用直接跳转，无 shadow 删除 / iframe 替换等降级动作。",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ home dialog location contact state inline-event postmessage vite ▴ angular12 all postmessage preload 6/6 @ 85ms 首页 弹窗 路由 通信 状态 内联事件 postmessage location 处理 当用户访问 location 来获取当前的 url 时，wujie 统一拦截并回填子应用正确的地址；taixu 子应用与宿主同文档，location 直读真实地址——无需劫持回填。 1. 路由同步 子应用页面变化经 bus 消息 sub-route-change 通知宿主，宿主路由跟随；宿主路由变化经定向消息 vue3-router-change 下发——双向同步。浏览器的刷新、前进、后退都可以作用到子应用上。 后退一页 前进一页 2. 获取 window.location.host 的值 localhost:7700 taixu 子应用与宿主同文档，location 直读真实地址——无需劫持回填。 3. 修改 window.location.href 跳转 taixu 仓库 同窗应用直接跳转，无 shadow 删除 / iframe 替换等降级动作。",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vue3/contact",
+      "url": "http://localhost:7700/hosts/main-vue/#/vue3-sub/contact",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/vue3-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/vue3-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/vue3-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "contact",
+            "href": "#/vue3-sub/contact",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "state",
+            "href": "#/vue3-sub/state",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "inline-event",
+            "href": "#/vue3-sub/inline-event",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "postmessage",
+            "href": "#/vue3-sub/postmessage",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:通信处理",
+        "H3:1. 宿主注入的导航能力（= wujie props.jump）",
+        "H3:2. 调用宿主全局方法（= wujie window.parent.alert）",
+        "H3:3. bus 去中心化事件（= wujie bus.$emit）"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 状态 内联事件 postmessage 通信处理 应用可以有三种方式进行通信（对应 wujie 的 props / window.parent / bus）： 1. 宿主注入的导航能力（= wujie props.jump） 子应用 broadcast 消息 navigate，宿主监听后跳转对应路由。 点击跳转 react16 2. 调用宿主全局方法（= wujie window.parent.alert） taixu 子应用与宿主同窗运行——直接调用 window.alert，无需 window.parent 中转。 显示 alert 3. bus 去中心化事件（= wujie bus.$emit） 子应用 broadcast click 事件，宿主全局旁听后 alert。 显示 alert（bus）",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ home dialog location contact state inline-event postmessage vite ▴ angular12 all postmessage preload 6/6 @ 82ms 首页 弹窗 路由 通信 状态 内联事件 postmessage 通信处理 应用可以有三种方式进行通信（对应 wujie 的 props / window.parent / bus）： 1. 宿主注入的导航能力（= wujie props.jump） 子应用 broadcast 消息 navigate，宿主监听后跳转对应路由。 点击跳转 react16 2. 调用宿主全局方法（= wujie window.parent.alert） taixu 子应用与宿主同窗运行——直接调用 window.alert，无需 window.parent 中转。 显示 alert 3. bus 去中心化事件（= wujie bus.$emit） 子应用 broadcast click 事件，宿主全局旁听后 alert。 显示 alert（bus）",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vue3/state",
+      "url": "http://localhost:7700/hosts/main-vue/#/vue3-sub/state",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/vue3-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/vue3-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/vue3-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "contact",
+            "href": "#/vue3-sub/contact",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "state",
+            "href": "#/vue3-sub/state",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "inline-event",
+            "href": "#/vue3-sub/inline-event",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "postmessage",
+            "href": "#/vue3-sub/postmessage",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:子应用保活",
+        "H3:1. 改动实例的状态，切换到 react17 再回来看看"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 状态 内联事件 postmessage 子应用保活 保活模式：切换应用时，子应用的路由和 state 都得到保留。 1. 改动实例的状态，切换到 react17 再回来看看 - 10 + 本页监听 react17 广播的 add 事件（bus），react17 的「vue3 state+1 跳回」按钮会让这里 +1。",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ home dialog location contact state inline-event postmessage vite ▴ angular12 all postmessage preload 6/6 @ 85ms 首页 弹窗 路由 通信 状态 内联事件 postmessage 子应用保活 保活模式：切换应用时，子应用的路由和 state 都得到保留。 1. 改动实例的状态，切换到 react17 再回来看看 - 10 + 本页监听 react17 广播的 add 事件（bus），react17 的「vue3 state+1 跳回」按钮会让这里 +1。",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vue3/inline-event",
+      "url": "http://localhost:7700/hosts/main-vue/#/vue3-sub/inline-event",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/vue3-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/vue3-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/vue3-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "contact",
+            "href": "#/vue3-sub/contact",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "state",
+            "href": "#/vue3-sub/state",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "inline-event",
+            "href": "#/vue3-sub/inline-event",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "postmessage",
+            "href": "#/vue3-sub/postmessage",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:内联事件处理器测试",
+        "H3:测试场景",
+        "H3:测试说明",
+        "H3:实现原理对比"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 状态 内联事件 postmessage 内联事件处理器测试 验证 HTML 内联事件属性的作用域绑定（taixu 同文档渲染，无需编译期改写）。 测试场景 以下按钮使用传统的 onclick 内联事件，验证是否能在子应用作用域中正常执行 场景 1: 基本功能测试 基本测试 等待测试... 场景 2: 多参数测试 多参数测试 等待测试... 场景 3: 访问全局变量 访问全局变量 等待测试... 场景 4: 复杂表达式 复杂表达式 等待测试... 场景 5: 事件对象访问 事件对象测试 等待测试... 场景 6: 多个内联事件 多事件测试 等待测试... 测试说明 ✅ 如果所有按钮都能正常工作，说明内联事件处理器可用 ❌ 如果出现 \"xxx is not defined\" 错误，说明作用域绑定失败 📝 所有函数都定义在子应用可访问的作用域中 实现原理对比 wujie：编译前 <button onclick=\"greet()\">，编译后 <button onclick='with(window.__getWujieWindow__(\"appId\")){ greet() }'> ——必须编译期改写，才能把行内事件绑回子应用作用域。 taixu：子应用与宿主同文档、无 JS 沙箱代理，行内事件属性原生执行——无需改写， 也没有 with 带来的作用域查找开销。",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ home dialog location contact state inline-event postmessage vite ▴ angular12 all postmessage preload 6/6 @ 83ms 首页 弹窗 路由 通信 状态 内联事件 postmessage 内联事件处理器测试 验证 HTML 内联事件属性的作用域绑定（taixu 同文档渲染，无需编译期改写）。 测试场景 以下按钮使用传统的 onclick 内联事件，验证是否能在子应用作用域中正常执行 场景 1: 基本功能测试 基本测试 等待测试... 场景 2: 多参数测试 多参数测试 等待测试... 场景 3: 访问全局变量 访问全局变量 等待测试... 场景 4: 复杂表达式 复杂表达式 等待测试... 场景 5: 事件对象访问 事件对象测试 等待测试... 场景 6: 多个内联事件 多事件测试 等待测试... 测试说明 ✅ 如果所有按钮都能正常工作，说明内联事件处理器可用 ❌ 如果出现 \"xxx is not defined\" 错误，说明作用域绑定失败 📝 所有函数都定义在子应用可访问的作用域中 实现原理对比 wujie：编译前 <button onclick=\"greet()\">，编译后 <button onclick='with(window.__getWujieWindow__(\"appId\")){ greet() }'> ——必须编译期改写，才能把行内事件绑回子应用作用域。 taixu：子应用与宿主同文档、无 JS 沙箱代理，行内事件属性原生执行——无需改写， 也没有 with 带来的作用域查找开销。",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vite",
+      "url": "http://localhost:7700/hosts/main-vue/#/vite",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:vite 示例"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 vite 示例 当前 vite 版本 5.4.21，当前 vue 版本 3.5.42（本子应用由 Vite lib mode 独立构建——构建工具差异化；产物与 esbuild 子应用同形态：自包含 ESM，default export = taixu Plugin）。 官方示例 UI 库：element-plus 版本 2.2.6 / ant-design-vue 版本 2.2.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu 页面目录：弹窗 / 路由 / 通信。",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 81ms 首页 弹窗 路由 通信 vite 示例 当前 vite 版本 5.4.21，当前 vue 版本 3.5.42（本子应用由 Vite lib mode 独立构建——构建工具差异化；产物与 esbuild 子应用同形态：自包含 ESM，default export = taixu Plugin）。 官方示例 UI 库：element-plus 版本 2.2.6 / ant-design-vue 版本 2.2.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu 页面目录：弹窗 / 路由 / 通信。",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vite/home",
+      "url": "http://localhost:7700/hosts/main-vue/#/vite-sub/home",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/vite-sub/home",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/vite-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/vite-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "contact",
+            "href": "#/vite-sub/contact",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:vite 示例"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 vite 示例 当前 vite 版本 5.4.21，当前 vue 版本 3.5.42（本子应用由 Vite lib mode 独立构建——构建工具差异化；产物与 esbuild 子应用同形态：自包含 ESM，default export = taixu Plugin）。 官方示例 UI 库：element-plus 版本 2.2.6 / ant-design-vue 版本 2.2.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu 页面目录：弹窗 / 路由 / 通信。",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ home dialog location contact angular12 all postmessage preload 6/6 @ 81ms 首页 弹窗 路由 通信 vite 示例 当前 vite 版本 5.4.21，当前 vue 版本 3.5.42（本子应用由 Vite lib mode 独立构建——构建工具差异化；产物与 esbuild 子应用同形态：自包含 ESM，default export = taixu Plugin）。 官方示例 UI 库：element-plus 版本 2.2.6 / ant-design-vue 版本 2.2.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu 页面目录：弹窗 / 路由 / 通信。",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vite/dialog",
+      "url": "http://localhost:7700/hosts/main-vue/#/vite-sub/dialog",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/vite-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/vite-sub/dialog",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/vite-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "contact",
+            "href": "#/vite-sub/contact",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:弹窗处理",
+        "H3:1. 打开弹窗",
+        "H3:2. 下拉选择器",
+        "H3:3. 气泡卡片（悬停）",
+        "H3:4. 手动向 body 中 append 弹层"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 弹窗处理 弹窗无需子应用做任何处理就可使用（Teleport 挂 body）。 1. 打开弹窗 Open Modal 2. 下拉选择器 Jack Lucy Tom 3. 气泡卡片（悬停） Hover me 4. 手动向 body 中 append 弹层 点击插入 body点击删除 body",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ home dialog location contact angular12 all postmessage preload 6/6 @ 92ms 首页 弹窗 路由 通信 弹窗处理 弹窗无需子应用做任何处理就可使用（Teleport 挂 body）。 1. 打开弹窗 Open Modal 2. 下拉选择器 Jack Lucy Tom 3. 气泡卡片（悬停） Hover me 4. 手动向 body 中 append 弹层 点击插入 body点击删除 body",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vite/location",
+      "url": "http://localhost:7700/hosts/main-vue/#/vite-sub/location",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/vite-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/vite-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/vite-sub/location",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "contact",
+            "href": "#/vite-sub/contact",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:location 处理",
+        "H3:1. 路由同步",
+        "H3:2. 获取 window.location.host 的值",
+        "H3:3. 修改 window.location.href"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 location 处理 官方 vite 示例因 <script type=\"module\"> 无法用闭包劫持 location，需把代理挂到 $wujie.location，子应用所有用到 window.location 的代码都要改写成 $wujie.location；taixu 子应用与宿主同文档渲染，location 直读真实地址，无需任何改写。 1. 路由同步 子应用页面变化经 bus 消息 sub-route-change 通知宿主，宿主路由跟随；宿主路由变化经定向消息 vite-router-change 下发——双向同步。浏览器的刷新、前进、后退都可以作用到子应用上。 后退一页 前进一页 2. 获取 window.location.host 的值 localhost:7700 taixu 子应用与宿主同文档，location 直读真实地址——无需劫持回填。 3. 修改 window.location.href 跳转 taixu 仓库 同窗应用直接跳转，无 shadow 删除 / iframe 替换等降级动作。",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ home dialog location contact angular12 all postmessage preload 6/6 @ 87ms 首页 弹窗 路由 通信 location 处理 官方 vite 示例因 <script type=\"module\"> 无法用闭包劫持 location，需把代理挂到 $wujie.location，子应用所有用到 window.location 的代码都要改写成 $wujie.location；taixu 子应用与宿主同文档渲染，location 直读真实地址，无需任何改写。 1. 路由同步 子应用页面变化经 bus 消息 sub-route-change 通知宿主，宿主路由跟随；宿主路由变化经定向消息 vite-router-change 下发——双向同步。浏览器的刷新、前进、后退都可以作用到子应用上。 后退一页 前进一页 2. 获取 window.location.host 的值 localhost:7700 taixu 子应用与宿主同文档，location 直读真实地址——无需劫持回填。 3. 修改 window.location.href 跳转 taixu 仓库 同窗应用直接跳转，无 shadow 删除 / iframe 替换等降级动作。",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "vite/contact",
+      "url": "http://localhost:7700/hosts/main-vue/#/vite-sub/contact",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "home",
+            "href": "#/vite-sub/home",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "dialog",
+            "href": "#/vite-sub/dialog",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "location",
+            "href": "#/vite-sub/location",
+            "active": false,
+            "depth": 1
+          },
+          {
+            "text": "contact",
+            "href": "#/vite-sub/contact",
+            "active": true,
+            "depth": 1
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:通信处理",
+        "H3:1. 宿主注入的导航能力（= wujie props.jump）",
+        "H3:2. 调用宿主全局方法（= wujie window.parent.alert）",
+        "H3:3. bus 去中心化事件（= wujie bus.$emit）"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 通信处理 应用可以有三种方式进行通信（对应 wujie 的 props / window.parent / bus）： 1. 宿主注入的导航能力（= wujie props.jump） 子应用 broadcast 消息 navigate，宿主监听后跳转对应路由。 点击跳转 react16 2. 调用宿主全局方法（= wujie window.parent.alert） taixu 子应用与宿主同窗运行——直接调用 window.alert，无需 window.parent 中转。 显示 alert 3. bus 去中心化事件（= wujie bus.$emit） 子应用 broadcast click 事件，宿主全局旁听后 alert。 显示 alert（bus）",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ home dialog location contact angular12 all postmessage preload 6/6 @ 84ms 首页 弹窗 路由 通信 通信处理 应用可以有三种方式进行通信（对应 wujie 的 props / window.parent / bus）： 1. 宿主注入的导航能力（= wujie props.jump） 子应用 broadcast 消息 navigate，宿主监听后跳转对应路由。 点击跳转 react16 2. 调用宿主全局方法（= wujie window.parent.alert） taixu 子应用与宿主同窗运行——直接调用 window.alert，无需 window.parent 中转。 显示 alert 3. bus 去中心化事件（= wujie bus.$emit） 子应用 broadcast click 事件，宿主全局旁听后 alert。 显示 alert（bus）",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "angular12",
+      "url": "http://localhost:7700/hosts/main-vue/#/angular12",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:angular 示例"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 angular 示例 当前 Angular 版本 17.3.12（standalone + AOT），taixu adapter-angular 接入（createApplication 独立 ApplicationRef）。 官方示例 UI 库：ng-zorro-antd 版本 12（官方 angular12 示例所用）—— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu 页面目录：弹窗 / 路由 / 通信。",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 83ms 首页 弹窗 路由 通信 angular 示例 当前 Angular 版本 17.3.12（standalone + AOT），taixu adapter-angular 接入（createApplication 独立 ApplicationRef）。 官方示例 UI 库：ng-zorro-antd 版本 12（官方 angular12 示例所用）—— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu 页面目录：弹窗 / 路由 / 通信。",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "all",
+      "url": "http://localhost:7700/hosts/main-vue/#/all",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": true,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": false,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H2:react16 示例",
+        "H2:react17 示例",
+        "H2:vue2 示例",
+        "H2:vue3 示例",
+        "H2:vite 示例",
+        "H2:angular 示例"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 内嵌 字体 react16 示例 当前 react 版本 16.13.1（子应用独立副本，与宿主 React 18 多版本共存） 官方示例 UI 库：antd 版本 4.18.3 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址： https://github.com/YvYuYv/taixu 页面目录：弹窗 / 路由 / 通信 / 内嵌 / 字体 —— 全部经 @taixu/core 运行时集成。 首页 弹窗 路由 通信 状态 react17 示例 当前 react 版本 17.0.2（保活模式演示：lifecycle.switch 挂起保活，切回零冷启动） 官方示例 UI 库：antd 版本 4.18.3 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址： https://github.com/YvYuYv/taixu 首页 弹窗 路由 通信 postmessage 富文本 vue2 示例 当前 vue 版本 2.7.16（@taixu/adapter-vue2 接入，Vue 构造器经 deps 共享依赖仲裁） 官方示例 UI 库：element 版本 2.15.6 / ant-design-vue 版本 1.7.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu 首页 弹窗 路由 通信 状态 内联事件 postmessage vue3 示例 当前 vue 版本 3.5.42（子应用独立副本），@taixu/adapter-vue3 接入（保活模式：suspend/resume） 官方示例 UI 库：element-plus 版本 2.2.6 / ant-design-vue 版本 2.2.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu 首页 弹窗 路由 通信 vite 示例 当前 vite 版本 5.4.21，当前 vue 版本 3.5.42（本子应用由 Vite lib mode 独立构建——构建工具差异化；产物与 esbuild 子应用同形态：自包含 ESM，default export = taixu Plugin）。 官方示例 UI 库：element-plus 版本 2.2.6 / ant-design-vue 版本 2.2.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu 页面目录：弹窗 / 路由 / 通信。 首页 弹窗 路由 通信 angular 示例 当前 Angular 版本 17.3.12（standalone + AOT），taixu adapter-angular 接入（createApplication 独立 ApplicationRef）。 官方示例 UI 库：ng-zorro-antd 版本 12（官方 angular12 示例所用）—— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu 页面目录：弹窗 / 路由 / 通信。",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 81ms 首页 弹窗 路由 通信 内嵌 字体 react16 示例 当前 react 版本 16.13.1（子应用独立副本，与宿主 React 18 多版本共存） 官方示例 UI 库：antd 版本 4.18.3 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址： https://github.com/YvYuYv/taixu 页面目录：弹窗 / 路由 / 通信 / 内嵌 / 字体 —— 全部经 @taixu/core 运行时集成。 首页 弹窗 路由 通信 状态 react17 示例 当前 react 版本 17.0.2（保活模式演示：lifecycle.switch 挂起保活，切回零冷启动） 官方示例 UI 库：antd 版本 4.18.3 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址： https://github.com/YvYuYv/taixu 首页 弹窗 路由 通信 postmessage 富文本 vue2 示例 当前 vue 版本 2.7.16（@taixu/adapter-vue2 接入，Vue 构造器经 deps 共享依赖仲裁） 官方示例 UI 库：element 版本 2.15.6 / ant-design-vue 版本 1.7.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu 首页 弹窗 路由 通信 状态 内联事件 postmessage vue3 示例 当前 vue 版本 3.5.42（子应用独立副本），@taixu/adapter-vue3 接入（保活模式：suspend/resume） 官方示例 UI 库：element-plus 版本 2.2.6 / ant-design-vue 版本 2.2.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu 首页 弹窗 路由 通信 vite 示例 当前 vite 版本 5.4.21，当前 vue 版本 3.5.42（本子应用由 Vite lib mode 独立构建——构建工具差异化；产物与 esbuild 子应用同形态：自包含 ESM，default export = taixu Plugin）。 官方示例 UI 库：element-plus 版本 2.2.6 / ant-design-vue 版本 2.2.8 —— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu 页面目录：弹窗 / 路由 / 通信。 首页 弹窗 路由 通信 angular 示例 当前 Angular 版本 17.3.12（standalone + AOT），taixu adapter-angular 接入（createApplication 独立 ApplicationRef）。 官方示例 UI 库：ng-zorro-antd 版本 12（官方 angular12 示例所用）—— 本示例以零依赖等价实现替代，避免为演示引入大型 UI 依赖。 仓库地址：https://github.com/YvYuYv/taixu 页面目录：弹窗 / 路由 / 通信。",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    },
+    {
+      "id": "postmessage",
+      "url": "http://localhost:7700/hosts/main-vue/#/postmessage",
+      "title": "taixu 主应用（Vue 3）",
+      "nav": {
+        "rect": [
+          0,
+          0,
+          210,
+          900
+        ],
+        "items": [
+          {
+            "text": "介绍",
+            "href": "#/home",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react16▴",
+            "href": "#/react16",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "react17保活▴",
+            "href": "#/react17",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue2▴",
+            "href": "#/vue2",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vue3保活▴",
+            "href": "#/vue3",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "vite▴",
+            "href": "#/vite",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "angular12",
+            "href": "#/angular12",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "all",
+            "href": "#/all",
+            "active": false,
+            "depth": 0
+          },
+          {
+            "text": "postmessage",
+            "href": "#/postmessage",
+            "active": true,
+            "depth": 0
+          }
+        ],
+        "fontSize": "20px",
+        "padding": "30px 0px",
+        "itemPadding": "10px 30px",
+        "itemFontSize": "20px"
+      },
+      "content": {
+        "rect": [
+          210,
+          0,
+          1230,
+          900
+        ],
+        "overflow": "hidden scroll"
+      },
+      "bodyFontSize": "20px",
+      "fontFamily": "Avenir, Helvetica, Arial, sans-serif",
+      "headings": [
+        "H3:主应用",
+        "H2:postmessage 处理",
+        "H3:接收的消息：（空）"
+      ],
+      "subCount": 1,
+      "subText": "首页 弹窗 路由 通信 postmessage 富文本 postmessage 处理 wujie 因 iframe 隔离需要 postMessage 中继；taixu 同窗运行，直接走 bus 双向消息。 接收的消息：（空） 发送消息给主应用",
+      "bodyText": "介绍 react16 ▴ react17 保活 ▴ vue2 ▴ vue3 保活 ▴ vite ▴ angular12 all postmessage preload 6/6 @ 78ms 主应用 接收的消息：（空） 发送消息给vue2子应用（wujie 版经 iframe postMessage 中继；taixu 走鉴权总线定向消息） 首页 弹窗 路由 通信 postmessage 富文本 postmessage 处理 wujie 因 iframe 隔离需要 postMessage 中继；taixu 同窗运行，直接走 bus 双向消息。 接收的消息：（空） 发送消息给主应用",
+      "wujieAppCount": 0,
+      "errors": [],
+      "shot": null
+    }
+  ],
+  "frozenFrom": "2026-09-02T11:18:28.218Z"
+}

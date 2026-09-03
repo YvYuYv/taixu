@@ -1,8 +1,15 @@
 /**
- * gap 报告生成：拿官方站基线（suite.official-*.json）与 taixu 重写版（suite.taixu-*.json）
- * 逐个用例对比，按「菜单结构 / 布局样式 / 子应用内容 / 运行时错误」四个维度输出差异清单。
+ * gap 报告生成：拿参考侧与 taixu 重写版（suite.taixu-*.json）逐个用例对比，
+ * 按「菜单结构 / 布局样式 / 子应用内容 / 运行时错误」四个维度输出差异清单。
  *
- * 用法：node compare.mjs   → gap-report.md
+ * 用法：
+ *   node compare.mjs              → 对齐模式：参考侧 = 官方站采集，用于找「功能阉割」
+ *   node compare.mjs --baseline   → 回归模式：参考侧 = 冻结基线，用于 CI 防回退（有差异则 exit 1）
+ *
+ * 为什么要分两种模式：
+ * 对齐模式依赖外网官方站（wujie-micro.github.io），它自身偶发 404、菜单结构也会随官方
+ * 更新而变，拿它当 CI 门禁会随机红。回归模式的参考侧是**自己上一版的冻结快照**，
+ * 不出网、不依赖第三方，改坏了才红——这才是能挂进 CI 的门禁。
  */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { CASES, FEATURES, STYLE_ANCHORS, roleOf } from './lib/cases.mjs'
@@ -55,12 +62,24 @@ const P0_FEATURES = new Set([
 const MIN_REF_LEN = Number(process.env.MIN_REF_LEN ?? 300)
 const SHRINK_RATIO = Number(process.env.SHRINK_RATIO ?? 0.5)
 
-const PAIRS = [
-  ['official-vue', 'taixu-vue', 'Vue 宿主'],
-  ['official-react', 'taixu-react', 'React 宿主'],
-]
+const BASELINE = process.argv.includes('--baseline')
 
-const load = (t) => (existsSync(`suite.${t}.json`) ? JSON.parse(readFileSync(`suite.${t}.json`, 'utf8')) : null)
+const PAIRS = BASELINE
+  ? // 回归模式：参考侧就是自己上一版的冻结快照（baseline/<target>.json）
+    [
+      ['taixu-vue', 'taixu-vue', 'Vue 宿主'],
+      ['taixu-react', 'taixu-react', 'React 宿主'],
+    ]
+  : // 对齐模式：参考侧是 wujie 官方站
+    [
+      ['official-vue', 'taixu-vue', 'Vue 宿主'],
+      ['official-react', 'taixu-react', 'React 宿主'],
+    ]
+
+const read = (f) => (existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : null)
+const load = (t) => read(`suite.${t}.json`)
+/** 参考侧：对齐模式读官方站采集，回归模式读冻结基线 */
+const loadRef = (t) => (BASELINE ? read(`baseline/${t}.json`) : load(t))
 /** 字体/布局根探针（node probe-font.mjs 生成；缺失时回退逐页采集值） */
 const fonts = existsSync('font-probe.json') ? JSON.parse(readFileSync('font-probe.json', 'utf8')) : null
 
@@ -76,10 +95,20 @@ function tokens(text) {
 const L = []
 const say = (s = '') => L.push(s)
 
-say('# wujie 官方示例 × taixu 重写版 —— 一比一还原差异报告')
+say(
+  BASELINE
+    ? '# taixu 示例 —— 一比一还原回归报告（基线模式）'
+    : '# wujie 官方示例 × taixu 重写版 —— 一比一还原差异报告',
+)
 say()
-say('> 生成方式：同一份用例清单（`QA/lib/cases.mjs`，取自 wujie 官方菜单树）分别跑 4 个目标，')
-say('> 全部走 SPA 点击导航（官方站深链会让子应用 html 请求 404，只能从首页点击进入）。')
+say(
+  BASELINE
+    ? '> **回归模式**：参考侧为冻结基线 `QA/baseline/*.json`（taixu 自己上一版的采集快照），'
+    : '> **对齐模式**：参考侧为 wujie 官方站采集 `suite.official-*.json`，',
+)
+say('> 用例清单取自 `QA/lib/cases.mjs`，全部走 SPA 点击导航')
+say('> （官方站深链会让子应用 html 请求 404，只能从首页点击进入）。')
+if (BASELINE) say('> 不出网、不依赖第三方，适合挂 CI 门禁；有差异即非零退出。')
 say(`> 生成时间：${new Date().toISOString().slice(0, 19).replace('T', ' ')}`)
 say()
 
@@ -89,13 +118,17 @@ const bySeverity = { P0: [], P1: [], P2: [] }
 const featureGaps = new Map()
 
 for (const [offId, txId, label] of PAIRS) {
-  const off = load(offId)
+  const off = loadRef(offId)
   const tx = load(txId)
   say(`\n---\n`)
-  say(`## ${label}：\`${offId}\` vs \`${txId}\``)
+  say(`## ${label}：\`${BASELINE ? `baseline/${offId}` : offId}\` vs \`${txId}\``)
   say()
   if (!off || !tx) {
-    say(`> ⚠️ 缺少 ${!off ? offId : txId} 的采集数据，跳过。先跑 \`node run-suite.mjs <target>\`。`)
+    const miss = !off ? (BASELINE ? `baseline/${offId}.json` : offId) : txId
+    say(
+      `> ⚠️ 缺少 ${miss} 的采集数据，跳过。先跑 \`node run-suite.mjs <target>\`` +
+        (BASELINE ? '，确认状态正确后 `node freeze-baseline.mjs` 冻结基线。' : '。'),
+    )
     continue
   }
 
@@ -127,10 +160,11 @@ for (const [offId, txId, label] of PAIRS) {
     }
     say(`| ${name} | \`${want}\` | ${aOk ? '✅' : '⚠️'} \`${a}\` | ${mark} \`${b}\` | ${bOk ? '一致' : '**不一致**'} |`)
   }
-  // 字体族走独立探针（font-probe.json）：承载元素两侧不同名（官方 react 宿主用 .app，
-  // taixu 用 #root），逐页 CAPTURE 抓 #app/#root 会把官方的 antd reset 误判成差异
-  const oFont = (fonts?.[offId]?.fontFamily || oHome?.fontFamily || '').split(',')[0].trim()
-  const tFont = (fonts?.[txId]?.fontFamily || tHome?.fontFamily || '').split(',')[0].trim()
+  // 字体族：对齐模式走独立探针（font-probe.json）——承载元素两侧不同名（官方 react 宿主用
+  // .app，taixu 用 #root），逐页 CAPTURE 抓 #app/#root 会把官方的 antd reset 误判成差异。
+  // 回归模式两侧都是 taixu 自己，承载元素同名，直接取逐页采集值即可（探针里没有基线键）。
+  const oFont = ((!BASELINE && fonts?.[offId]?.fontFamily) || oHome?.fontFamily || '').split(',')[0].trim()
+  const tFont = ((!BASELINE && fonts?.[txId]?.fontFamily) || tHome?.fontFamily || '').split(',')[0].trim()
   const fontOk = oFont === tFont
   if (!fontOk) {
     totalGaps++
@@ -193,9 +227,12 @@ for (const [offId, txId, label] of PAIRS) {
       continue
     }
     const role = roleOf(c)
-    // 官方侧该页本身不可用（github.io 部署 404 / wujie 报错）→ 无法作为比对基准，跳过
+    // 参考侧该页本身不可用（对齐模式下是 github.io 部署 404 / wujie 报错）→ 无基准，跳过
     if (!o || o.subText.length === 0) {
-      say(`| \`${c.id}\` | ⚠️ 官方侧无内容 | — | 0 / ${t.subText.length} | 不可比对（官方站该页不可用） |`)
+      say(
+        `| \`${c.id}\` | ⚠️ ${BASELINE ? '基线' : '官方侧'}无内容 | — | 0 / ${t.subText.length} |` +
+          ` 不可比对（${BASELINE ? '基线未冻结该页' : '官方站该页不可用'}） |`,
+      )
       continue
     }
     const feats = FEATURES[role] ?? []
@@ -249,7 +286,11 @@ for (const [offId, txId, label] of PAIRS) {
   const tErr = tx.pages.reduce((s, p) => s + (p.errors?.length ?? 0), 0)
   say('### 4. 运行时错误')
   say()
-  say(`- 官方站点累计 ${oErr} 条（含 wujie 自身的子应用 html 404 与降级告警）`)
+  say(
+    BASELINE
+      ? `- 基线累计 ${oErr} 条`
+      : `- 官方站点累计 ${oErr} 条（含 wujie 自身的子应用 html 404 与降级告警）`,
+  )
   say(`- taixu 累计 ${tErr} 条`)
   const tErrs = [...new Set(tx.pages.flatMap((p) => p.errors ?? []))]
   if (tErrs.length) {
@@ -292,3 +333,9 @@ for (const [sev, title] of [
 writeFileSync('gap-report.md', L.join('\n'))
 console.log(L.join('\n'))
 console.log(`\n→ gap-report.md (${totalGaps} 处差异)`)
+// 回归模式当门禁用：有差异即失败。对齐模式只是出报告，不设退出码
+// （官方站偶发 404 不该让本地跑一次就红）。
+if (BASELINE && totalGaps > 0) {
+  console.error(`\n✗ 回归失败：与基线存在 ${totalGaps} 处差异`)
+  process.exit(1)
+}

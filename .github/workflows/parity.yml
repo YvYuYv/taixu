@@ -1,0 +1,85 @@
+name: parity
+
+# 示例的一比一还原回归门禁。
+#
+# 与官方站（wujie-micro.github.io）的全量比对**不进 CI**——它依赖外网，且官方站自身
+# 偶发子应用 html 404、菜单结构也会随官方更新而变，拿它当门禁会随机红。
+# CI 只跑「基线模式」：参考侧是 QA/baseline/ 下的冻结快照（taixu 自己上一版），
+# 不出网、不依赖第三方，改坏了才红。
+#
+# 需要跟官方站重新对齐时，本地跑：
+#   node run-suite.mjs official-vue && node run-suite.mjs official-react
+#   node run-suite.mjs taixu-vue   && node run-suite.mjs taixu-react
+#   node compare.mjs            → gap-report.md（对齐模式，找功能阉割）
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'examples/wujie/**'
+      - '.github/workflows/parity.yml'
+  pull_request:
+    paths:
+      - 'examples/wujie/**'
+      - '.github/workflows/parity.yml'
+  workflow_dispatch:
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    # 示例依赖重（10 个子应用含 Angular / Vite / 多版本 React·Vue），首次冷装 + 构建
+    # + 68 页采集约 15~20 分钟，给足余量避免半途被砍
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 示例是独立 npm 包（不在根 workspaces 里），postinstall 会装各子应用依赖。
+      # 注意：这里装到的是**已发布**的 @taixu/core —— 示例源码改动立即生效，
+      # core 源码改动要等发布后才反映到本 job。
+      - name: 安装示例依赖并构建
+        working-directory: examples/wujie
+        run: |
+          npm install
+          npm run build
+
+      - name: 安装 QA 依赖与浏览器
+        working-directory: examples/wujie/QA
+        # 用 playwright-core 自带的 cli（而不是 npx playwright），保证与仓库依赖版本同源。
+        # 不设 CHROME_PATH 时 run-suite.mjs 会走 playwright 的默认缓存路径。
+        run: |
+          npm install
+          node node_modules/playwright-core/cli.js install chromium --with-deps
+
+      # run-suite 完全走 SPA 点击导航，必须先有可用的静态服务。
+      # 端口与 lib/cases.mjs 的 BASE 默认值（7700）保持一致。
+      - name: 起静态服务
+        working-directory: examples/wujie/dist
+        run: |
+          python3 -m http.server 7700 --bind 127.0.0.1 &
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://127.0.0.1:7700/hosts/main-vue/index.html && exit 0
+            sleep 1
+          done
+          echo "静态服务未就绪" && exit 1
+
+      - name: 采集 taixu 两侧
+        working-directory: examples/wujie/QA
+        run: |
+          node run-suite.mjs taixu-vue
+          node run-suite.mjs taixu-react
+
+      # 有差异即非零退出（compare.mjs --baseline 的门禁语义）
+      - name: 与冻结基线比对
+        working-directory: examples/wujie/QA
+        run: node compare.mjs --baseline
+
+      - name: 上传差异报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gap-report
+          path: examples/wujie/QA/gap-report.md
