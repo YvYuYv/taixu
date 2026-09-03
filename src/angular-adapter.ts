@@ -25,12 +25,16 @@ export interface AngularCoreModule {
   createApplication: (config?: { providers?: unknown[] }) => Promise<AngularApplicationRef>
   /** `ErrorHandler` DI token（Angular 的错误边界注入点） */
   ErrorHandler?: unknown
+  /** `NgZone` DI token（bootstrap 的 zone 归属锚点，见下） */
+  NgZone?: unknown
 }
 
 /** `ApplicationRef` 最小面（每应用独立实例） */
 export interface AngularApplicationRef {
   bootstrap: (component: unknown, rootSelectorOrNode?: string | Element) => unknown
   destroy: () => void
+  /** EnvironmentInjector（用于取 NgZone token；standalone bootstrap 路径必有） */
+  injector?: { get(token: unknown): { run(fn: () => void): unknown } | undefined }
 }
 
 export interface CordisAngularAppOptions {
@@ -89,7 +93,20 @@ export function defineCordisAngularApp(options: CordisAngularAppOptions): Plugin
               : []
 
           app = await core.createApplication({ providers })
-          app.bootstrap(rootComponent, container)
+          // bootstrap 必须运行在 Angular zone 内：`ApplicationRef.bootstrap` 自身不带
+          // ngZone.run（core.mjs ApplicationRef#bootstrap 无 zone 包裹）。标准路径
+          // `bootstrapApplication` 是在 internalCreateApplication 的 ngZone.run 微任务
+          // 续体里调 bootstrap 的；这里 await 返回后 Zone.current 已回落 <root>——直接
+          // bootstrap 会让组件树全部 DOM 事件监听注册在根 zone（task.zone=<root>），
+          // 点击后 handler 执行、signal 已改，但 NgZone 稳定化永不触发，
+          // ApplicationRef.tick 不跑，视图冻结在首屏。
+          const ngZone = core.NgZone ? app.injector?.get(core.NgZone) : undefined
+          if (ngZone && typeof ngZone.run === 'function') {
+            ngZone.run(() => app.bootstrap(rootComponent, container))
+          } else {
+            // 防御：宿主未传 NgZone token 或非 zone 路线（zoneless）时维持旧行为
+            app.bootstrap(rootComponent, container)
+          }
         } catch (error) {
           // async effect 的错误被 cordis 静默吞（task.catch(logger.error)）——宿主与
           // 监控都看不到。此处显式上报再上抛：实验性路线的失败必须可观测。

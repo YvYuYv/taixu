@@ -5,7 +5,7 @@
  * 模块副作用把 Plugin 挂到 globalThis，构建脚本追加 `export default` 行得到 app.mjs。
  */
 import 'zone.js'
-import { ErrorHandler, VERSION } from '@angular/core'
+import { ErrorHandler, NgZone, VERSION } from '@angular/core'
 import { createApplication } from '@angular/platform-browser'
 import { defineCordisAngularApp } from '@taixu/adapter-angular'
 import { AppComponent } from './app.component'
@@ -13,8 +13,8 @@ import { bridge } from './bridge'
 
 const APP_ID = 'angular12'
 
-/** adapter 依赖仲裁所需的最小 @angular/core 面：createApplication + ErrorHandler token */
-const ngCore = { createApplication, ErrorHandler }
+/** adapter 依赖仲裁所需的最小 @angular/core 面：createApplication + ErrorHandler + NgZone token */
+const ngCore = { createApplication, ErrorHandler, NgZone }
 
 const inner = defineCordisAngularApp({ appId: APP_ID, rootComponent: AppComponent })
 
